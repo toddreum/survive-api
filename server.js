@@ -2,221 +2,196 @@ import express from "express";
 import cors from "cors";
 import crypto from "crypto";
 import Redis from "ioredis";
+import Stripe from "stripe";
 
-// ---------- Super simple config ----------
-const ORIGIN = process.env.ORIGIN || "https://survive.com";
-// If you skip Redis for now, the server will use in-memory storage.
-// (Memory resets on restart; Redis makes it persistent.)
-const REDIS_URL = process.env.REDIS_URL || ""; // e.g. rediss://:pass@host:port
+// -------- Config --------
+const ORIGIN       = process.env.ORIGIN || "https://survive.com"; // your site (CORS)
+const REDIS_URL    = process.env.REDIS_URL || "";                 // optional persistence
+const STRIPE_SECRET= process.env.STRIPE_SECRET || "";             // required for paid flows
+const SUPPORT_LINK = process.env.SUPPORT_LINK || "";              // optional: Stripe Payment Link
+const PUBLIC_BASE  = process.env.PUBLIC_BASE  || ORIGIN;          // where to send users back (your site)
+const stripe = STRIPE_SECRET ? new Stripe(STRIPE_SECRET) : null;
 
-// ---------- Storage layer (auto-fallback) ----------
-let db = {
-  // in-memory as fallback
-  leaderboard: new Map(),             // key: day => [{name, win, hp, ts}]
-  regionLeaderboard: new Map(),       // key: region|day => [...]
-  rooms: new Map(),                   // key: roomId => {mode, day, scenarioId, region, players: Set<string>, results: []}
-  publicRooms: new Map(),             // key: roomId => {count, max}
-};
-let redis = null;
-if (REDIS_URL) {
-  redis = new Redis(REDIS_URL, { tls: REDIS_URL.startsWith("rediss://") ? {} : undefined });
-}
+// -------- Storage (Redis if set, else in-memory) --------
+let memory = { listMap: new Map(), rooms: new Map(), publicRooms: new Map() };
+let redis = REDIS_URL ? new Redis(REDIS_URL, { tls: REDIS_URL.startsWith("rediss://") ? {} : undefined }) : null;
 
-// Helpers for keys
-const kDay = (day) => `lb:day:${day}`;
-const kRegion = (region, day) => `lb:region:${region}:${day}`;
-const kRoom = (id) => `room:${id}`;
+const kDay    = (day)          => `lb:day:${day}`;
+const kRegion = (region, day)  => `lb:region:${region}:${day}`;
+const kRoom   = (id)           => `room:${id}`;
 const kPublic = `public:rooms`;
 
-// Save/get helpers (use Redis if available; otherwise memory)
-async function pushList(key, item) {
-  if (redis) return redis.rpush(key, JSON.stringify(item));
-  const list = db.leaderboard.get(key) || [];
-  list.push(item);
-  db.leaderboard.set(key, list);
-}
-async function getList(key) {
-  if (redis) {
-    const arr = await redis.lrange(key, 0, -1);
-    return arr.map((s) => JSON.parse(s));
-  }
-  return db.leaderboard.get(key) || [];
-}
-async function setJSON(key, obj) {
-  if (redis) return redis.set(key, JSON.stringify(obj));
-  db.rooms.set(key, obj);
-}
-async function getJSON(key) {
-  if (redis) {
-    const s = await redis.get(key);
-    return s ? JSON.parse(s) : null;
-  }
-  return db.rooms.get(key) || null;
-}
-async function pushPublicRoom(room) {
-  if (redis) return redis.hset(kPublic, room.id, JSON.stringify(room));
-  db.publicRooms.set(room.id, room);
-}
-async function listPublicRooms() {
-  if (redis) {
-    const all = await redis.hgetall(kPublic);
-    return Object.entries(all).map(([id, json]) => ({ id, ...JSON.parse(json) }));
-  }
-  return [...db.publicRooms.values()];
-}
+async function pushList(key, item){ if(redis) return redis.rpush(key, JSON.stringify(item));
+  const a = memory.listMap.get(key) || []; a.push(item); memory.listMap.set(key, a); }
+async function getList(key){ if(redis) return (await redis.lrange(key, 0, -1)).map(s=>JSON.parse(s));
+  return memory.listMap.get(key) || []; }
+async function setJSON(key, obj){ if(redis) return redis.set(key, JSON.stringify(obj)); memory.rooms.set(key, obj); }
+async function getJSON(key){ if(redis){ const s = await redis.get(key); return s?JSON.parse(s):null; } return memory.rooms.get(key) || null; }
+async function pushPublicRoom(room){ if(redis) return redis.hset(kPublic, room.id, JSON.stringify(room)); memory.publicRooms.set(room.id, room); }
+async function listPublicRooms(){ if(redis){ const all = await redis.hgetall(kPublic); return Object.entries(all).map(([id, json])=>({ id, ...JSON.parse(json) })); }
+  return [...memory.publicRooms.values()]; }
 
-// ---------- Server ----------
+// -------- Server --------
 const app = express();
 app.use(express.json({ limit: "256kb" }));
 app.use(cors({ origin: ORIGIN, credentials: true }));
 
-// Health check
-app.get("/api/health", (_req, res) => res.json({ ok: true }));
+app.get("/api/health", (_req,res)=>res.json({ok:true}));
 
-// 1) Submit single-player result
-app.post("/api/submit", async (req, res) => {
-  try {
-    const name = (req.header("X-Player-Name") || "Anonymous").toString().slice(0, 24);
-    const region = (req.header("X-Region") || "UTC").toString().slice(0, 64);
-    const { day, scenarioId, win, hp, ts } = req.body || {};
-    if (!day || typeof hp !== "number") return res.status(400).json({ error: "bad payload" });
-
-    const entry = { name, win: !!win, hp: Math.max(0, Math.min(5, hp)), ts: ts || Date.now(), scenarioId: scenarioId || "" };
-    // Global day leaderboard
+// submit single-player result
+app.post("/api/submit", async (req,res)=>{
+  try{
+    const name   = (req.header("X-Player-Name") || "Anonymous").toString().slice(0,24);
+    const region = (req.header("X-Region") || "UTC").toString().slice(0,64);
+    const { day, scenarioId, win, hp, ts, mode="veteran" } = req.body || {};
+    if(!day || typeof hp!=="number") return res.status(400).json({error:"bad payload"});
+    const entry = { name, win:!!win, hp:Math.max(0,Math.min(5,hp)), ts:ts||Date.now(), scenarioId:scenarioId||"", mode };
     await pushList(kDay(day), entry);
-    // Region day leaderboard
     await pushList(kRegion(region, day), { ...entry, region });
-
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: "server error" });
-  }
+    res.json({ok:true});
+  }catch{ res.status(500).json({error:"server error"}); }
 });
 
-// 2) Global leaderboard
-app.get("/api/leaderboard", async (req, res) => {
-  try {
+// global leaderboard
+app.get("/api/leaderboard", async (req,res)=>{
+  try{
     const day = req.query.day;
-    if (!day) return res.status(400).json({ error: "missing day" });
+    if(!day) return res.status(400).json({error:"missing day"});
     const rows = await getList(kDay(day));
-    // Simple rank: wins first, then higher HP, then earlier ts
-    const top = rows
-      .slice()
-      .sort((a, b) => (b.win - a.win) || (b.hp - a.hp) || (a.ts - b.ts))
-      .slice(0, 100);
-    res.json({ top });
-  } catch (e) {
-    res.status(500).json({ error: "server error" });
-  }
+    const top = rows.slice().sort((a,b)=>(b.win-a.win)||(b.hp-a.hp)||(a.ts-b.ts)).slice(0,100);
+    res.json({top});
+  }catch{ res.status(500).json({error:"server error"}); }
 });
 
-// 3) Region leaderboard
-app.get("/api/region/leaderboard", async (req, res) => {
-  try {
+// region leaderboard
+app.get("/api/region/leaderboard", async (req,res)=>{
+  try{
     const { region, day } = req.query;
-    if (!region || !day) return res.status(400).json({ error: "missing params" });
+    if(!region || !day) return res.status(400).json({error:"missing params"});
     const rows = await getList(kRegion(region, day));
-    const top = rows
-      .slice()
-      .sort((a, b) => (b.win - a.win) || (b.hp - a.hp) || (a.ts - b.ts))
-      .slice(0, 100);
-    res.json({ top });
-  } catch (e) {
-    res.status(500).json({ error: "server error" });
-  }
+    const top = rows.slice().sort((a,b)=>(b.win-a.win)||(b.hp-a.hp)||(a.ts-b.ts)).slice(0,100);
+    res.json({top});
+  }catch{ res.status(500).json({error:"server error"}); }
 });
 
-// 4) Rooms (friends/public)
-// Create room
-app.post("/api/room", async (req, res) => {
-  try {
-    const name = (req.header("X-Player-Name") || "Anonymous").toString().slice(0, 24);
-    const { mode = "duel", day = "", scenarioId = "", region = "UTC", isPublic = false } = req.body || {};
-    const id = crypto.randomBytes(3).toString("hex"); // short code
-    const room = { id, mode, day, scenarioId, region, players: [name], results: [] };
+// rooms
+app.post("/api/room", async (req,res)=>{
+  try{
+    const name = (req.header("X-Player-Name") || "Anonymous").toString().slice(0,24);
+    const { mode="duel", day="", scenarioId="", region="UTC", isPublic=false } = req.body || {};
+    const id = crypto.randomBytes(3).toString("hex");
+    const room = { id, mode, day, scenarioId, region, players:[name], results:[] };
     await setJSON(kRoom(id), room);
-    if (isPublic) await pushPublicRoom({ id, count: 1, max: 10 });
-    res.json({ roomId: id });
-  } catch (_e) {
-    res.status(500).json({ error: "server error" });
-  }
+    if(isPublic) await pushPublicRoom({ id, count:1, max:10 });
+    res.json({ roomId:id });
+  }catch{ res.status(500).json({error:"server error"}); }
 });
-
-// Join room
-app.post("/api/room/join", async (req, res) => {
-  try {
-    const name = (req.header("X-Player-Name") || "Anonymous").toString().slice(0, 24);
+app.post("/api/room/join", async (req,res)=>{
+  try{
+    const name = (req.header("X-Player-Name") || "Anonymous").toString().slice(0,24);
     const { roomId } = req.body || {};
-    const key = kRoom(roomId);
-    const room = (await getJSON(key)) || null;
-    if (!room) return res.status(404).json({ error: "room not found" });
-    if (!room.players.includes(name)) room.players.push(name);
+    const key = kRoom(roomId); const room = await getJSON(key);
+    if(!room) return res.status(404).json({error:"room not found"});
+    if(!room.players.includes(name)) room.players.push(name);
     await setJSON(key, room);
-    res.json({ ok: true });
-  } catch (_e) {
-    res.status(500).json({ error: "server error" });
-  }
+    res.json({ok:true});
+  }catch{ res.status(500).json({error:"server error"}); }
 });
-
-// Submit result to room
-app.post("/api/room/submit", async (req, res) => {
-  try {
-    const name = (req.header("X-Player-Name") || "Anonymous").toString().slice(0, 24);
-    const { roomId, day, scenarioId, win, hp, ts } = req.body || {};
-    const key = kRoom(roomId);
-    const room = (await getJSON(key)) || null;
-    if (!room) return res.status(404).json({ error: "room not found" });
-    // upsert player
-    if (!room.players.includes(name)) room.players.push(name);
-    // push result
-    room.results.push({ name, day, scenarioId, win: !!win, hp: Math.max(0, Math.min(5, hp || 0)), ts: ts || Date.now() });
+app.post("/api/room/submit", async (req,res)=>{
+  try{
+    const name = (req.header("X-Player-Name") || "Anonymous").toString().slice(0,24);
+    const { roomId, day, scenarioId, win, hp, ts, mode="veteran" } = req.body || {};
+    const key = kRoom(roomId); const room = await getJSON(key);
+    if(!room) return res.status(404).json({error:"room not found"});
+    if(!room.players.includes(name)) room.players.push(name);
+    room.results.push({ name, day, scenarioId, win:!!win, hp:Math.max(0,Math.min(5,hp||0)), ts:ts||Date.now(), mode });
     await setJSON(key, room);
-    res.json({ ok: true });
-  } catch (_e) {
-    res.status(500).json({ error: "server error" });
-  }
+    res.json({ok:true});
+  }catch{ res.status(500).json({error:"server error"}); }
+});
+app.get("/api/room/leaderboard", async (req,res)=>{
+  try{
+    const key = kRoom(req.query.room);
+    const room = await getJSON(key);
+    const rows = room?.results || [];
+    const top = rows.slice().sort((a,b)=>(b.win-a.win)||(b.hp-a.hp)||(a.ts-b.ts)).slice(0,100);
+    res.json({top});
+  }catch{ res.status(500).json({error:"server error"}); }
+});
+app.get("/api/public/list", async (_req,res)=>{
+  try{ res.json({ rooms: await listPublicRooms() }); }
+  catch{ res.status(500).json({ rooms: [] }); }
 });
 
-// Room leaderboard
-app.get("/api/room/leaderboard", async (req, res) => {
-  try {
-    const { room } = req.query;
-    const key = kRoom(room);
-    const data = (await getJSON(key)) || null;
-    if (!data) return res.json({ top: [] });
-    const rows = data.results || [];
-    const top = rows
-      .slice()
-      .sort((a, b) => (b.win - a.win) || (b.hp - a.hp) || (a.ts - b.ts))
-      .slice(0, 100);
-    res.json({ top });
-  } catch (_e) {
-    res.status(500).json({ error: "server error" });
-  }
+// -------- Monetization --------
+
+// Support: return a configured Payment Link (no server-side Stripe needed)
+app.get("/api/pay/support-link", (_req, res)=>{
+  if(!SUPPORT_LINK) return res.status(400).json({error:"support_link_not_set"});
+  res.json({url: SUPPORT_LINK});
 });
 
-// Public rooms list
-app.get("/api/public/list", async (_req, res) => {
-  try {
-    const rooms = await listPublicRooms();
-    res.json({ rooms });
-  } catch (_e) {
-    res.status(500).json({ rooms: [] });
-  }
+// Create Checkout session for Revive (+2 HP)
+app.post("/api/pay/revive", async (req,res)=>{
+  try{
+    if(!stripe) return res.status(400).json({error:"stripe_not_configured"});
+    const session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      line_items: [{
+        price_data:{
+          currency:"usd",
+          product_data:{ name:"Revive (+2 HP)" },
+          unit_amount: 99
+        },
+        quantity:1
+      }],
+      metadata:{ type:"revive" },
+      success_url: `${PUBLIC_BASE}/?paid=revive&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${PUBLIC_BASE}/?canceled=1`
+    });
+    res.json({url: session.url});
+  }catch(e){ res.status(500).json({error:"stripe_error"}); }
 });
 
-// (Optional) Stripe stubs (you can ignore for now; the UI will show a friendly message)
-app.post("/api/pay/revive", (_req, res) => {
-  return res.status(400).json({ error: "revive not configured" });
-});
-app.get("/api/pay/verify", (_req, res) => {
-  return res.json({ paid: false });
+// Create Checkout session for Premium Theme
+app.post("/api/pay/premium", async (req,res)=>{
+  try{
+    if(!stripe) return res.status(400).json({error:"stripe_not_configured"});
+    const session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      line_items: [{
+        price_data:{
+          currency:"usd",
+          product_data:{ name:"Premium Theme (one-time)" },
+          unit_amount: 499
+        },
+        quantity:1
+      }],
+      metadata:{ type:"premium" },
+      success_url: `${PUBLIC_BASE}/?paid=premium&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${PUBLIC_BASE}/?canceled=1`
+    });
+    res.json({url: session.url});
+  }catch(e){ res.status(500).json({error:"stripe_error"}); }
 });
 
-// ---------- Start ----------
+// Verify a completed session (used by frontend after redirect)
+app.get("/api/pay/verify", async (req,res)=>{
+  try{
+    if(!stripe) return res.status(400).json({error:"stripe_not_configured"});
+    const sid = req.query.session_id;
+    if(!sid) return res.status(400).json({error:"missing_session_id"});
+    const session = await stripe.checkout.sessions.retrieve(sid);
+    const paid = session?.payment_status === "paid";
+    const type = session?.metadata?.type || "";
+    res.json({paid, type});
+  }catch(e){ res.status(500).json({error:"stripe_error"}); }
+});
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Survive API up on :${PORT}`);
-  console.log(`Allowing CORS origin: ${ORIGIN}`);
-  console.log(REDIS_URL ? "Using Redis storage ✅" : "Using in-memory storage (no Redis) ⚠️");
+app.listen(PORT, ()=> {
+  console.log(`Survive API on :${PORT}`);
+  console.log(`CORS origin: ${ORIGIN}`);
+  console.log(REDIS_URL ? "Redis: ON" : "Redis: OFF (memory only)");
+  console.log(STRIPE_SECRET ? "Stripe: ON" : "Stripe: OFF");
 });
