@@ -15,7 +15,7 @@ const {
   STRIPE_SECRET_KEY,
   STRIPE_WEBHOOK_SECRET,
 
-  // Stripe PRICE ids (must be price_...)
+  // Stripe PRICE ids (must be price_…)
   STRIPE_PRICE_ALLACCESS,
   STRIPE_PRICE_PREMIUM,
   STRIPE_PRICE_THEMES,
@@ -40,16 +40,14 @@ const stripe = new Stripe(STRIPE_SECRET_KEY, {
 
 // ---------- App ----------
 const app = express();
-
 app.use(
   cors({
     origin: ALLOWED_ORIGIN,
     credentials: true,
   })
 );
-
 app.use(cookieParser());
-// NOTE: webhook uses express.raw; keep JSON for other /api routes
+// JSON (webhook uses raw)
 app.use("/api", express.json());
 
 // ---------- UID helper ----------
@@ -82,18 +80,9 @@ const globalLB = []; // [{uid,name,points}]
 const regionLB = new Map(); // Map<region, Array<{uid,name,points}>>
 /** Multiplayer rooms */
 const rooms = new Map(); // Map<code, {members:Set<string>, log:Array, createdAt:number}>
-
 const PARTY_LIMIT = 10;
 
-// ---------- Helpers ----------
-function randomCode() {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let s = "";
-  for (let i = 0; i < 4; i++)
-    s += alphabet[Math.floor(Math.random() * alphabet.length)];
-  return s;
-}
-
+// ---------- Leaderboard helpers ----------
 function pushScore({ uid, name, points, region = "NA" }) {
   const safeName = String(name || "Player").slice(0, 24);
   const pts = Number(points) || 0;
@@ -176,7 +165,6 @@ function grant(uid, product) {
   }
   purchases.set(uid, set);
 }
-
 function revoke(uid, product) {
   const set = purchases.get(uid);
   if (!set) return;
@@ -195,7 +183,6 @@ function revoke(uid, product) {
   }
   purchases.set(uid, set);
 }
-
 function perksFor(uid) {
   const owned = purchases.get(uid) ?? new Set();
   const hasAll = owned.has("all_access");
@@ -266,61 +253,65 @@ app.get("/api/pay/support-link", async (req, res) => {
 });
 
 // ---------- Webhook (RAW body!) ----------
-app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
-  const sig = req.headers["stripe-signature"];
-  let event;
-  try {
-    event = stripe.webhooks.constructEvent(req.body, sig, STRIPE_WEBHOOK_SECRET);
-  } catch (err) {
-    console.error("❌ Webhook signature verification failed.", err.message);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
-  }
-
-  try {
-    switch (event.type) {
-      case "checkout.session.completed": {
-        const s = await stripe.checkout.sessions.retrieve(event.data.object.id, {
-          expand: ["line_items.data.price", "payment_intent"],
-        });
-        const uid = s.client_reference_id || s.metadata?.uid || null;
-        let product = s.metadata?.product || null;
-        if (!product && s.line_items?.data?.[0]?.price?.id) {
-          product = PRICE_TO_PRODUCT.get(s.line_items.data[0].price.id) || null;
-        }
-        if (uid && product) {
-          grant(uid, product);
-          const pi =
-            typeof s.payment_intent === "string"
-              ? s.payment_intent
-              : s.payment_intent?.id;
-          if (pi) intentIndex.set(pi, { uid, product });
-          console.log(`✅ Granted ${product} to uid=${uid}`);
-        } else {
-          console.warn("⚠️ Missing uid or product in webhook");
-        }
-        break;
-      }
-      case "charge.refunded": {
-        const charge = event.data.object;
-        const pi = charge.payment_intent;
-        if (pi && intentIndex.has(pi)) {
-          const { uid, product } = intentIndex.get(pi);
-          revoke(uid, product);
-          console.log(`↩️  Revoked ${product} from uid=${uid} (refund)`);
-        } else {
-          console.log("Refund received; no mapping for payment_intent:", pi);
-        }
-        break;
-      }
-      default:
-        break;
+app.post(
+  "/api/stripe/webhook",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    const sig = req.headers["stripe-signature"];
+    let event;
+    try {
+      event = stripe.webhooks.constructEvent(req.body, sig, STRIPE_WEBHOOK_SECRET);
+    } catch (err) {
+      console.error("❌ Webhook signature verification failed.", err.message);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
     }
-    res.json({ received: true });
-  } catch (e) {
-    console.error("Webhook handler error", e);
-    res.status(500).send("webhook-handler-error");
+
+    try {
+      switch (event.type) {
+        case "checkout.session.completed": {
+          const s = await stripe.checkout.sessions.retrieve(event.data.object.id, {
+            expand: ["line_items.data.price", "payment_intent"],
+          });
+          const uid = s.client_reference_id || s.metadata?.uid || null;
+          let product = s.metadata?.product || null;
+          if (!product && s.line_items?.data?.[0]?.price?.id) {
+            product = PRICE_TO_PRODUCT.get(s.line_items.data[0].price.id) || null;
+          }
+          if (uid && product) {
+            grant(uid, product);
+            const pi =
+              typeof s.payment_intent === "string"
+                ? s.payment_intent
+                : s.payment_intent?.id;
+            if (pi) intentIndex.set(pi, { uid, product });
+            console.log(`✅ Granted ${product} to uid=${uid}`);
+          } else {
+            console.warn("⚠️ Missing uid or product in webhook");
+          }
+          break;
+        }
+        case "charge.refunded": {
+          const charge = event.data.object;
+          const pi = charge.payment_intent;
+          if (pi && intentIndex.has(pi)) {
+            const { uid, product } = intentIndex.get(pi);
+            revoke(uid, product);
+            console.log(`↩️  Revoked ${product} from uid=${uid} (refund)`);
+          } else {
+            console.log("Refund received; no mapping for payment_intent:", pi);
+          }
+          break;
+        }
+        default:
+          break;
+      }
+      res.json({ received: true });
+    } catch (e) {
+      console.error("Webhook handler error", e);
+      res.status(500).send("webhook-handler-error");
+    }
   }
-});
+);
 
 // ---------- Status / daily hint ----------
 app.get("/api/pay/status", (req, res) => {
@@ -337,7 +328,7 @@ app.post("/api/hint/free", (req, res) => {
   res.json({ ok: true });
 });
 
-// ---------- Words API (5-letter) ----------
+// ---------- Words (dictionary & categories) ----------
 let WORDS5 = null;
 try {
   if (fs.existsSync("./words5.json")) {
@@ -353,14 +344,75 @@ try {
 } catch (e) {
   console.warn("Could not load words5.json, using fallback.", e?.message);
 }
+
+// Optional categories file: {"animals":["zebra","mouse"], "food":["bread","donut"], ...}
+let CATEGORY_WORDS = null;
+try {
+  if (fs.existsSync("./words5_categories.json")) {
+    const raw = fs.readFileSync("./words5_categories.json", "utf8");
+    const map = JSON.parse(raw);
+    if (map && typeof map === "object") {
+      CATEGORY_WORDS = {};
+      for (const k of Object.keys(map)) {
+        const arr = Array.isArray(map[k]) ? map[k] : [];
+        CATEGORY_WORDS[k] = arr
+          .filter((w) => /^[a-zA-Z]{5}$/.test(String(w || "")))
+          .map((w) => String(w).toLowerCase());
+      }
+      console.log(
+        `🏷️  Loaded words5_categories.json (${Object.keys(CATEGORY_WORDS).length} categories)`
+      );
+    }
+  }
+} catch (e) {
+  console.warn("Could not load words5_categories.json, using fallback map.");
+}
+
 const FALLBACK5 = [
   "about","other","which","their","there","first","build","donut","smile",
   "light","water","array","shift","grape","apple","north","mouse","robot",
   "laser","salad","bread","zebra"
 ];
+
+// Small fallback categories so Animals/Nature/Food/Tech always work if no file present.
+const FALLBACK_CATS = {
+  animals: ["zebra","mouse"],
+  nature: ["water","north"], // "north" loosely nature here for fallback
+  food: ["donut","grape","salad","bread","apple"],
+  tech: ["robot","laser","shift","array"],
+  business: ["other"], // minimal, replace with file for real game
+  tv: ["about"], film: ["there"], politics: ["their"], animals2: ["zebra"],
+};
+
 app.get("/api/words5", (_req, res) => {
   if (WORDS5 && WORDS5.length) return res.json(WORDS5);
   res.json(FALLBACK5);
+});
+
+// Single random word by category (client uses this to enforce categories)
+app.get("/api/word5", (req, res) => {
+  const category = (req.query.category || "").toString().toLowerCase();
+  let pool = null;
+
+  // Prefer category file if present
+  if (CATEGORY_WORDS && category && CATEGORY_WORDS[category]?.length) {
+    pool = CATEGORY_WORDS[category];
+  } else if (WORDS5 && (!category || !CATEGORY_WORDS)) {
+    // If no category data, just pull any word from full dictionary.
+    pool = WORDS5;
+  } else if (!WORDS5) {
+    // Fallback pools if nothing else exists
+    if (category && FALLBACK_CATS[category]) pool = FALLBACK_CATS[category];
+    else pool = FALLBACK5;
+  }
+
+  if (!pool || !pool.length) {
+    // ultimate fallback
+    pool = WORDS5 && WORDS5.length ? WORDS5 : FALLBACK5;
+  }
+
+  const word = pool[Math.floor(Math.random() * pool.length)];
+  res.json({ word, categoryUsed: category || null });
 });
 
 // ---------- Leaderboards ----------
@@ -388,6 +440,14 @@ app.post("/api/lb/submit", (req, res) => {
 });
 
 // ---------- Multiplayer (party of 10) ----------
+function randomCode() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let s = "";
+  for (let i = 0; i < 4; i++)
+    s += alphabet[Math.floor(Math.random() * alphabet.length)];
+  return s;
+}
+
 app.post("/api/mp/create", (req, res) => {
   const uid = getOrSetUID(req, res);
   let code = "";
@@ -475,6 +535,17 @@ app.get("/api/pay/diag", (_req, res) => {
     ADFREE: !!STRIPE_PRICE_ADFREE,
     DAILYHINT: !!STRIPE_PRICE_DAILYHINT,
     DONATION: !!STRIPE_PRICE_DONATION,
+    // Extra check: do they start with "price_"?
+    startsWithPrice: {
+      ALLACCESS: (STRIPE_PRICE_ALLACCESS || "").startsWith("price_"),
+      PREMIUM: (STRIPE_PRICE_PREMIUM || "").startsWith("price_"),
+      THEMES: (STRIPE_PRICE_THEMES || "").startsWith("price_"),
+      SURVIVAL: (STRIPE_PRICE_SURVIVAL || "").startsWith("price_"),
+      STATS: (STRIPE_PRICE_STATS || "").startsWith("price_"),
+      ADFREE: (STRIPE_PRICE_ADFREE || "").startsWith("price_"),
+      DAILYHINT: (STRIPE_PRICE_DAILYHINT || "").startsWith("price_"),
+      DONATION: (STRIPE_PRICE_DONATION || "").startsWith("price_"),
+    },
   });
 });
 
