@@ -1,197 +1,248 @@
+// server.js
+// npm i express cors cookie-parser stripe
+// OPTIONAL DB: replace the in-memory Maps with your DB upserts.
+
 import express from "express";
 import cors from "cors";
-import crypto from "crypto";
-import Redis from "ioredis";
+import cookieParser from "cookie-parser";
 import Stripe from "stripe";
+import crypto from "crypto";
 
-// -------- Config --------
-const ORIGIN       = process.env.ORIGIN || "https://survive.com"; // your site (CORS)
-const REDIS_URL    = process.env.REDIS_URL || "";                 // optional persistence
-const STRIPE_SECRET= process.env.STRIPE_SECRET || "";             // required for paid flows
-const SUPPORT_LINK = process.env.SUPPORT_LINK || "";              // optional: Stripe Payment Link
-const PUBLIC_BASE  = process.env.PUBLIC_BASE  || ORIGIN;          // where to send users back (your site)
-const stripe = STRIPE_SECRET ? new Stripe(STRIPE_SECRET) : null;
+const {
+  PORT = 3000,
+  NODE_ENV = "production",
+  STRIPE_SECRET_KEY,
+  STRIPE_WEBHOOK_SECRET,
+  STRIPE_PRICE_PREMIUM,
+  STRIPE_PRICE_THEMES,
+  STRIPE_PRICE_SURVIVAL,
+  STRIPE_PRICE_STATS,
+  STRIPE_PRICE_ADFREE,
+  STRIPE_PRICE_DAILYHINT,
+  ALLOWED_ORIGIN = "https://survive.com",
+} = process.env;
 
-// -------- Storage (Redis if set, else in-memory) --------
-let memory = { listMap: new Map(), rooms: new Map(), publicRooms: new Map() };
-let redis = REDIS_URL ? new Redis(REDIS_URL, { tls: REDIS_URL.startsWith("rediss://") ? {} : undefined }) : null;
+if (!STRIPE_SECRET_KEY) {
+  console.warn("⚠️  STRIPE_SECRET_KEY missing");
+}
 
-const kDay    = (day)          => `lb:day:${day}`;
-const kRegion = (region, day)  => `lb:region:${region}:${day}`;
-const kRoom   = (id)           => `room:${id}`;
-const kPublic = `public:rooms`;
+const stripe = new Stripe(STRIPE_SECRET_KEY, {
+  apiVersion: "2024-12-18.acacia",
+});
 
-async function pushList(key, item){ if(redis) return redis.rpush(key, JSON.stringify(item));
-  const a = memory.listMap.get(key) || []; a.push(item); memory.listMap.set(key, a); }
-async function getList(key){ if(redis) return (await redis.lrange(key, 0, -1)).map(s=>JSON.parse(s));
-  return memory.listMap.get(key) || []; }
-async function setJSON(key, obj){ if(redis) return redis.set(key, JSON.stringify(obj)); memory.rooms.set(key, obj); }
-async function getJSON(key){ if(redis){ const s = await redis.get(key); return s?JSON.parse(s):null; } return memory.rooms.get(key) || null; }
-async function pushPublicRoom(room){ if(redis) return redis.hset(kPublic, room.id, JSON.stringify(room)); memory.publicRooms.set(room.id, room); }
-async function listPublicRooms(){ if(redis){ const all = await redis.hgetall(kPublic); return Object.entries(all).map(([id, json])=>({ id, ...JSON.parse(json) })); }
-  return [...memory.publicRooms.values()]; }
-
-// -------- Server --------
 const app = express();
-app.use(express.json({ limit: "256kb" }));
-app.use(cors({ origin: ORIGIN, credentials: true }));
 
-app.get("/api/health", (_req,res)=>res.json({ok:true}));
+// CORS
+app.use(
+  cors({
+    origin: ALLOWED_ORIGIN,
+    credentials: true,
+  })
+);
 
-// submit single-player result
-app.post("/api/submit", async (req,res)=>{
-  try{
-    const name   = (req.header("X-Player-Name") || "Anonymous").toString().slice(0,24);
-    const region = (req.header("X-Region") || "UTC").toString().slice(0,64);
-    const { day, scenarioId, win, hp, ts, mode="veteran" } = req.body || {};
-    if(!day || typeof hp!=="number") return res.status(400).json({error:"bad payload"});
-    const entry = { name, win:!!win, hp:Math.max(0,Math.min(5,hp)), ts:ts||Date.now(), scenarioId:scenarioId||"", mode };
-    await pushList(kDay(day), entry);
-    await pushList(kRegion(region, day), { ...entry, region });
-    res.json({ok:true});
-  }catch{ res.status(500).json({error:"server error"}); }
-});
+// Cookies
+app.use(cookieParser());
 
-// global leaderboard
-app.get("/api/leaderboard", async (req,res)=>{
-  try{
-    const day = req.query.day;
-    if(!day) return res.status(400).json({error:"missing day"});
-    const rows = await getList(kDay(day));
-    const top = rows.slice().sort((a,b)=>(b.win-a.win)||(b.hp-a.hp)||(a.ts-b.ts)).slice(0,100);
-    res.json({top});
-  }catch{ res.status(500).json({error:"server error"}); }
-});
+// JSON (do NOT apply to webhook route; that one uses express.raw)
+app.use("/api", express.json());
 
-// region leaderboard
-app.get("/api/region/leaderboard", async (req,res)=>{
-  try{
-    const { region, day } = req.query;
-    if(!region || !day) return res.status(400).json({error:"missing params"});
-    const rows = await getList(kRegion(region, day));
-    const top = rows.slice().sort((a,b)=>(b.win-a.win)||(b.hp-a.hp)||(a.ts-b.ts)).slice(0,100);
-    res.json({top});
-  }catch{ res.status(500).json({error:"server error"}); }
-});
+// --------- very simple user identification (cookie 'uid') ----------
+function getOrSetUID(req, res) {
+  let uid = req.cookies?.uid;
+  if (!uid) {
+    uid = crypto.randomUUID();
+    // secure cookie for cross-site
+    res.cookie("uid", uid, {
+      httpOnly: false, // front-end just needs it sent back; not reading it via JS
+      sameSite: "none",
+      secure: true,
+      path: "/",
+      maxAge: 1000 * 60 * 60 * 24 * 365, // 1y
+    });
+  }
+  return uid;
+}
 
-// rooms
-app.post("/api/room", async (req,res)=>{
-  try{
-    const name = (req.header("X-Player-Name") || "Anonymous").toString().slice(0,24);
-    const { mode="duel", day="", scenarioId="", region="UTC", isPublic=false } = req.body || {};
-    const id = crypto.randomBytes(3).toString("hex");
-    const room = { id, mode, day, scenarioId, region, players:[name], results:[] };
-    await setJSON(kRoom(id), room);
-    if(isPublic) await pushPublicRoom({ id, count:1, max:10 });
-    res.json({ roomId:id });
-  }catch{ res.status(500).json({error:"server error"}); }
-});
-app.post("/api/room/join", async (req,res)=>{
-  try{
-    const name = (req.header("X-Player-Name") || "Anonymous").toString().slice(0,24);
-    const { roomId } = req.body || {};
-    const key = kRoom(roomId); const room = await getJSON(key);
-    if(!room) return res.status(404).json({error:"room not found"});
-    if(!room.players.includes(name)) room.players.push(name);
-    await setJSON(key, room);
-    res.json({ok:true});
-  }catch{ res.status(500).json({error:"server error"}); }
-});
-app.post("/api/room/submit", async (req,res)=>{
-  try{
-    const name = (req.header("X-Player-Name") || "Anonymous").toString().slice(0,24);
-    const { roomId, day, scenarioId, win, hp, ts, mode="veteran" } = req.body || {};
-    const key = kRoom(roomId); const room = await getJSON(key);
-    if(!room) return res.status(404).json({error:"room not found"});
-    if(!room.players.includes(name)) room.players.push(name);
-    room.results.push({ name, day, scenarioId, win:!!win, hp:Math.max(0,Math.min(5,hp||0)), ts:ts||Date.now(), mode });
-    await setJSON(key, room);
-    res.json({ok:true});
-  }catch{ res.status(500).json({error:"server error"}); }
-});
-app.get("/api/room/leaderboard", async (req,res)=>{
-  try{
-    const key = kRoom(req.query.room);
-    const room = await getJSON(key);
-    const rows = room?.results || [];
-    const top = rows.slice().sort((a,b)=>(b.win-a.win)||(b.hp-a.hp)||(a.ts-b.ts)).slice(0,100);
-    res.json({top});
-  }catch{ res.status(500).json({error:"server error"}); }
-});
-app.get("/api/public/list", async (_req,res)=>{
-  try{ res.json({ rooms: await listPublicRooms() }); }
-  catch{ res.status(500).json({ rooms: [] }); }
-});
+// --------- In-memory "DB" (replace with your database) -------------
+/** Map<uid, Set<product>> */
+const purchases = new Map();
+/** Map<uid, ISODateString> for daily hint usage */
+const dailyHintUsedAt = new Map();
 
-// -------- Monetization --------
+function grant(uid, product) {
+  const set = purchases.get(uid) ?? new Set();
+  set.add(product);
+  purchases.set(uid, set);
+}
 
-// Support: return a configured Payment Link (no server-side Stripe needed)
-app.get("/api/pay/support-link", (_req, res)=>{
-  if(!SUPPORT_LINK) return res.status(400).json({error:"support_link_not_set"});
-  res.json({url: SUPPORT_LINK});
-});
+function revoke(uid, product) {
+  const set = purchases.get(uid);
+  if (set) {
+    set.delete(product);
+    purchases.set(uid, set);
+  }
+}
 
-// Create Checkout session for Revive (+2 HP)
-app.post("/api/pay/revive", async (req,res)=>{
-  try{
-    if(!stripe) return res.status(400).json({error:"stripe_not_configured"});
+// --------- Helpers ------------------------------------------------
+const PRICE_TO_PRODUCT = new Map(
+  [
+    [STRIPE_PRICE_PREMIUM, "premium"],
+    [STRIPE_PRICE_THEMES, "themes_pack"],
+    [STRIPE_PRICE_SURVIVAL, "survival"],
+    [STRIPE_PRICE_STATS, "premium_stats"],
+    [STRIPE_PRICE_ADFREE, "ad_free"],
+    [STRIPE_PRICE_DAILYHINT, "daily_hint"],
+  ].filter(([k]) => !!k)
+);
+
+const PRODUCT_TO_PRICE = {
+  premium: STRIPE_PRICE_PREMIUM,
+  themes_pack: STRIPE_PRICE_THEMES,
+  survival: STRIPE_PRICE_SURVIVAL,
+  premium_stats: STRIPE_PRICE_STATS,
+  ad_free: STRIPE_PRICE_ADFREE,
+  daily_hint: STRIPE_PRICE_DAILYHINT,
+};
+
+// what “premium” unlocks on the frontend
+function perksFor(uid) {
+  const owned = purchases.get(uid) ?? new Set();
+
+  const hasPremium = owned.has("premium");
+  return {
+    active: hasPremium, // treat premium as “active” bundle
+    owned: [...owned],
+    perks: hasPremium
+      ? {
+          maxRows: 8,
+          winBonus: 5,
+          accent: "#ffb400",
+          themesPack: true,
+        }
+      : { maxRows: 6, winBonus: 0, accent: undefined, themesPack: owned.has("themes_pack") },
+  };
+}
+
+// --------- Routes -------------------------------------------------
+app.get("/api/health", (_req, res) => res.json({ ok: true }));
+
+app.post("/api/pay/checkout", async (req, res) => {
+  try {
+    const uid = getOrSetUID(req, res);
+    const { product } = req.body || {};
+    const price = PRODUCT_TO_PRICE[product];
+
+    if (!price) {
+      return res.status(400).json({ error: "Unknown product" });
+    }
+
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
-      line_items: [{
-        price_data:{
-          currency:"usd",
-          product_data:{ name:"Revive (+2 HP)" },
-          unit_amount: 99
-        },
-        quantity:1
-      }],
-      metadata:{ type:"revive" },
-      success_url: `${PUBLIC_BASE}/?paid=revive&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${PUBLIC_BASE}/?canceled=1`
+      client_reference_id: uid, // so the webhook knows who
+      line_items: [{ price, quantity: 1 }],
+      success_url: `${ALLOWED_ORIGIN}/?purchase=success`,
+      cancel_url: `${ALLOWED_ORIGIN}/?purchase=cancel`,
+      // optional redundancy:
+      metadata: { product, uid },
     });
-    res.json({url: session.url});
-  }catch(e){ res.status(500).json({error:"stripe_error"}); }
+
+    res.json({ url: session.url });
+  } catch (e) {
+    console.error("checkout error", e);
+    res.status(500).json({ error: "checkout-failed" });
+  }
 });
 
-// Create Checkout session for Premium Theme
-app.post("/api/pay/premium", async (req,res)=>{
-  try{
-    if(!stripe) return res.status(400).json({error:"stripe_not_configured"});
-    const session = await stripe.checkout.sessions.create({
-      mode: "payment",
-      line_items: [{
-        price_data:{
-          currency:"usd",
-          product_data:{ name:"Premium Theme (one-time)" },
-          unit_amount: 499
-        },
-        quantity:1
-      }],
-      metadata:{ type:"premium" },
-      success_url: `${PUBLIC_BASE}/?paid=premium&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${PUBLIC_BASE}/?canceled=1`
-    });
-    res.json({url: session.url});
-  }catch(e){ res.status(500).json({error:"stripe_error"}); }
+// Webhook must use the RAW body
+app.post(
+  "/api/stripe/webhook",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    const sig = req.headers["stripe-signature"];
+    let event;
+
+    try {
+      event = stripe.webhooks.constructEvent(
+        req.body,
+        sig,
+        STRIPE_WEBHOOK_SECRET
+      );
+    } catch (err) {
+      console.error("❌ Webhook signature verification failed.", err.message);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    try {
+      switch (event.type) {
+        case "checkout.session.completed": {
+          // Expand to read price if needed
+          const session = await stripe.checkout.sessions.retrieve(
+            event.data.object.id,
+            { expand: ["line_items.data.price"] }
+          );
+          const uid =
+            session.client_reference_id ||
+            session.metadata?.uid ||
+            "unknown";
+
+          let product =
+            session.metadata?.product || null;
+
+          // derive from the first line item price if metadata not set
+          if (!product && session.line_items?.data?.[0]?.price?.id) {
+            product = PRICE_TO_PRODUCT.get(
+              session.line_items.data[0].price.id
+            );
+          }
+
+          if (uid && product) {
+            grant(uid, product);
+            if (product === "premium") {
+              // premium implies themes pack + stats + survival + ad_free if you want
+              grant(uid, "themes_pack");
+              grant(uid, "premium_stats");
+              grant(uid, "survival");
+              grant(uid, "ad_free");
+            }
+            console.log(`✅ Granted ${product} to uid=${uid}`);
+          } else {
+            console.warn("⚠️ Missing uid or product in webhook");
+          }
+          break;
+        }
+        case "charge.refunded": {
+          const charge = event.data.object;
+          // If you store charge->uid/product mapping, revoke here.
+          console.log("Refund received for charge", charge.id);
+          break;
+        }
+        default:
+          // Ignore the rest
+          break;
+      }
+      res.json({ received: true });
+    } catch (e) {
+      console.error("Webhook handler error", e);
+      res.status(500).send("webhook-handler-error");
+    }
+  }
+);
+
+app.get("/api/pay/status", (req, res) => {
+  const uid = getOrSetUID(req, res);
+  res.json(perksFor(uid));
 });
 
-// Verify a completed session (used by frontend after redirect)
-app.get("/api/pay/verify", async (req,res)=>{
-  try{
-    if(!stripe) return res.status(400).json({error:"stripe_not_configured"});
-    const sid = req.query.session_id;
-    if(!sid) return res.status(400).json({error:"missing_session_id"});
-    const session = await stripe.checkout.sessions.retrieve(sid);
-    const paid = session?.payment_status === "paid";
-    const type = session?.metadata?.type || "";
-    res.json({paid, type});
-  }catch(e){ res.status(500).json({error:"stripe_error"}); }
+app.post("/api/hint/free", (req, res) => {
+  const uid = getOrSetUID(req, res);
+  const last = dailyHintUsedAt.get(uid);
+  const today = new Date().toISOString().slice(0, 10);
+  if (last === today) return res.status(429).json({ ok: false, reason: "used" });
+  dailyHintUsedAt.set(uid, today);
+  res.json({ ok: true });
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, ()=> {
-  console.log(`Survive API on :${PORT}`);
-  console.log(`CORS origin: ${ORIGIN}`);
-  console.log(REDIS_URL ? "Redis: ON" : "Redis: OFF (memory only)");
-  console.log(STRIPE_SECRET ? "Stripe: ON" : "Stripe: OFF");
+// --------------- start ---------------
+app.listen(PORT, () => {
+  console.log(`API listening on :${PORT} (${NODE_ENV})`);
 });
