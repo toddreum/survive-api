@@ -68,6 +68,38 @@ const regionLB = new Map(); // Map<region, Array<{uid,name,points}>>
 const rooms = new Map(); // Map<code, {members:Set<string>, log:Array, createdAt:number}>
 const PARTY_LIMIT = 10;
 
+/* ========= No-repeat memory (NEW) ========= */
+// Map<uid, { all: string[], byCat: Map<string,string[]> }>
+const recentAnswers = new Map();
+const RECENT_WORD_WINDOW = 200; // remember last 200 unique per user
+
+function getRecentSet(uid, catKey) {
+  const rec = recentAnswers.get(uid);
+  if (!rec) return new Set();
+  if (!catKey) return new Set(rec.all);
+  const arr = rec.byCat.get(catKey) || [];
+  return new Set(arr);
+}
+
+function rememberAnswer(uid, word, catKey) {
+  if (!uid || !word) return;
+  const rec = recentAnswers.get(uid) || { all: [], byCat: new Map() };
+
+  // all
+  if (!rec.all.includes(word)) rec.all.push(word);
+  if (rec.all.length > RECENT_WORD_WINDOW) rec.all.splice(0, rec.all.length - RECENT_WORD_WINDOW);
+
+  // per category
+  if (catKey) {
+    const arr = rec.byCat.get(catKey) || [];
+    if (!arr.includes(word)) arr.push(word);
+    if (arr.length > RECENT_WORD_WINDOW) arr.splice(0, arr.length - RECENT_WORD_WINDOW);
+    rec.byCat.set(catKey, arr);
+  }
+
+  recentAnswers.set(uid, rec);
+}
+
 /* ========= Leaderboards ========= */
 function inferRegionFromTZ(tz = "") {
   if (/America\//.test(tz)) return "NA";
@@ -357,12 +389,17 @@ const FALLBACK_CATS = {
   business: ["other"], tv: ["about"], film: ["there"], politics: ["their"],
 };
 
+/* ========= Word APIs (with no-repeat) ========= */
 app.get("/api/words5", (_req, res) => {
   res.json(WORDS5 && WORDS5.length ? WORDS5 : FALLBACK5);
 });
 
 app.get("/api/word5", (req, res) => {
+  const uid = getOrSetUID(req, res);
   const category = (req.query.category || "").toString().toLowerCase();
+  const catKey = category || ""; // empty means "all"
+
+  // pick base pool
   let pool = null;
   if (CATEGORY_WORDS && category && CATEGORY_WORDS[category]?.length) {
     pool = CATEGORY_WORDS[category];
@@ -372,7 +409,21 @@ app.get("/api/word5", (req, res) => {
     pool = category && FALLBACK_CATS[category] ? FALLBACK_CATS[category] : FALLBACK5;
   }
   if (!pool || !pool.length) pool = WORDS5 && WORDS5.length ? WORDS5 : FALLBACK5;
-  const word = pool[Math.floor(Math.random() * pool.length)];
+
+  // exclude recent
+  const recentAll = getRecentSet(uid, "");      // all
+  const recentCat = catKey ? getRecentSet(uid, catKey) : new Set();
+  const exclude = new Set([...recentAll, ...recentCat]);
+
+  let filtered = pool.filter((w) => !exclude.has(w));
+  // if we excluded everything (tiny pool), fall back to just excluding "all" recents
+  if (!filtered.length) filtered = pool.filter((w) => !recentAll.has(w));
+  // if *still* empty, we have to allow repeats (but that’s extremely unlikely with a real dictionary)
+  const choicePool = filtered.length ? filtered : pool;
+
+  const word = choicePool[Math.floor(Math.random() * choicePool.length)];
+  rememberAnswer(uid, word, catKey || null);
+
   res.json({ word, categoryUsed: category || null });
 });
 
