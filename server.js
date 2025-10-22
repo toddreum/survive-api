@@ -13,6 +13,7 @@ const {
   NODE_ENV = "production",
   STRIPE_SECRET_KEY,
   STRIPE_WEBHOOK_SECRET,
+  STRIPE_PRICE_ALLACCESS,
   STRIPE_PRICE_PREMIUM,
   STRIPE_PRICE_THEMES,
   STRIPE_PRICE_SURVIVAL,
@@ -20,6 +21,7 @@ const {
   STRIPE_PRICE_ADFREE,
   STRIPE_PRICE_DAILYHINT,
   ALLOWED_ORIGIN = "https://survive.com",
+  DONATE_URL = "", // optional: used by /api/pay/support-link
 } = process.env;
 
 if (!STRIPE_SECRET_KEY) {
@@ -27,15 +29,19 @@ if (!STRIPE_SECRET_KEY) {
 }
 
 const stripe = new Stripe(STRIPE_SECRET_KEY, {
-  apiVersion: "2024-12-18.acacia",
+  apiVersion: "2024-06-20",
 });
 
 const app = express();
 
-// CORS
+// CORS (allow single origin string or comma-separated list)
+const allowed = ALLOWED_ORIGIN.split(",").map(s => s.trim());
 app.use(
   cors({
-    origin: ALLOWED_ORIGIN,
+    origin: function (origin, cb) {
+      if (!origin) return cb(null, true);
+      cb(null, allowed.includes(origin));
+    },
     credentials: true,
   })
 );
@@ -46,20 +52,24 @@ app.use(cookieParser());
 // JSON (do NOT apply to webhook route; that one uses express.raw)
 app.use("/api", express.json());
 
-// --------- very simple user identification (cookie 'uid') ----------
+// --------- very simple user identification (X-UID header first, then cookie 'uid') ----------
 function getOrSetUID(req, res) {
-  let uid = req.cookies?.uid;
+  const hdr = req.headers["x-uid"];
+  let uid = (typeof hdr === "string" && hdr.trim()) || req.cookies?.uid;
+
   if (!uid) {
     uid = crypto.randomUUID();
-    // secure cookie for cross-site
-    res.cookie("uid", uid, {
-      httpOnly: false, // front-end just needs it sent back; not reading it via JS
-      sameSite: "none",
-      secure: true,
-      path: "/",
-      maxAge: 1000 * 60 * 60 * 24 * 365, // 1y
-    });
   }
+
+  // set/refresh cookie (helps Stripe return)
+  res.cookie("uid", uid, {
+    httpOnly: false,
+    sameSite: "none",
+    secure: true,
+    path: "/",
+    maxAge: 1000 * 60 * 60 * 24 * 365, // 1y
+  });
+
   return uid;
 }
 
@@ -86,6 +96,7 @@ function revoke(uid, product) {
 // --------- Helpers ------------------------------------------------
 const PRICE_TO_PRODUCT = new Map(
   [
+    [STRIPE_PRICE_ALLACCESS, "all_access"],
     [STRIPE_PRICE_PREMIUM, "premium"],
     [STRIPE_PRICE_THEMES, "themes_pack"],
     [STRIPE_PRICE_SURVIVAL, "survival"],
@@ -96,6 +107,7 @@ const PRICE_TO_PRODUCT = new Map(
 );
 
 const PRODUCT_TO_PRICE = {
+  all_access: STRIPE_PRICE_ALLACCESS,
   premium: STRIPE_PRICE_PREMIUM,
   themes_pack: STRIPE_PRICE_THEMES,
   survival: STRIPE_PRICE_SURVIVAL,
@@ -107,10 +119,10 @@ const PRODUCT_TO_PRICE = {
 // what “premium” unlocks on the frontend
 function perksFor(uid) {
   const owned = purchases.get(uid) ?? new Set();
+  const hasPremium = owned.has("premium") || owned.has("all_access");
 
-  const hasPremium = owned.has("premium");
   return {
-    active: hasPremium, // treat premium as “active” bundle
+    active: hasPremium, // treat premium/all_access as active bundle
     owned: [...owned],
     perks: hasPremium
       ? {
@@ -119,12 +131,32 @@ function perksFor(uid) {
           accent: "#ffb400",
           themesPack: true,
         }
-      : { maxRows: 6, winBonus: 0, accent: undefined, themesPack: owned.has("themes_pack") },
+      : {
+          maxRows: 6,
+          winBonus: 0,
+          accent: undefined,
+          themesPack: owned.has("themes_pack"),
+        },
   };
+}
+
+function grantAll(uid) {
+  grant(uid, "premium");
+  grant(uid, "themes_pack");
+  grant(uid, "premium_stats");
+  grant(uid, "survival");
+  grant(uid, "ad_free");
+  grant(uid, "daily_hint");
 }
 
 // --------- Routes -------------------------------------------------
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
+
+// Optional support link (donation)
+app.get("/api/pay/support-link", (_req, res) => {
+  if (DONATE_URL) return res.json({ url: DONATE_URL });
+  return res.status(404).json({ error: "donation-link-missing" });
+});
 
 app.post("/api/pay/checkout", async (req, res) => {
   try {
@@ -137,12 +169,11 @@ app.post("/api/pay/checkout", async (req, res) => {
     }
 
     const session = await stripe.checkout.sessions.create({
-      mode: "payment",
+      mode: "payment", // one-time purchases
       client_reference_id: uid, // so the webhook knows who
       line_items: [{ price, quantity: 1 }],
-      success_url: `${ALLOWED_ORIGIN}/?purchase=success`,
-      cancel_url: `${ALLOWED_ORIGIN}/?purchase=cancel`,
-      // optional redundancy:
+      success_url: `${allowed[0]}/?purchase=success`,
+      cancel_url: `${allowed[0]}/?purchase=cancel`,
       metadata: { product, uid },
     });
 
@@ -185,8 +216,7 @@ app.post(
             session.metadata?.uid ||
             "unknown";
 
-          let product =
-            session.metadata?.product || null;
+          let product = session.metadata?.product || null;
 
           // derive from the first line item price if metadata not set
           if (!product && session.line_items?.data?.[0]?.price?.id) {
@@ -196,13 +226,18 @@ app.post(
           }
 
           if (uid && product) {
-            grant(uid, product);
-            if (product === "premium") {
-              // premium implies themes pack + stats + survival + ad_free if you want
+            if (product === "all_access") {
+              grantAll(uid);
+            } else if (product === "premium") {
+              grant(uid, "premium");
+              // premium implies bundle unlocks
               grant(uid, "themes_pack");
               grant(uid, "premium_stats");
               grant(uid, "survival");
               grant(uid, "ad_free");
+              grant(uid, "daily_hint");
+            } else {
+              grant(uid, product);
             }
             console.log(`✅ Granted ${product} to uid=${uid}`);
           } else {
@@ -210,12 +245,14 @@ app.post(
           }
           break;
         }
+
         case "charge.refunded": {
           const charge = event.data.object;
-          // If you store charge->uid/product mapping, revoke here.
           console.log("Refund received for charge", charge.id);
+          // TODO: If you store (chargeId -> {uid, product}) at purchase time, revoke here.
           break;
         }
+
         default:
           // Ignore the rest
           break;
@@ -245,4 +282,13 @@ app.post("/api/hint/free", (req, res) => {
 // --------------- start ---------------
 app.listen(PORT, () => {
   console.log(`API listening on :${PORT} (${NODE_ENV})`);
+  console.log("Configured prices:", {
+    all_access: !!STRIPE_PRICE_ALLACCESS,
+    premium: !!STRIPE_PRICE_PREMIUM,
+    themes: !!STRIPE_PRICE_THEMES,
+    survival: !!STRIPE_PRICE_SURVIVAL,
+    stats: !!STRIPE_PRICE_STATS,
+    adfree: !!STRIPE_PRICE_ADFREE,
+    dailyhint: !!STRIPE_PRICE_DAILYHINT,
+  });
 });
