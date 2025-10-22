@@ -7,7 +7,7 @@ import Stripe from "stripe";
 import crypto from "crypto";
 import fs from "fs";
 
-// ---------- ENV ----------
+/* ========= ENV ========= */
 const {
   PORT = 3000,
   NODE_ENV = "production",
@@ -15,7 +15,7 @@ const {
   STRIPE_SECRET_KEY,
   STRIPE_WEBHOOK_SECRET,
 
-  // Stripe PRICE ids (must be price_…)
+  // Stripe PRICE ids (MUST start with "price_")
   STRIPE_PRICE_ALLACCESS,
   STRIPE_PRICE_PREMIUM,
   STRIPE_PRICE_THEMES,
@@ -30,27 +30,19 @@ const {
   ALLOWED_ORIGIN = "https://survive.com",
 } = process.env;
 
-// ---------- Stripe ----------
+/* ========= Stripe ========= */
 if (!STRIPE_SECRET_KEY) console.warn("⚠️  STRIPE_SECRET_KEY missing");
 if (!STRIPE_WEBHOOK_SECRET) console.warn("⚠️  STRIPE_WEBHOOK_SECRET missing");
+const stripe = new Stripe(STRIPE_SECRET_KEY, { apiVersion: "2024-06-20" });
 
-const stripe = new Stripe(STRIPE_SECRET_KEY, {
-  apiVersion: "2024-06-20",
-});
-
-// ---------- App ----------
+/* ========= App ========= */
 const app = express();
-app.use(
-  cors({
-    origin: ALLOWED_ORIGIN,
-    credentials: true,
-  })
-);
+app.use(cors({ origin: ALLOWED_ORIGIN, credentials: true }));
 app.use(cookieParser());
-// JSON (webhook uses raw)
+// do NOT use express.json() on the webhook route; it needs express.raw()
 app.use("/api", express.json());
 
-// ---------- UID helper ----------
+/* ========= UID helper ========= */
 function getOrSetUID(req, res) {
   let uid =
     (req.headers["x-uid"] && String(req.headers["x-uid"])) || req.cookies?.uid;
@@ -67,27 +59,29 @@ function getOrSetUID(req, res) {
   return uid;
 }
 
-// ---------- In-memory stores (swap with DB later) ----------
-/** Map<uid, Set<product>> */
-const purchases = new Map();
-/** Map<uid, YYYY-MM-DD> */
-const dailyHintUsedAt = new Map();
-/** Map<paymentIntentId, {uid, product}> */
-const intentIndex = new Map();
-/** Global leaderboard */
+/* ========= In-memory stores (swap to DB later) ========= */
+const purchases = new Map(); // Map<uid, Set<product>>
+const dailyHintUsedAt = new Map(); // Map<uid, YYYY-MM-DD>
+const intentIndex = new Map(); // Map<paymentIntentId, {uid, product}>
 const globalLB = []; // [{uid,name,points}]
-/** Region leaderboard */
 const regionLB = new Map(); // Map<region, Array<{uid,name,points}>>
-/** Multiplayer rooms */
 const rooms = new Map(); // Map<code, {members:Set<string>, log:Array, createdAt:number}>
 const PARTY_LIMIT = 10;
 
-// ---------- Leaderboard helpers ----------
+/* ========= Leaderboards ========= */
+function inferRegionFromTZ(tz = "") {
+  if (/America\//.test(tz)) return "NA";
+  if (/Europe\//.test(tz)) return "EU";
+  if (/Asia\//.test(tz)) return "AS";
+  if (/Australia\/|Pacific\//.test(tz)) return "OC";
+  if (/Africa\//.test(tz)) return "AF";
+  if (/America\/(Argentina|Santiago|Sao_Paulo)/.test(tz)) return "SA";
+  return "NA";
+}
 function pushScore({ uid, name, points, region = "NA" }) {
   const safeName = String(name || "Player").slice(0, 24);
   const pts = Number(points) || 0;
 
-  // global
   const gi = globalLB.findIndex((r) => r.uid === uid);
   if (gi >= 0) {
     globalLB[gi].points = Math.max(globalLB[gi].points, pts);
@@ -98,8 +92,8 @@ function pushScore({ uid, name, points, region = "NA" }) {
   globalLB.sort((a, b) => b.points - a.points);
   if (globalLB.length > 100) globalLB.length = 100;
 
-  // region
-  const arr = regionLB.get(region) || [];
+  const key = region;
+  const arr = regionLB.get(key) || [];
   const ri = arr.findIndex((r) => r.uid === uid);
   if (ri >= 0) {
     arr[ri].points = Math.max(arr[ri].points, pts);
@@ -109,20 +103,10 @@ function pushScore({ uid, name, points, region = "NA" }) {
   }
   arr.sort((a, b) => b.points - a.points);
   if (arr.length > 100) arr.length = 100;
-  regionLB.set(region, arr);
+  regionLB.set(key, arr);
 }
 
-function inferRegionFromTZ(tz = "") {
-  if (/America\//.test(tz)) return "NA";
-  if (/Europe\//.test(tz)) return "EU";
-  if (/Asia\//.test(tz)) return "AS";
-  if (/Australia\/|Pacific\//.test(tz)) return "OC";
-  if (/Africa\//.test(tz)) return "AF";
-  if (/America\/(Argentina|Santiago|Sao_Paulo)/.test(tz)) return "SA";
-  return "NA";
-}
-
-// ---------- Product/Price maps ----------
+/* ========= Product/Price maps ========= */
 const PRICE_TO_PRODUCT = new Map(
   [
     [STRIPE_PRICE_ALLACCESS, "all_access"],
@@ -134,7 +118,6 @@ const PRICE_TO_PRODUCT = new Map(
     [STRIPE_PRICE_DAILYHINT, "daily_hint"],
   ].filter(([k]) => !!k)
 );
-
 const PRODUCT_TO_PRICE = {
   all_access: STRIPE_PRICE_ALLACCESS,
   premium: STRIPE_PRICE_PREMIUM,
@@ -144,7 +127,6 @@ const PRODUCT_TO_PRICE = {
   ad_free: STRIPE_PRICE_ADFREE,
   daily_hint: STRIPE_PRICE_DAILYHINT,
 };
-
 function grant(uid, product) {
   const set = purchases.get(uid) ?? new Set();
   set.add(product);
@@ -202,10 +184,10 @@ function perksFor(uid) {
   };
 }
 
-// ---------- Health ----------
+/* ========= Health ========= */
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 
-// ---------- Payments: checkout ----------
+/* ========= Payments ========= */
 app.post("/api/pay/checkout", async (req, res) => {
   try {
     const uid = getOrSetUID(req, res);
@@ -231,7 +213,6 @@ app.post("/api/pay/checkout", async (req, res) => {
   }
 });
 
-// Donation (optional)
 app.get("/api/pay/support-link", async (req, res) => {
   try {
     const uid = getOrSetUID(req, res);
@@ -252,7 +233,7 @@ app.get("/api/pay/support-link", async (req, res) => {
   }
 });
 
-// ---------- Webhook (RAW body!) ----------
+/* ========= Webhook (RAW) ========= */
 app.post(
   "/api/stripe/webhook",
   express.raw({ type: "application/json" }),
@@ -279,10 +260,7 @@ app.post(
           }
           if (uid && product) {
             grant(uid, product);
-            const pi =
-              typeof s.payment_intent === "string"
-                ? s.payment_intent
-                : s.payment_intent?.id;
+            const pi = typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id;
             if (pi) intentIndex.set(pi, { uid, product });
             console.log(`✅ Granted ${product} to uid=${uid}`);
           } else {
@@ -313,12 +291,11 @@ app.post(
   }
 );
 
-// ---------- Status / daily hint ----------
+/* ========= Status / free hint ========= */
 app.get("/api/pay/status", (req, res) => {
   const uid = getOrSetUID(req, res);
   res.json(perksFor(uid));
 });
-
 app.post("/api/hint/free", (req, res) => {
   const uid = getOrSetUID(req, res);
   const today = new Date().toISOString().slice(0, 10);
@@ -328,7 +305,7 @@ app.post("/api/hint/free", (req, res) => {
   res.json({ ok: true });
 });
 
-// ---------- Words (dictionary & categories) ----------
+/* ========= Dictionary & Categories ========= */
 let WORDS5 = null;
 try {
   if (fs.existsSync("./words5.json")) {
@@ -342,10 +319,9 @@ try {
     }
   }
 } catch (e) {
-  console.warn("Could not load words5.json, using fallback.", e?.message);
+  console.warn("Could not load words5.json; using fallback.");
 }
 
-// Optional categories file: {"animals":["zebra","mouse"], "food":["bread","donut"], ...}
 let CATEGORY_WORDS = null;
 try {
   if (fs.existsSync("./words5_categories.json")) {
@@ -365,7 +341,7 @@ try {
     }
   }
 } catch (e) {
-  console.warn("Could not load words5_categories.json, using fallback map.");
+  console.warn("Could not load words5_categories.json; using fallback categories.");
 }
 
 const FALLBACK5 = [
@@ -373,60 +349,41 @@ const FALLBACK5 = [
   "light","water","array","shift","grape","apple","north","mouse","robot",
   "laser","salad","bread","zebra"
 ];
-
-// Small fallback categories so Animals/Nature/Food/Tech always work if no file present.
 const FALLBACK_CATS = {
   animals: ["zebra","mouse"],
-  nature: ["water","north"], // "north" loosely nature here for fallback
+  nature: ["water","north"],
   food: ["donut","grape","salad","bread","apple"],
   tech: ["robot","laser","shift","array"],
-  business: ["other"], // minimal, replace with file for real game
-  tv: ["about"], film: ["there"], politics: ["their"], animals2: ["zebra"],
+  business: ["other"], tv: ["about"], film: ["there"], politics: ["their"],
 };
 
 app.get("/api/words5", (_req, res) => {
-  if (WORDS5 && WORDS5.length) return res.json(WORDS5);
-  res.json(FALLBACK5);
+  res.json(WORDS5 && WORDS5.length ? WORDS5 : FALLBACK5);
 });
 
-// Single random word by category (client uses this to enforce categories)
 app.get("/api/word5", (req, res) => {
   const category = (req.query.category || "").toString().toLowerCase();
   let pool = null;
-
-  // Prefer category file if present
   if (CATEGORY_WORDS && category && CATEGORY_WORDS[category]?.length) {
     pool = CATEGORY_WORDS[category];
   } else if (WORDS5 && (!category || !CATEGORY_WORDS)) {
-    // If no category data, just pull any word from full dictionary.
     pool = WORDS5;
   } else if (!WORDS5) {
-    // Fallback pools if nothing else exists
-    if (category && FALLBACK_CATS[category]) pool = FALLBACK_CATS[category];
-    else pool = FALLBACK5;
+    pool = category && FALLBACK_CATS[category] ? FALLBACK_CATS[category] : FALLBACK5;
   }
-
-  if (!pool || !pool.length) {
-    // ultimate fallback
-    pool = WORDS5 && WORDS5.length ? WORDS5 : FALLBACK5;
-  }
-
+  if (!pool || !pool.length) pool = WORDS5 && WORDS5.length ? WORDS5 : FALLBACK5;
   const word = pool[Math.floor(Math.random() * pool.length)];
   res.json({ word, categoryUsed: category || null });
 });
 
-// ---------- Leaderboards ----------
-app.get("/api/lb/global", (_req, res) => {
-  res.json(globalLB.slice(0, 50));
-});
-
+/* ========= Leaderboards ========= */
+app.get("/api/lb/global", (_req, res) => res.json(globalLB.slice(0, 50)));
 app.get("/api/lb/region", (req, res) => {
   const region = (req.query.region && String(req.query.region)) || "";
   const tz = (req.query.tz && String(req.query.tz)) || "";
   const key = region || inferRegionFromTZ(tz);
   res.json((regionLB.get(key) || []).slice(0, 50));
 });
-
 app.post("/api/lb/submit", (req, res) => {
   const uid = getOrSetUID(req, res);
   const { name = "Player", region = "NA", points = 0 } = req.body || {};
@@ -439,7 +396,7 @@ app.post("/api/lb/submit", (req, res) => {
   res.json({ ok: true });
 });
 
-// ---------- Multiplayer (party of 10) ----------
+/* ========= Multiplayer (party of 10) ========= */
 function randomCode() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let s = "";
@@ -447,7 +404,6 @@ function randomCode() {
     s += alphabet[Math.floor(Math.random() * alphabet.length)];
   return s;
 }
-
 app.post("/api/mp/create", (req, res) => {
   const uid = getOrSetUID(req, res);
   let code = "";
@@ -463,7 +419,6 @@ app.post("/api/mp/create", (req, res) => {
   });
   res.json({ room: code, limit: PARTY_LIMIT });
 });
-
 app.post("/api/mp/join", (req, res) => {
   const uid = getOrSetUID(req, res);
   const { room } = req.body || {};
@@ -476,7 +431,6 @@ app.post("/api/mp/join", (req, res) => {
   r.log.push({ t: Date.now(), type: "join", from: uid });
   res.json({ ok: true });
 });
-
 app.post("/api/mp/leave", (req, res) => {
   const uid = getOrSetUID(req, res);
   const { room } = req.body || {};
@@ -489,7 +443,6 @@ app.post("/api/mp/leave", (req, res) => {
   }
   res.json({ ok: true });
 });
-
 app.get("/api/mp/poll", (req, res) => {
   const uid = getOrSetUID(req, res);
   const code = String(req.query.room || "").toUpperCase();
@@ -499,7 +452,7 @@ app.get("/api/mp/poll", (req, res) => {
   res.json(r.log.filter((m) => m.t > since));
 });
 
-// ---------- Diagnostics ----------
+/* ========= Diagnostics ========= */
 app.get("/api/version", (_req, res) => {
   res.json({
     env: NODE_ENV,
@@ -508,23 +461,21 @@ app.get("/api/version", (_req, res) => {
     builtAt: process.env.RENDER_GIT_COMMIT_TIMESTAMP || null,
   });
 });
-
 app.get("/api/_routes", (_req, res) => {
   const out = [];
-  function collect(stack, prefix = "") {
+  function collect(stack) {
     stack.forEach((l) => {
       if (l.route && l.route.path) {
         const methods = Object.keys(l.route.methods).join(",").toUpperCase();
-        out.push(`${methods} ${prefix}${l.route.path}`);
+        out.push(`${methods} ${l.route.path}`);
       } else if (l.name === "router" && l.handle.stack) {
-        collect(l.handle.stack, prefix);
+        collect(l.handle.stack);
       }
     });
   }
-  collect(app._router.stack, "");
+  collect(app._router.stack);
   res.json(out.sort());
 });
-
 app.get("/api/pay/diag", (_req, res) => {
   res.json({
     ALLACCESS: !!STRIPE_PRICE_ALLACCESS,
@@ -535,7 +486,6 @@ app.get("/api/pay/diag", (_req, res) => {
     ADFREE: !!STRIPE_PRICE_ADFREE,
     DAILYHINT: !!STRIPE_PRICE_DAILYHINT,
     DONATION: !!STRIPE_PRICE_DONATION,
-    // Extra check: do they start with "price_"?
     startsWithPrice: {
       ALLACCESS: (STRIPE_PRICE_ALLACCESS || "").startsWith("price_"),
       PREMIUM: (STRIPE_PRICE_PREMIUM || "").startsWith("price_"),
@@ -549,7 +499,7 @@ app.get("/api/pay/diag", (_req, res) => {
   });
 });
 
-// ---------- Start ----------
+/* ========= Start ========= */
 app.listen(PORT, () => {
   console.log(`API listening on :${PORT} (${NODE_ENV})`);
 });
