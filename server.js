@@ -1,4 +1,4 @@
-// server.js
+==// server.js
 // npm i express cors cookie-parser stripe
 // OPTIONAL DB: replace in-memory Maps with your DB upserts.
 
@@ -19,9 +19,9 @@ const {
   STRIPE_PRICE_STATS,
   STRIPE_PRICE_ADFREE,
   STRIPE_PRICE_DAILYHINT,
-  STRIPE_PRICE_ALLACCESS, // NEW
+  STRIPE_PRICE_ALLACCESS,
   ALLOWED_ORIGIN = "https://survive.com",
-  SUPPORT_PAYMENT_LINK, // optional: https://buy.stripe.com/...
+  SUPPORT_PAYMENT_LINK, // optional Payment Link (https://buy.stripe.com/...)
 } = process.env;
 
 if (!STRIPE_SECRET_KEY) {
@@ -91,7 +91,7 @@ const PRICE_TO_PRODUCT = new Map(
     [STRIPE_PRICE_STATS, "premium_stats"],
     [STRIPE_PRICE_ADFREE, "ad_free"],
     [STRIPE_PRICE_DAILYHINT, "daily_hint"],
-    [STRIPE_PRICE_ALLACCESS, "all_access"], // NEW
+    [STRIPE_PRICE_ALLACCESS, "all_access"],
   ].filter(([k]) => !!k)
 );
 
@@ -102,7 +102,7 @@ const PRODUCT_TO_PRICE = {
   premium_stats: STRIPE_PRICE_STATS,
   ad_free: STRIPE_PRICE_ADFREE,
   daily_hint: STRIPE_PRICE_DAILYHINT,
-  all_access: STRIPE_PRICE_ALLACCESS, // NEW
+  all_access: STRIPE_PRICE_ALLACCESS,
 };
 
 // perks aggregator
@@ -141,6 +141,25 @@ app.get("/api/pay/support-link", (_req, res) => {
   res.json({ url: SUPPORT_PAYMENT_LINK });
 });
 
+app.get("/api/_debug/prices", (req, res) => {
+  // Quick check to ensure env vars are loaded properly
+  res.json({
+    mode: NODE_ENV,
+    allowed_origin: ALLOWED_ORIGIN,
+    has_secret: !!STRIPE_SECRET_KEY,
+    has_webhook: !!STRIPE_WEBHOOK_SECRET,
+    prices: {
+      premium: STRIPE_PRICE_PREMIUM || null,
+      themes_pack: STRIPE_PRICE_THEMES || null,
+      survival: STRIPE_PRICE_SURVIVAL || null,
+      premium_stats: STRIPE_PRICE_STATS || null,
+      ad_free: STRIPE_PRICE_ADFREE || null,
+      daily_hint: STRIPE_PRICE_DAILYHINT || null,
+      all_access: STRIPE_PRICE_ALLACCESS || null,
+    },
+  });
+});
+
 app.post("/api/pay/checkout", async (req, res) => {
   try {
     const uid = resolveUID(req, res);
@@ -148,7 +167,12 @@ app.post("/api/pay/checkout", async (req, res) => {
     const price = PRODUCT_TO_PRICE[product];
 
     if (!price) {
-      return res.status(400).json({ error: "Unknown product" });
+      return res.status(400).json({ error: `Unknown product: ${product}` });
+    }
+    if (typeof price !== "string" || !price.startsWith("price_")) {
+      return res
+        .status(400)
+        .json({ error: `Price misconfigured for ${product}. Expected a price_... id.` });
     }
 
     const session = await stripe.checkout.sessions.create({
@@ -260,4 +284,13 @@ app.post("/api/hint/free", (req, res) => {
 // --------------- start ---------------
 app.listen(PORT, () => {
   console.log(`API listening on :${PORT} (${NODE_ENV})`);
+  console.log("Prices loaded:", {
+    premium: !!STRIPE_PRICE_PREMIUM,
+    themes_pack: !!STRIPE_PRICE_THEMES,
+    survival: !!STRIPE_PRICE_SURVIVAL,
+    premium_stats: !!STRIPE_PRICE_STATS,
+    ad_free: !!STRIPE_PRICE_ADFREE,
+    daily_hint: !!STRIPE_PRICE_DAILYHINT,
+    all_access: !!STRIPE_PRICE_ALLACCESS,
+  });
 });
