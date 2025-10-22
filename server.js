@@ -7,6 +7,7 @@ import Stripe from "stripe";
 import crypto from "crypto";
 import fs from "fs";
 
+// ---------- ENV ----------
 const {
   PORT = 3000,
   NODE_ENV = "production",
@@ -14,7 +15,7 @@ const {
   STRIPE_SECRET_KEY,
   STRIPE_WEBHOOK_SECRET,
 
-  // Stripe PRICE ids (must start with "price_")
+  // Stripe PRICE ids (must be price_...)
   STRIPE_PRICE_ALLACCESS,
   STRIPE_PRICE_PREMIUM,
   STRIPE_PRICE_THEMES,
@@ -23,13 +24,13 @@ const {
   STRIPE_PRICE_ADFREE,
   STRIPE_PRICE_DAILYHINT,
 
-  // optional donate price id
+  // optional donation price
   STRIPE_PRICE_DONATION,
 
   ALLOWED_ORIGIN = "https://survive.com",
 } = process.env;
 
-// ------------ Stripe ------------
+// ---------- Stripe ----------
 if (!STRIPE_SECRET_KEY) console.warn("⚠️  STRIPE_SECRET_KEY missing");
 if (!STRIPE_WEBHOOK_SECRET) console.warn("⚠️  STRIPE_WEBHOOK_SECRET missing");
 
@@ -37,7 +38,7 @@ const stripe = new Stripe(STRIPE_SECRET_KEY, {
   apiVersion: "2024-06-20",
 });
 
-// ------------ App / middleware ------------
+// ---------- App ----------
 const app = express();
 
 app.use(
@@ -48,11 +49,13 @@ app.use(
 );
 
 app.use(cookieParser());
-app.use("/api", express.json()); // IMPORTANT: webhook below uses express.raw
+// NOTE: webhook uses express.raw; keep JSON for other /api routes
+app.use("/api", express.json());
 
-// ------------ UID helpers ------------
+// ---------- UID helper ----------
 function getOrSetUID(req, res) {
-  let uid = (req.headers["x-uid"] && String(req.headers["x-uid"])) || req.cookies?.uid;
+  let uid =
+    (req.headers["x-uid"] && String(req.headers["x-uid"])) || req.cookies?.uid;
   if (!uid) {
     uid = crypto.randomUUID();
     res.cookie("uid", uid, {
@@ -66,52 +69,71 @@ function getOrSetUID(req, res) {
   return uid;
 }
 
-// ------------ In-memory stores (replace with DB when ready) ------------
-const purchases = new Map();               // Map<uid, Set<product>>
-const dailyHintUsedAt = new Map();         // Map<uid, YYYY-MM-DD>
-const intentIndex = new Map();             // Map<payment_intent_id, {uid,product}>
-const globalLB = [];                       // Array<{uid,name,points}>
-const regionLB = new Map();                // Map<region, Array<{uid,name,points}>>
-const rooms = new Map();                   // Map<code, {members:Set, log:Array, createdAt:number}>
+// ---------- In-memory stores (swap with DB later) ----------
+/** Map<uid, Set<product>> */
+const purchases = new Map();
+/** Map<uid, YYYY-MM-DD> */
+const dailyHintUsedAt = new Map();
+/** Map<paymentIntentId, {uid, product}> */
+const intentIndex = new Map();
+/** Global leaderboard */
+const globalLB = []; // [{uid,name,points}]
+/** Region leaderboard */
+const regionLB = new Map(); // Map<region, Array<{uid,name,points}>>
+/** Multiplayer rooms */
+const rooms = new Map(); // Map<code, {members:Set<string>, log:Array, createdAt:number}>
 
-// helpers
+const PARTY_LIMIT = 10;
+
+// ---------- Helpers ----------
+function randomCode() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let s = "";
+  for (let i = 0; i < 4; i++)
+    s += alphabet[Math.floor(Math.random() * alphabet.length)];
+  return s;
+}
+
 function pushScore({ uid, name, points, region = "NA" }) {
-  const capName = String(name || "Player").slice(0, 24);
+  const safeName = String(name || "Player").slice(0, 24);
   const pts = Number(points) || 0;
 
   // global
-  const gi = globalLB.findIndex(r => r.uid === uid);
+  const gi = globalLB.findIndex((r) => r.uid === uid);
   if (gi >= 0) {
     globalLB[gi].points = Math.max(globalLB[gi].points, pts);
-    globalLB[gi].name = capName;
+    globalLB[gi].name = safeName;
   } else {
-    globalLB.push({ uid, name: capName, points: pts });
+    globalLB.push({ uid, name: safeName, points: pts });
   }
   globalLB.sort((a, b) => b.points - a.points);
   if (globalLB.length > 100) globalLB.length = 100;
 
   // region
   const arr = regionLB.get(region) || [];
-  const ri = arr.findIndex(r => r.uid === uid);
+  const ri = arr.findIndex((r) => r.uid === uid);
   if (ri >= 0) {
     arr[ri].points = Math.max(arr[ri].points, pts);
-    arr[ri].name = capName;
+    arr[ri].name = safeName;
   } else {
-    arr.push({ uid, name: capName, points: pts });
+    arr.push({ uid, name: safeName, points: pts });
   }
   arr.sort((a, b) => b.points - a.points);
   if (arr.length > 100) arr.length = 100;
   regionLB.set(region, arr);
 }
 
-function randomCode() {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let s = "";
-  for (let i = 0; i < 4; i++) s += alphabet[Math.floor(Math.random() * alphabet.length)];
-  return s;
+function inferRegionFromTZ(tz = "") {
+  if (/America\//.test(tz)) return "NA";
+  if (/Europe\//.test(tz)) return "EU";
+  if (/Asia\//.test(tz)) return "AS";
+  if (/Australia\/|Pacific\//.test(tz)) return "OC";
+  if (/Africa\//.test(tz)) return "AF";
+  if (/America\/(Argentina|Santiago|Sao_Paulo)/.test(tz)) return "SA";
+  return "NA";
 }
 
-// ------------ Product/price mapping ------------
+// ---------- Product/Price maps ----------
 const PRICE_TO_PRODUCT = new Map(
   [
     [STRIPE_PRICE_ALLACCESS, "all_access"],
@@ -137,12 +159,20 @@ const PRODUCT_TO_PRICE = {
 function grant(uid, product) {
   const set = purchases.get(uid) ?? new Set();
   set.add(product);
-
   if (product === "all_access") {
-    ["premium", "themes_pack", "survival", "premium_stats", "ad_free", "daily_hint"].forEach(p => set.add(p));
+    [
+      "premium",
+      "themes_pack",
+      "survival",
+      "premium_stats",
+      "ad_free",
+      "daily_hint",
+    ].forEach((p) => set.add(p));
   }
   if (product === "premium") {
-    ["themes_pack", "premium_stats", "survival", "ad_free"].forEach(p => set.add(p));
+    ["themes_pack", "premium_stats", "survival", "ad_free"].forEach((p) =>
+      set.add(p)
+    );
   }
   purchases.set(uid, set);
 }
@@ -151,7 +181,15 @@ function revoke(uid, product) {
   const set = purchases.get(uid);
   if (!set) return;
   if (product === "all_access") {
-    ["all_access","premium","themes_pack","survival","premium_stats","ad_free","daily_hint"].forEach(p => set.delete(p));
+    [
+      "all_access",
+      "premium",
+      "themes_pack",
+      "survival",
+      "premium_stats",
+      "ad_free",
+      "daily_hint",
+    ].forEach((p) => set.delete(p));
   } else {
     set.delete(product);
   }
@@ -165,23 +203,31 @@ function perksFor(uid) {
   return {
     active: hasAll || hasPremium,
     owned: [...owned],
-    perks: hasAll || hasPremium
-      ? { maxRows: 8, winBonus: 5, accent: "#ffb400", themesPack: true }
-      : { maxRows: 6, winBonus: 0, accent: undefined, themesPack: owned.has("themes_pack") },
+    perks:
+      hasAll || hasPremium
+        ? { maxRows: 8, winBonus: 5, accent: "#ffb400", themesPack: true }
+        : {
+            maxRows: 6,
+            winBonus: 0,
+            accent: undefined,
+            themesPack: owned.has("themes_pack"),
+          },
   };
 }
 
-// ------------ Health ------------
+// ---------- Health ----------
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 
-// ------------ Payments: create checkout ------------
+// ---------- Payments: checkout ----------
 app.post("/api/pay/checkout", async (req, res) => {
   try {
     const uid = getOrSetUID(req, res);
     const { product } = req.body || {};
     const price = PRODUCT_TO_PRICE[product];
     if (!price) {
-      return res.status(400).json({ error: `Unknown product: ${product}. Price not configured on server.` });
+      return res
+        .status(400)
+        .json({ error: `Unknown product: ${product}. Price not configured on server.` });
     }
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
@@ -198,11 +244,12 @@ app.post("/api/pay/checkout", async (req, res) => {
   }
 });
 
-// donation helper
+// Donation (optional)
 app.get("/api/pay/support-link", async (req, res) => {
   try {
     const uid = getOrSetUID(req, res);
-    if (!STRIPE_PRICE_DONATION) return res.json({ url: null, error: "donation-price-not-configured" });
+    if (!STRIPE_PRICE_DONATION)
+      return res.json({ url: null, error: "donation-price-not-configured" });
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       client_reference_id: uid,
@@ -218,7 +265,7 @@ app.get("/api/pay/support-link", async (req, res) => {
   }
 });
 
-// ------------ Webhook (RAW body) ------------
+// ---------- Webhook (RAW body!) ----------
 app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
   const sig = req.headers["stripe-signature"];
   let event;
@@ -242,7 +289,10 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
         }
         if (uid && product) {
           grant(uid, product);
-          const pi = typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id;
+          const pi =
+            typeof s.payment_intent === "string"
+              ? s.payment_intent
+              : s.payment_intent?.id;
           if (pi) intentIndex.set(pi, { uid, product });
           console.log(`✅ Granted ${product} to uid=${uid}`);
         } else {
@@ -258,7 +308,7 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
           revoke(uid, product);
           console.log(`↩️  Revoked ${product} from uid=${uid} (refund)`);
         } else {
-          console.log("Refund received, no mapping for PI:", pi);
+          console.log("Refund received; no mapping for payment_intent:", pi);
         }
         break;
       }
@@ -272,7 +322,7 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
   }
 });
 
-// ------------ Status / daily hint ------------
+// ---------- Status / daily hint ----------
 app.get("/api/pay/status", (req, res) => {
   const uid = getOrSetUID(req, res);
   res.json(perksFor(uid));
@@ -287,7 +337,7 @@ app.post("/api/hint/free", (req, res) => {
   res.json({ ok: true });
 });
 
-// ------------ Words API (5-letter list) ------------
+// ---------- Words API (5-letter) ----------
 let WORDS5 = null;
 try {
   if (fs.existsSync("./words5.json")) {
@@ -303,18 +353,17 @@ try {
 } catch (e) {
   console.warn("Could not load words5.json, using fallback.", e?.message);
 }
-
 const FALLBACK5 = [
-  "about","other","which","their","there","first","build","donut","smile","light","water",
-  "array","shift","grape","apple","north","mouse","robot","laser","salad","bread"
+  "about","other","which","their","there","first","build","donut","smile",
+  "light","water","array","shift","grape","apple","north","mouse","robot",
+  "laser","salad","bread","zebra"
 ];
-
 app.get("/api/words5", (_req, res) => {
   if (WORDS5 && WORDS5.length) return res.json(WORDS5);
   res.json(FALLBACK5);
 });
 
-// ------------ Leaderboards ------------
+// ---------- Leaderboards ----------
 app.get("/api/lb/global", (_req, res) => {
   res.json(globalLB.slice(0, 50));
 });
@@ -322,16 +371,7 @@ app.get("/api/lb/global", (_req, res) => {
 app.get("/api/lb/region", (req, res) => {
   const region = (req.query.region && String(req.query.region)) || "";
   const tz = (req.query.tz && String(req.query.tz)) || "";
-  let key = region;
-  if (!key) {
-    if (/America\//.test(tz)) key = "NA";
-    else if (/Europe\//.test(tz)) key = "EU";
-    else if (/Asia\//.test(tz)) key = "AS";
-    else if (/Australia\/|Pacific\//.test(tz)) key = "OC";
-    else if (/Africa\//.test(tz)) key = "AF";
-    else if (/America\/(Argentina|Santiago|Sao_Paulo)/.test(tz)) key = "SA";
-    else key = "NA";
-  }
+  const key = region || inferRegionFromTZ(tz);
   res.json((regionLB.get(key) || []).slice(0, 50));
 });
 
@@ -347,7 +387,7 @@ app.post("/api/lb/submit", (req, res) => {
   res.json({ ok: true });
 });
 
-// ------------ Multiplayer (simple polling) ------------
+// ---------- Multiplayer (party of 10) ----------
 app.post("/api/mp/create", (req, res) => {
   const uid = getOrSetUID(req, res);
   let code = "";
@@ -356,15 +396,22 @@ app.post("/api/mp/create", (req, res) => {
     if (!rooms.has(code)) break;
   }
   if (rooms.has(code)) return res.status(500).json({ error: "room-create-failed" });
-  rooms.set(code, { members: new Set([uid]), log: [{ t: Date.now(), type: "created" }], createdAt: Date.now() });
-  res.json({ room: code });
+  rooms.set(code, {
+    members: new Set([uid]),
+    log: [{ t: Date.now(), type: "created" }],
+    createdAt: Date.now(),
+  });
+  res.json({ room: code, limit: PARTY_LIMIT });
 });
 
 app.post("/api/mp/join", (req, res) => {
   const uid = getOrSetUID(req, res);
   const { room } = req.body || {};
-  const r = rooms.get(String(room || "").toUpperCase());
+  const code = String(room || "").toUpperCase();
+  const r = rooms.get(code);
   if (!r) return res.status(404).json({ error: "room-not-found" });
+  if (r.members.size >= PARTY_LIMIT)
+    return res.status(409).json({ error: "room-full" });
   r.members.add(uid);
   r.log.push({ t: Date.now(), type: "join", from: uid });
   res.json({ ok: true });
@@ -373,25 +420,26 @@ app.post("/api/mp/join", (req, res) => {
 app.post("/api/mp/leave", (req, res) => {
   const uid = getOrSetUID(req, res);
   const { room } = req.body || {};
-  const r = rooms.get(String(room || "").toUpperCase());
+  const code = String(room || "").toUpperCase();
+  const r = rooms.get(code);
   if (r) {
     r.members.delete(uid);
     r.log.push({ t: Date.now(), type: "leave", from: uid });
-    if (r.members.size === 0 && Date.now() - r.createdAt > 60_000) rooms.delete(room);
+    if (r.members.size === 0 && Date.now() - r.createdAt > 60_000) rooms.delete(code);
   }
   res.json({ ok: true });
 });
 
 app.get("/api/mp/poll", (req, res) => {
   const uid = getOrSetUID(req, res);
-  const room = String(req.query.room || "").toUpperCase();
+  const code = String(req.query.room || "").toUpperCase();
   const since = Number(req.query.since || 0) || 0;
-  const r = rooms.get(room);
+  const r = rooms.get(code);
   if (!r || !r.members.has(uid)) return res.json([]);
-  res.json(r.log.filter(m => m.t > since));
+  res.json(r.log.filter((m) => m.t > since));
 });
 
-// ------------ Diagnostics (to kill 404 mystery) ------------
+// ---------- Diagnostics ----------
 app.get("/api/version", (_req, res) => {
   res.json({
     env: NODE_ENV,
@@ -417,7 +465,20 @@ app.get("/api/_routes", (_req, res) => {
   res.json(out.sort());
 });
 
-// ------------ Start ------------
+app.get("/api/pay/diag", (_req, res) => {
+  res.json({
+    ALLACCESS: !!STRIPE_PRICE_ALLACCESS,
+    PREMIUM: !!STRIPE_PRICE_PREMIUM,
+    THEMES: !!STRIPE_PRICE_THEMES,
+    SURVIVAL: !!STRIPE_PRICE_SURVIVAL,
+    STATS: !!STRIPE_PRICE_STATS,
+    ADFREE: !!STRIPE_PRICE_ADFREE,
+    DAILYHINT: !!STRIPE_PRICE_DAILYHINT,
+    DONATION: !!STRIPE_PRICE_DONATION,
+  });
+});
+
+// ---------- Start ----------
 app.listen(PORT, () => {
   console.log(`API listening on :${PORT} (${NODE_ENV})`);
 });
