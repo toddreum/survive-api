@@ -32,7 +32,7 @@ const {
   STRIPE_PRICE_STATS,
   STRIPE_PRICE_ADFREE,
   STRIPE_PRICE_DAILYHINT,
-  STRIPE_PRICE_DONATION, // ADDED: Recognizing the Donation price ID
+  STRIPE_PRICE_DONATION, // Recognizing the Donation price ID
 
   // All-access (normalize both spellings)
   STRIPE_PRICE_ALLACCESS,
@@ -179,7 +179,7 @@ const PRICE_TO_PRODUCT = new Map(
     [STRIPE_PRICE_ADFREE, "ad_free"],
     [STRIPE_PRICE_DAILYHINT, "daily_hint"],
     [STRIPE_PRICE_MONTHLY, "monthly_pass"],
-    [STRIPE_PRICE_DONATION, "donation"], // ADDED: Mapping the donation price ID
+    [STRIPE_PRICE_DONATION, "donation"],
   ].filter(([k]) => !!k)
 );
 
@@ -192,7 +192,7 @@ const PRODUCT_TO_PRICE = {
   ad_free: STRIPE_PRICE_ADFREE,
   daily_hint: STRIPE_PRICE_DAILYHINT,
   monthly_pass: STRIPE_PRICE_MONTHLY,
-  donation: STRIPE_PRICE_DONATION, // ADDED: Mapping the donation price ID
+  donation: STRIPE_PRICE_DONATION,
 };
 
 function grant(uid, product) {
@@ -500,4 +500,114 @@ const OFFLINE_WORDS = {
   food:["apple","bread","grape","onion","pizza"],
   health:["nurse","vital","salts","clean","medic"],
   body:["brain","tooth","elbow","knees","hands"],
-  emotions:["happy
+  emotions:["happy","angry","proud","smile","scare"],
+  objects:["chair","table","couch","phone","clock"],
+  business:["money","sales","stock","trade","loans"],
+  politics:["voter","party","union","civic","bills"],
+  technology:["laser","cable","fiber","robot","chips"],
+  places:["paris","tokyo","spain","plaza","delta"],
+  nature:["stone","river","beach","storm","cloud"],
+  sports:["chess","skate","tenis","hockey","socer"],
+  people:["human","adult","pilot","guard","nurse"],
+  math:["angle","ratio","sigma","theta","minus"],
+  sciences:["cells","atoms","field","light","waves"],
+  biology:["flora","fauna","spore","organ","genes"],
+  chemistry:["ionic","oxide","ester","atoms","amine"],
+  physics:["force","quark","boson","laser","field"],
+  history:["roman","noble","union","empir","spain"],
+  geography:["delta","atlas","plain","coast","ocean"],
+  socials:["group","class","norms","ethic","civix"],
+};
+
+self.addEventListener("install", e=>{
+  e.waitUntil(caches.open(CACHE).then(c=>c.addAll(APP_SHELL)).catch(()=>{}));
+  self.skipWaiting();
+});
+self.addEventListener("activate", e=>{
+  e.waitUntil((async()=>{
+    const keys = await caches.keys();
+    await Promise.all(keys.map(k=>k===CACHE?null:caches.delete(k)));
+    self.clients.claim();
+  })());
+});
+
+function offlineRandom(cat){
+  const list = OFFLINE_WORDS[cat] || OFFLINE_WORDS.general || ["apple"];
+  const word = list[(Math.random()*list.length)|0] || "apple";
+  return new Response(JSON.stringify({ word, cat, offline:true }), { headers:{ "Content-Type":"application/json" }});
+}
+
+self.addEventListener("fetch", (event) => {
+  const req = event.request;
+  const url = new URL(req.url);
+  if (url.origin !== location.origin) return;
+
+  // API: network-first; /api/random has offline fallback
+  if (url.pathname.startsWith("/api/")) {
+    if (url.pathname === "/api/random") {
+      event.respondWith((async()=>{
+        try {
+          const net = await fetch(req);
+          if (net && net.ok) return net;
+          const cat = (url.searchParams.get("cat") || "general").toLowerCase();
+          return offlineRandom(cat);
+        } catch {
+          const cat = (url.searchParams.get("cat") || "general").toLowerCase();
+          return offlineRandom(cat);
+        }
+      })());
+      return;
+    }
+    event.respondWith((async()=>{
+      try {
+        const net = await fetch(req);
+        if (net && net.ok) return net;
+        const cache = await caches.open(CACHE);
+        const cached = await cache.match(req);
+        return cached || net;
+      } catch {
+        const cache = await caches.open(CACHE);
+        const cached = await cache.match(req);
+        return cached || new Response(JSON.stringify({error:"offline"}), {status:503});
+      }
+    })());
+    return;
+  }
+
+  // Navigations: network-first with cached fallback
+  if (req.mode === "navigate") {
+    event.respondWith((async()=>{
+      try {
+        const net = await fetch(req);
+        const cache = await caches.open(CACHE);
+        cache.put("/index.html", net.clone());
+        return net;
+      } catch {
+        const cache = await caches.open(CACHE);
+        const cached = await cache.match("/index.html");
+        return cached || new Response("<h1>Offline</h1>",{headers:{"Content-Type":"text/html"}});
+      }
+    })());
+    return;
+  }
+
+  // Other same-origin GET: stale-while-revalidate
+  if (req.method === "GET") {
+    event.respondWith((async()=>{
+      const cache = await caches.open(CACHE);
+      const cached = await cache.match(req);
+      const netP = fetch(req).then(resp=>{
+        if (resp && resp.ok) cache.put(req, resp.clone());
+        return resp;
+      }).catch(()=>null);
+      return cached || (await netP) || Response.error();
+    })());
+  }
+});`; // FIX: Closing template literal
+  res.end(sw);
+});
+
+/* ------------------ Start ------------------ */
+app.listen(PORT, () => {
+  console.log(`API listening on :${PORT} (${NODE_ENV})`);
+});
