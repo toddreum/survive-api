@@ -51,7 +51,8 @@ const {
   CHAT_MAX_MSG_LEN = "200",
 
   // Optional: auto-categorize words without a category (else -> general)
-  AUTO_CATEGORIZE = "false",
+  // FIX: Default changed to "true" to ensure categorization runs if not explicitly set
+  AUTO_CATEGORIZE = "true", 
 } = process.env;
 
 // Normalize keys / envs
@@ -61,7 +62,8 @@ const ROOM_MAX = Number(ROOM_MAX_ENV || 10);
 const CHAT_ON = String(CHAT_ENABLED).toLowerCase() !== "false";
 const CHAT_RATE = Math.max(1000, Number(CHAT_RATE_MS) || 3000);
 const CHAT_MAXLEN = Math.min(500, Math.max(50, Number(CHAT_MAX_MSG_LEN) || 200));
-const DO_AUTO_CAT = String(AUTO_CATEGORIZE).toLowerCase() === "true";
+// FIX: DO_AUTO_CAT logic now correctly uses the overridden default "true"
+const DO_AUTO_CAT = String(AUTO_CATEGORIZE).toLowerCase() === "true"; 
 
 // Initialize Stripe client only if key is available
 const stripe = STRIPE_KEY ? new Stripe(STRIPE_KEY, { apiVersion: "2024-06-20" }) : null;
