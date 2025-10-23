@@ -18,7 +18,7 @@ const __dirname = path.dirname(__filename);
 const {
   PORT = 3000,
   NODE_ENV = "production",
-  ALLOWED_ORIGIN = "https://survive.com",
+  ALLOWED_ORIGIN = "http://localhost:3000",
 
   // Stripe keys
   STRIPE_SECRET,
@@ -66,17 +66,6 @@ if (!STRIPE_WEBHOOK_SECRET) console.warn("⚠️ STRIPE_WEBHOOK_SECRET missing")
 const app = express();
 app.set("trust proxy", true);
 
-/* ------------------ Basic hardening ------------------ */
-app.disable("x-powered-by");
-app.use((_, res, next) => {
-  // Frontend is still viewable in the browser, but add sane headers
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "DENY");
-  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-  res.setHeader("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
-  next();
-});
-
 // CORS
 app.use(
   cors({
@@ -97,7 +86,7 @@ function uidMiddleware(req, res, next) {
     res.cookie("uid", uid, {
       httpOnly: false, // front-end only needs it sent back
       sameSite: "none",
-      secure: true,
+      secure: NODE_ENV !== "development",
       path: "/",
       maxAge: 1000 * 60 * 60 * 24 * 365, // 1y
     });
@@ -113,16 +102,27 @@ const CLASSIC_CATS = [
   "animals","plants","food","health","body","emotions","objects","business",
   "politics","technology","places","nature","sports","people","general"
 ];
-// Educational
-const EDU_CATS = [
+// Education
+const EDUCATION_CATS = [
   "math","sciences","biology","chemistry","physics","history","geography","socials"
 ];
-const CATS = new Set([...CLASSIC_CATS, ...EDU_CATS]);
+// Unified allow-list
+const CATS = new Set([...CLASSIC_CATS, ...EDUCATION_CATS]);
 
-/* ------------------ Words (server-side only) ------------------ */
+/* ------------------ Words ------------------ */
+/**
+ * Place your dictionary at: data/words5.txt
+ * Format: word,category
+ * Example:
+ *   apple,food
+ *   zebra,animals
+ * Rules:
+ *   - word: exactly 5 lowercase letters [a-z]
+ *   - category: one of the allowed categories above (else mapped to 'general')
+ */
 const WORDS = [];
 try {
-  const p = path.join(__dirname, "data", "words5.txt"); // keep this private on server
+  const p = path.join(__dirname, "data", "words5.txt");
   if (fs.existsSync(p)) {
     const raw = fs.readFileSync(p, "utf8").split(/\r?\n/);
     for (const line of raw) {
@@ -137,7 +137,7 @@ try {
     console.log(`✅ Loaded ${WORDS.length} words from data/words5.txt`);
   } else {
     console.warn("⚠️ data/words5.txt not found — using a tiny fallback list");
-    for (const w of ["apple","build","crane","zebra","mouse","donut","crown","flame","stone","tiger"]) {
+    for (const w of ["apple","zebra","plant","brain","heart","chair","nurse","crown","cable","tiger"]) {
       WORDS.push({ word: w, cat: "general" });
     }
   }
@@ -149,7 +149,7 @@ try {
 const purchases = new Map();      // Map<uid, Set<product>>
 const lastWordByUid = new Map();  // Map<uid, Set<recent words>>
 const scores = [];                // {uid, pts, mode, tz, at, name}
-const rooms = new Map();          // Map<roomId, {host, members:Set<uid>, createdAt, max, msgs:[], __last:Map<uid,ts>}
+const rooms = new Map();          // Map<roomId, {host, members:Set<uid>, createdAt, max, msgs:[], __last:Map<uid,ts>}>
 
 /* ------------------ Helpers ------------------ */
 const PRICE_TO_PRODUCT = new Map(
@@ -188,6 +188,12 @@ function grant(uid, product) {
   }
   purchases.set(uid, set);
 }
+function revoke(uid, product) {
+  const set = purchases.get(uid);
+  if (!set) return;
+  set.delete(product);
+  purchases.set(uid, set);
+}
 function hasMonthly(uid) {
   const set = purchases.get(uid) || new Set();
   return set.has("monthly_pass");
@@ -202,12 +208,18 @@ function looksLikeContact(str) {
   return email || phone || handle || link;
 }
 
-/* ------------------ Health & meta ------------------ */
+/* ------------------ Health & categories ------------------ */
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, words: WORDS.length, stripe: !!STRIPE_KEY, chat: CHAT_ON, roomMax: ROOM_MAX });
+  res.json({
+    ok: true,
+    words: WORDS.length,
+    stripe: !!STRIPE_KEY,
+    chat: CHAT_ON,
+    roomMax: ROOM_MAX,
+  });
 });
 app.get("/api/categories", (_req, res) => {
-  res.json({ classic: CLASSIC_CATS, education: EDU_CATS });
+  res.json({ classic: CLASSIC_CATS, education: EDUCATION_CATS });
 });
 
 /* ------------------ Dictionary + Random ------------------ */
@@ -283,6 +295,7 @@ app.post("/api/mp/create", (req, res) => {
   });
   res.json({ ok: true, roomId, max: ROOM_MAX });
 });
+
 app.post("/api/mp/join", (req, res) => {
   const { roomId } = req.body || {};
   const r = rooms.get(String(roomId || "").toUpperCase());
@@ -291,6 +304,7 @@ app.post("/api/mp/join", (req, res) => {
   r.members.add(req.uid);
   res.json({ ok: true, roomId });
 });
+
 app.post("/api/match/queue", (req, res) => {
   const roomId =
     (Math.random().toString(36).slice(2, 6) + Math.random().toString(36).slice(2, 4)).toUpperCase();
@@ -449,54 +463,94 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), (req,
   })();
 });
 
-/* ------------------ Serve minimal frontend + SW ------------------ */
-// index.html is expected to be next to this file in your repo
+/* ------------------ Minimal frontend & SW ------------------ */
+// Serve index.html (we keep a 2-file repo)
 app.get("/", (_req, res) => {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   fs.createReadStream(path.join(__dirname, "index.html")).pipe(res);
 });
 
-// Service worker WITHOUT any dictionary or random-word fallback
+// Dynamically serve the service worker at /sw.js
 app.get("/sw.js", (_req, res) => {
   res.setHeader("Content-Type", "application/javascript; charset=utf-8");
   res.setHeader("Service-Worker-Allowed", "/");
-  const CACHE_VER = "v2"; // bump when you deploy
-  res.end(`/* Service Worker (shell-only; no dictionary exposed) */
-const CACHE_NAME = "survive-shell-${CACHE_VER}";
-const APP_SHELL = ["/","/sw.js","/survive-logo.png"]; // add any static assets you host
+  const CACHE_VER = "v1-" + Math.floor(Date.now() / (1000 * 60 * 60)); // bump hourly to help with deploys
+  const sw = `/* Service Worker (offline support) */
+const CACHE_NAME = "app-shell-${CACHE_VER}";
+const APP_SHELL = ["/","/sw.js"]; // add more assets if you later host them
 
-self.addEventListener("install",(event)=>{
-  event.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(APP_SHELL)));
+// very small offline dictionary fallback (5-letter words)
+const OFFLINE_WORDS = {
+  general: ["apple","chair","crown","zebra","tiger","cable","nurse","plant","brain","heart"],
+};
+
+// Install: cache the app shell
+self.addEventListener("install", (event) => {
+  event.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(APP_SHELL)));
   self.skipWaiting();
 });
 
-self.addEventListener("activate",(event)=>{
-  event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE_NAME).map(k=>caches.delete(k)))));
+// Activate: clean old caches
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    caches.keys().then(keys =>
+      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
+    )
+  );
   self.clients.claim();
 });
 
-// Cache-first for same-origin GET shell assets.
-// API calls go to network (no offline word leaks).
-self.addEventListener("fetch",(event)=>{
-  const req = event.request;
-  const url = new URL(req.url);
-  if(req.method!=="GET" || url.origin!==location.origin) return;
+function offlineRandom(cat) {
+  const list = OFFLINE_WORDS[cat] || OFFLINE_WORDS.general;
+  const word = list[(Math.random()*list.length)|0];
+  return new Response(JSON.stringify({ word, cat: cat || "general", offline: true }), {
+    headers: { "Content-Type": "application/json" },
+    status: 200
+  });
+}
 
-  if (url.pathname.startsWith("/api/")) return; // never cache API
+self.addEventListener("fetch", (event) => {
+  const url = new URL(event.request.url);
 
-  event.respondWith(
-    caches.match(req).then(cached=>{
-      if (cached) return cached;
-      return fetch(req).then(resp=>{
-        if (resp.ok) caches.open(CACHE_NAME).then(c=>c.put(req, resp.clone()));
-        return resp;
-      }).catch(()=>caches.match("/"));
-    })
-  );
-});`);
+  // Offline fallback for random word API
+  if (url.pathname === "/api/random") {
+    event.respondWith(
+      (async () => {
+        try {
+          const net = await fetch(event.request);
+          if (net && net.ok) return net;
+          // network failed or non-200
+          const cat = url.searchParams.get("cat") || "general";
+          return offlineRandom(cat);
+        } catch {
+          const cat = url.searchParams.get("cat") || "general";
+          return offlineRandom(cat);
+        }
+      })()
+    );
+    return;
+  }
+
+  // Cache-first for app shell requests (GET only)
+  if (event.request.method === "GET" && (url.origin === location.origin)) {
+    event.respondWith(
+      caches.match(event.request).then(cached => {
+        const network = fetch(event.request).then(resp => {
+          if (resp && resp.ok && resp.type === "basic") {
+            const clone = resp.clone();
+            caches.open(CACHE_NAME).then(c => c.put(event.request, clone));
+          }
+          return resp;
+        }).catch(() => cached);
+        return cached || network;
+      })
+    );
+  }
+});`;
+  res.end(sw);
 });
 
 /* ------------------ Start ------------------ */
 app.listen(PORT, () => {
-  console.log(`API listening on :${PORT} (${NODE_ENV})`);
+  console.log(`Web + API listening on :${PORT} (${NODE_ENV})`);
 });
