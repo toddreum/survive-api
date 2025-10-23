@@ -86,7 +86,7 @@ function uidMiddleware(req, res, next) {
   if (!uid) {
     uid = crypto.randomUUID();
     res.cookie("uid", uid, {
-      httpOnly: false,
+      httpOnly: false, // front-end only needs it sent back
       sameSite: "none",
       secure: true,
       path: "/",
@@ -99,7 +99,18 @@ function uidMiddleware(req, res, next) {
 app.use(uidMiddleware);
 
 /* ------------------ Words ------------------ */
-const CATS = new Set(["animals", "science", "geography", "food", "history", "math", "language", "general"]);
+// Classic categories
+const CLASSIC_CATS = [
+  "animals","plants","food","health","body","emotions","objects","business",
+  "politics","technology","places","nature","sports","people","general"
+];
+// Educational categories
+const EDU_CATS = [
+  "math","sciences","biology","chemistry","physics","history","geography","socials"
+];
+// The API only sees "cat" strings; support the union of all valid categories.
+const CATS = new Set([...CLASSIC_CATS, ...EDU_CATS]);
+
 const WORDS = [];
 try {
   const p = path.join(__dirname, "data", "words5.txt");
@@ -129,7 +140,7 @@ try {
 const purchases = new Map();      // Map<uid, Set<product>>
 const lastWordByUid = new Map();  // Map<uid, Set<recent words>>
 const scores = [];                // {uid, pts, mode, tz, at, name}
-const rooms = new Map();          // Map<roomId, {host, members:Set<uid>, createdAt, max, msgs:[], __last:Map<uid,ts>}>
+const rooms = new Map();          // Map<roomId, {host, members:Set<uid>, createdAt, max, msgs:[], __last:Map<uid,ts>}
 
 /* ------------------ Helpers ------------------ */
 const PRICE_TO_PRODUCT = new Map(
