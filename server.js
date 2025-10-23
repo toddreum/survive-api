@@ -58,15 +58,24 @@ const CHAT_ON = String(CHAT_ENABLED).toLowerCase() !== "false";
 const CHAT_RATE = Math.max(1000, Number(CHAT_RATE_MS) || 3000);
 const CHAT_MAXLEN = Math.min(500, Math.max(50, Number(CHAT_MAX_MSG_LEN) || 200));
 
-const stripe = STRIPE_KEY
-  ? new Stripe(STRIPE_KEY, { apiVersion: "2024-06-20" })
-  : null;
+const stripe = STRIPE_KEY ? new Stripe(STRIPE_KEY, { apiVersion: "2024-06-20" }) : null;
 
 if (!STRIPE_KEY) console.warn("⚠️ Stripe secret key missing");
 if (!STRIPE_WEBHOOK_SECRET) console.warn("⚠️ STRIPE_WEBHOOK_SECRET missing");
 
 const app = express();
 app.set("trust proxy", true);
+
+/* ------------------ Basic hardening ------------------ */
+app.disable("x-powered-by");
+app.use((_, res, next) => {
+  // Frontend is still viewable in the browser, but add sane headers
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
+  next();
+});
 
 // CORS
 app.use(
@@ -98,22 +107,22 @@ function uidMiddleware(req, res, next) {
 }
 app.use(uidMiddleware);
 
-/* ------------------ Words ------------------ */
-// Classic categories
+/* ------------------ Categories ------------------ */
+// Classic
 const CLASSIC_CATS = [
   "animals","plants","food","health","body","emotions","objects","business",
   "politics","technology","places","nature","sports","people","general"
 ];
-// Educational categories
+// Educational
 const EDU_CATS = [
   "math","sciences","biology","chemistry","physics","history","geography","socials"
 ];
-// The API only sees "cat" strings; support the union of all valid categories.
 const CATS = new Set([...CLASSIC_CATS, ...EDU_CATS]);
 
+/* ------------------ Words (server-side only) ------------------ */
 const WORDS = [];
 try {
-  const p = path.join(__dirname, "data", "words5.txt");
+  const p = path.join(__dirname, "data", "words5.txt"); // keep this private on server
   if (fs.existsSync(p)) {
     const raw = fs.readFileSync(p, "utf8").split(/\r?\n/);
     for (const line of raw) {
@@ -170,7 +179,6 @@ const PRODUCT_TO_PRICE = {
 function grant(uid, product) {
   const set = purchases.get(uid) ?? new Set();
   set.add(product);
-  // Bundles imply others
   if (product === "premium" || product === "all_access" || product === "monthly_pass") {
     set.add("themes_pack");
     set.add("premium_stats");
@@ -178,12 +186,6 @@ function grant(uid, product) {
     set.add("ad_free");
     set.add("daily_hint");
   }
-  purchases.set(uid, set);
-}
-function revoke(uid, product) {
-  const set = purchases.get(uid);
-  if (!set) return;
-  set.delete(product);
   purchases.set(uid, set);
 }
 function hasMonthly(uid) {
@@ -200,15 +202,12 @@ function looksLikeContact(str) {
   return email || phone || handle || link;
 }
 
-/* ------------------ Health ------------------ */
+/* ------------------ Health & meta ------------------ */
 app.get("/api/health", (_req, res) => {
-  res.json({
-    ok: true,
-    words: WORDS.length,
-    stripe: !!STRIPE_KEY,
-    chat: CHAT_ON,
-    roomMax: ROOM_MAX,
-  });
+  res.json({ ok: true, words: WORDS.length, stripe: !!STRIPE_KEY, chat: CHAT_ON, roomMax: ROOM_MAX });
+});
+app.get("/api/categories", (_req, res) => {
+  res.json({ classic: CLASSIC_CATS, education: EDU_CATS });
 });
 
 /* ------------------ Dictionary + Random ------------------ */
@@ -219,9 +218,13 @@ app.get("/api/isword/:w", (req, res) => {
 
 app.get("/api/random", (req, res) => {
   const uid = req.uid;
-  const cat = String(req.query.cat || "random");
+  const cat = String(req.query.cat || "random").toLowerCase();
+
   let pool = WORDS;
-  if (cat !== "random") pool = WORDS.filter(x => x.cat === cat);
+  if (cat !== "random") {
+    if (!CATS.has(cat)) return res.status(400).json({ error: "unknown-category" });
+    pool = WORDS.filter(x => x.cat === cat);
+  }
   if (!pool.length) return res.status(404).json({ error: "no-words" });
 
   const recent = lastWordByUid.get(uid) ?? new Set();
@@ -237,7 +240,7 @@ app.get("/api/random", (req, res) => {
   if (recent.size > 12) recent.delete([...recent][0]);
   lastWordByUid.set(uid, recent);
 
-  res.json({ word: pick });
+  res.json({ word: pick, cat: cat === "random" ? "random" : cat });
 });
 
 /* ------------------ Leaderboards ------------------ */
@@ -280,7 +283,6 @@ app.post("/api/mp/create", (req, res) => {
   });
   res.json({ ok: true, roomId, max: ROOM_MAX });
 });
-
 app.post("/api/mp/join", (req, res) => {
   const { roomId } = req.body || {};
   const r = rooms.get(String(roomId || "").toUpperCase());
@@ -289,9 +291,7 @@ app.post("/api/mp/join", (req, res) => {
   r.members.add(req.uid);
   res.json({ ok: true, roomId });
 });
-
 app.post("/api/match/queue", (req, res) => {
-  // Minimal quick match: create a 2-player room
   const roomId =
     (Math.random().toString(36).slice(2, 6) + Math.random().toString(36).slice(2, 4)).toUpperCase();
   rooms.set(roomId, {
@@ -305,7 +305,7 @@ app.post("/api/match/queue", (req, res) => {
   res.json({ matched: true, roomId });
 });
 
-/* --- Emotes (allowed for anyone in a room) --- */
+/* --- Emotes --- */
 app.post("/api/mp/emote", (req, res) => {
   const { roomId, kind } = req.body || {};
   const r = rooms.get(String(roomId || "").toUpperCase());
@@ -317,7 +317,7 @@ app.post("/api/mp/emote", (req, res) => {
   res.json({ ok: true });
 });
 
-/* --- Text chat (pay-gated & age-gated) --- */
+/* --- Text chat (pay & age gated) --- */
 app.post("/api/mp/chat", (req, res) => {
   if (!CHAT_ON) return res.status(403).json({ error: "chat-disabled" });
 
@@ -343,7 +343,7 @@ app.post("/api/mp/chat", (req, res) => {
   res.json({ ok: true });
 });
 
-/* --- Room feed (emotes + chat) --- */
+/* --- Room feed --- */
 app.get("/api/mp/feed", (req, res) => {
   const roomId = String(req.query.roomId || "").toUpperCase();
   const since = Number(req.query.since || 0);
@@ -436,7 +436,6 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), (req,
         case "charge.refunded": {
           const charge = event.data.object;
           console.log("Refund received for charge", charge.id);
-          // Optional: map charge->uid/product at purchase time to revoke precisely
           break;
         }
         default:
@@ -448,6 +447,53 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), (req,
       res.status(500).send("webhook-handler-error");
     }
   })();
+});
+
+/* ------------------ Serve minimal frontend + SW ------------------ */
+// index.html is expected to be next to this file in your repo
+app.get("/", (_req, res) => {
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  fs.createReadStream(path.join(__dirname, "index.html")).pipe(res);
+});
+
+// Service worker WITHOUT any dictionary or random-word fallback
+app.get("/sw.js", (_req, res) => {
+  res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+  res.setHeader("Service-Worker-Allowed", "/");
+  const CACHE_VER = "v2"; // bump when you deploy
+  res.end(`/* Service Worker (shell-only; no dictionary exposed) */
+const CACHE_NAME = "survive-shell-${CACHE_VER}";
+const APP_SHELL = ["/","/sw.js","/survive-logo.png"]; // add any static assets you host
+
+self.addEventListener("install",(event)=>{
+  event.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(APP_SHELL)));
+  self.skipWaiting();
+});
+
+self.addEventListener("activate",(event)=>{
+  event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE_NAME).map(k=>caches.delete(k)))));
+  self.clients.claim();
+});
+
+// Cache-first for same-origin GET shell assets.
+// API calls go to network (no offline word leaks).
+self.addEventListener("fetch",(event)=>{
+  const req = event.request;
+  const url = new URL(req.url);
+  if(req.method!=="GET" || url.origin!==location.origin) return;
+
+  if (url.pathname.startsWith("/api/")) return; // never cache API
+
+  event.respondWith(
+    caches.match(req).then(cached=>{
+      if (cached) return cached;
+      return fetch(req).then(resp=>{
+        if (resp.ok) caches.open(CACHE_NAME).then(c=>c.put(req, resp.clone()));
+        return resp;
+      }).catch(()=>caches.match("/"));
+    })
+  );
+});`);
 });
 
 /* ------------------ Start ------------------ */
