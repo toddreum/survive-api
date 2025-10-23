@@ -32,7 +32,7 @@ const {
   STRIPE_PRICE_STATS,
   STRIPE_PRICE_ADFREE,
   STRIPE_PRICE_DAILYHINT,
-  STRIPE_PRICE_DONATION, // Recognizing the Donation price ID
+  STRIPE_PRICE_DONATION, 
 
   // All-access (normalize both spellings)
   STRIPE_PRICE_ALLACCESS,
@@ -136,11 +136,12 @@ function inferCategory(w) {
 }
 
 const WORDS = [];
+let wordLoadSuccess = false;
 try {
-  // Primary path (GitHub structure)
+  // Try primary path: ./data/words5.txt
   let p = path.resolve(__dirname, "data", "words5.txt"); 
   
-  // Secondary path (check if data folder is missing and file is in root)
+  // Try secondary path: ./words5.txt (in case deployed flat)
   if (!fs.existsSync(p)) {
       p = path.resolve(__dirname, "words5.txt"); 
   }
@@ -159,15 +160,18 @@ try {
       }
     }
     console.log(`✅ Loaded ${WORDS.length} words from ${path.basename(p)}`);
-  } else {
-    // If the words file isn't found, log a warning and use fallbacks.
-    console.warn(`⚠️ words5.txt not found (tried: ${path.resolve(__dirname, "data", "words5.txt")} and ${path.resolve(__dirname, "words5.txt")}) — using fallback list`);
-    for (const w of ["apple","build","crane","zebra","mouse","donut","crown","flame","stone","tiger"]) {
-      WORDS.push({ word: w, cat: "general" });
-    }
+    wordLoadSuccess = true;
   }
 } catch (e) {
-  console.error("Word load error", e);
+  console.error("Word load failed during parsing:", e);
+}
+
+// Fallback to minimal list if WORDS is still empty
+if (WORDS.length === 0) {
+    console.warn(`⚠️ Word list failed to load (${wordLoadSuccess ? 'Parsing Error' : 'File Not Found'}). Using minimal fallback list.`);
+    for (const w of ["apple","build","crane","zebra","mouse","donut","crown","flame","stone","tiger"]) {
+        WORDS.push({ word: w, cat: "general" });
+    }
 }
 
 /* ------------------ In-memory DB ------------------ */
