@@ -32,6 +32,7 @@ const {
   STRIPE_PRICE_STATS,
   STRIPE_PRICE_ADFREE,
   STRIPE_PRICE_DAILYHINT,
+  STRIPE_PRICE_DONATION, // ADDED: Recognizing the Donation price ID
 
   // All-access (normalize both spellings)
   STRIPE_PRICE_ALLACCESS,
@@ -62,6 +63,7 @@ const CHAT_RATE = Math.max(1000, Number(CHAT_RATE_MS) || 3000);
 const CHAT_MAXLEN = Math.min(500, Math.max(50, Number(CHAT_MAX_MSG_LEN) || 200));
 const DO_AUTO_CAT = String(AUTO_CATEGORIZE).toLowerCase() === "true";
 
+// Initialize Stripe client only if key is available
 const stripe = STRIPE_KEY ? new Stripe(STRIPE_KEY, { apiVersion: "2024-06-20" }) : null;
 
 if (!STRIPE_KEY) console.warn("⚠️ Stripe secret key missing");
@@ -149,7 +151,6 @@ try {
         WORDS.push({ word: w, cat });
       }
     }
-    // FIX: Added missing backtick to close template literal
     console.log(`✅ Loaded ${WORDS.length} words from data/words5.txt`);
   } else {
     console.warn("⚠️ data/words5.txt not found — using fallback list");
@@ -178,6 +179,7 @@ const PRICE_TO_PRODUCT = new Map(
     [STRIPE_PRICE_ADFREE, "ad_free"],
     [STRIPE_PRICE_DAILYHINT, "daily_hint"],
     [STRIPE_PRICE_MONTHLY, "monthly_pass"],
+    [STRIPE_PRICE_DONATION, "donation"], // ADDED: Mapping the donation price ID
   ].filter(([k]) => !!k)
 );
 
@@ -190,6 +192,7 @@ const PRODUCT_TO_PRICE = {
   ad_free: STRIPE_PRICE_ADFREE,
   daily_hint: STRIPE_PRICE_DAILYHINT,
   monthly_pass: STRIPE_PRICE_MONTHLY,
+  donation: STRIPE_PRICE_DONATION, // ADDED: Mapping the donation price ID
 };
 
 function grant(uid, product) {
@@ -386,6 +389,13 @@ app.get("/api/pay/status", (req, res) => res.json(perksFor(req.uid)));
 
 /* ------------------ Donate ------------------ */
 app.get("/api/pay/support-link", (req, res) => {
+  // Use STRIPE_PRICE_DONATION to trigger checkout for a one-time payment if no external link is set.
+  if (STRIPE_PRICE_DONATION) {
+    // Note: The client will handle calling checkout with 'donation' product ID.
+    return res.json({ url: `${ALLOWED_ORIGIN}/?product=donation` });
+  }
+
+  // Fallback to external link if provided
   if (!SUPPORT_LINK) return res.json({ error: "support-link-missing" });
   res.json({ url: SUPPORT_LINK });
 });
@@ -393,6 +403,7 @@ app.get("/api/pay/support-link", (req, res) => {
 /* ------------------ Stripe Checkout ------------------ */
 app.post("/api/pay/checkout", async (req, res) => {
   try {
+    // Check if Stripe is available
     if (!stripe) return res.status(500).json({ error: "stripe-key-missing" });
     const uid = req.uid;
     const { product } = req.body || {};
@@ -411,6 +422,7 @@ app.post("/api/pay/checkout", async (req, res) => {
     res.json({ url: session.url });
   } catch (e) {
     console.error("checkout error", e);
+    // Return a generic payment failure error
     res.status(500).json({ error: "checkout-failed" });
   }
 });
@@ -488,114 +500,4 @@ const OFFLINE_WORDS = {
   food:["apple","bread","grape","onion","pizza"],
   health:["nurse","vital","salts","clean","medic"],
   body:["brain","tooth","elbow","knees","hands"],
-  emotions:["happy","angry","proud","smile","scare"],
-  objects:["chair","table","couch","phone","clock"],
-  business:["money","sales","stock","trade","loans"],
-  politics:["voter","party","union","civic","bills"],
-  technology:["laser","cable","fiber","robot","chips"],
-  places:["paris","tokyo","spain","plaza","delta"],
-  nature:["stone","river","beach","storm","cloud"],
-  sports:["chess","skate","tenis","hockey","socer"],
-  people:["human","adult","pilot","guard","nurse"],
-  math:["angle","ratio","sigma","theta","minus"],
-  sciences:["cells","atoms","field","light","waves"],
-  biology:["flora","fauna","spore","organ","genes"],
-  chemistry:["ionic","oxide","ester","atoms","amine"],
-  physics:["force","quark","boson","laser","field"],
-  history:["roman","noble","union","empir","spain"],
-  geography:["delta","atlas","plain","coast","ocean"],
-  socials:["group","class","norms","ethic","civix"],
-};
-
-self.addEventListener("install", e=>{
-  e.waitUntil(caches.open(CACHE).then(c=>c.addAll(APP_SHELL)).catch(()=>{}));
-  self.skipWaiting();
-});
-self.addEventListener("activate", e=>{
-  e.waitUntil((async()=>{
-    const keys = await caches.keys();
-    await Promise.all(keys.map(k=>k===CACHE?null:caches.delete(k)));
-    self.clients.claim();
-  })());
-});
-
-function offlineRandom(cat){
-  const list = OFFLINE_WORDS[cat] || OFFLINE_WORDS.general || ["apple"];
-  const word = list[(Math.random()*list.length)|0] || "apple";
-  return new Response(JSON.stringify({ word, cat, offline:true }), { headers:{ "Content-Type":"application/json" }});
-}
-
-self.addEventListener("fetch", (event) => {
-  const req = event.request;
-  const url = new URL(req.url);
-  if (url.origin !== location.origin) return;
-
-  // API: network-first; /api/random has offline fallback
-  if (url.pathname.startsWith("/api/")) {
-    if (url.pathname === "/api/random") {
-      event.respondWith((async()=>{
-        try {
-          const net = await fetch(req);
-          if (net && net.ok) return net;
-          const cat = (url.searchParams.get("cat") || "general").toLowerCase();
-          return offlineRandom(cat);
-        } catch {
-          const cat = (url.searchParams.get("cat") || "general").toLowerCase();
-          return offlineRandom(cat);
-        }
-      })());
-      return;
-    }
-    event.respondWith((async()=>{
-      try {
-        const net = await fetch(req);
-        if (net && net.ok) return net;
-        const cache = await caches.open(CACHE);
-        const cached = await cache.match(req);
-        return cached || net;
-      } catch {
-        const cache = await caches.open(CACHE);
-        const cached = await cache.match(req);
-        return cached || new Response(JSON.stringify({error:"offline"}), {status:503});
-      }
-    })());
-    return;
-  }
-
-  // Navigations: network-first with cached fallback
-  if (req.mode === "navigate") {
-    event.respondWith((async()=>{
-      try {
-        const net = await fetch(req);
-        const cache = await caches.open(CACHE);
-        cache.put("/index.html", net.clone());
-        return net;
-      } catch {
-        const cache = await caches.open(CACHE);
-        const cached = await cache.match("/index.html");
-        return cached || new Response("<h1>Offline</h1>",{headers:{"Content-Type":"text/html"}});
-      }
-    })());
-    return;
-  }
-
-  // Other same-origin GET: stale-while-revalidate
-  if (req.method === "GET") {
-    event.respondWith((async()=>{
-      const cache = await caches.open(CACHE);
-      const cached = await cache.match(req);
-      const netP = fetch(req).then(resp=>{
-        if (resp && resp.ok) cache.put(req, resp.clone());
-        return resp;
-      }).catch(()=>null);
-      return cached || (await netP) || Response.error();
-    })());
-  }
-});`;
-  res.end(sw);
-});
-
-/* ------------------ Start ------------------ */
-app.listen(PORT, () => {
-  console.log(`API listening on :${PORT} (${NODE_ENV})`);
-});
+  emotions:["happy
