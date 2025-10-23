@@ -137,7 +137,8 @@ function inferCategory(w) {
 
 const WORDS = [];
 try {
-  const p = path.join(__dirname, "data", "words5.txt");
+  // Use path.resolve to ensure the path is absolute and correct regardless of the launch directory
+  const p = path.resolve(__dirname, "data", "words5.txt"); 
   if (fs.existsSync(p)) {
     const raw = fs.readFileSync(p, "utf8").split(/\r?\n/);
     for (const line of raw) {
@@ -153,6 +154,7 @@ try {
     }
     console.log(`✅ Loaded ${WORDS.length} words from data/words5.txt`);
   } else {
+    // If the words file isn't found, log a warning and use fallbacks.
     console.warn("⚠️ data/words5.txt not found — using fallback list");
     for (const w of ["apple","build","crane","zebra","mouse","donut","crown","flame","stone","tiger"]) {
       WORDS.push({ word: w, cat: "general" });
@@ -603,7 +605,7 @@ self.addEventListener("fetch", (event) => {
       return cached || (await netP) || Response.error();
     })());
   }
-});`; // FIX: Closing template literal
+});`; // Closing template literal
   res.end(sw);
 });
 
