@@ -11,8 +11,8 @@ import url from "url";
 const {
   PORT = 3000,
   NODE_ENV = "production",
+  // Stripe
   STRIPE_SECRET_KEY = "",
-  // Price IDs (Stripe → Products → Price IDs)
   PRICE_ALL_ACCESS,
   PRICE_PREMIUM,
   PRICE_THEMES_PACK,
@@ -20,15 +20,15 @@ const {
   PRICE_PREMIUM_STATS,
   PRICE_AD_FREE,
   PRICE_DAILY_HINT,
-  // Optional
-  DONATION_URL,
+  // Frontend + CORS
   FRONTEND_URL = "https://survive.com",
   ALLOWED_ORIGIN = "https://survive.com",
+  // Donation
+  DONATION_URL = "",
 } = process.env;
 
 const stripe = STRIPE_SECRET_KEY ? new Stripe(STRIPE_SECRET_KEY, { apiVersion: "2023-10-16" }) : null;
 
-// Map product → priceId
 const PRICE_BY_PRODUCT = {
   all_access: PRICE_ALL_ACCESS,
   premium: PRICE_PREMIUM,
@@ -42,7 +42,7 @@ const PRICE_BY_PRODUCT = {
 const __filename = url.fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// --- Load dictionary (full 5-letter list) ---
+// --------- Load dictionary ---------
 const wordsPath = path.join(__dirname, "data", "words5.txt");
 let WORDS = [];
 try {
@@ -50,16 +50,41 @@ try {
     .readFileSync(wordsPath, "utf8")
     .split(/\r?\n/)
     .map((w) => w.trim().toLowerCase())
-    .filter((w) => w.length === 5);
+    .filter((w) => w.length === 5 && /^[a-z]+$/.test(w));
   console.log(`Loaded ${WORDS.length} words`);
 } catch (e) {
-  console.warn("⚠️ words5.txt missing; using fallback mini list.");
+  console.warn("⚠️  data/words5.txt missing; using small fallback list.");
   WORDS = ["apple", "zebra", "tiger", "mouse", "eagle", "shark", "candy", "brave", "smile", "chair"];
 }
 
-const app = express();
+// Optional micro-buckets for categories (expand by improving words5.txt + tagging offline)
+const SET = (arr) => new Set(arr);
+const ANIMALS = SET(["zebra", "tiger", "mouse", "eagle", "shark"]);
+const FOOD = SET(["candy", "apple"]);
+const TECH = SET(["modem", "cable"]); // make sure these exist in words5.txt if you use them
 
-// CORS + cookies
+// recent-word cache to avoid repetition
+const RECENT_SIZE = 50;
+const recentWords = [];
+function pickNonRecent(pool) {
+  let tries = 0;
+  while (tries++ < 30) {
+    const w = pool[Math.floor(Math.random() * pool.length)];
+    if (!recentWords.includes(w)) {
+      recentWords.push(w);
+      if (recentWords.length > RECENT_SIZE) recentWords.shift();
+      return w;
+    }
+  }
+  // fallback
+  const w = pool[Math.floor(Math.random() * pool.length)];
+  recentWords.push(w);
+  if (recentWords.length > RECENT_SIZE) recentWords.shift();
+  return w;
+}
+
+// --------- App ---------
+const app = express();
 app.use(
   cors({
     origin: ALLOWED_ORIGIN,
@@ -73,68 +98,56 @@ app.use("/api", express.json());
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 
 // ---------- WORD LIST ----------
-app.get("/api/words5", (_req, res) => {
-  res.json(WORDS);
-});
+app.get("/api/words5", (_req, res) => res.json(WORDS));
 
-// Simple category buckets (expand as you like)
-const ANIMALS = new Set(["zebra", "tiger", "mouse", "eagle", "shark"]);
-const FOOD = new Set(["candy", "apple"]);
-const TECH = new Set(["modem", "cable"]); // add real words into words5.txt for better coverage
-
-// Pick target with edition/category/age bias
+// Word picker w/ edition/category/age bias
 app.get("/api/word5", (req, res) => {
-  const { edition = "classic", subject = "general", age = "9-11", category = "random", mode = "beginner" } = req.query;
+  const {
+    edition = "classic",
+    subject = "general",
+    age = "9-11",
+    category = "random",
+  } = req.query;
 
-  // Base pool
   let pool = WORDS;
 
-  // Category filter
   if (category === "animals") pool = pool.filter((w) => ANIMALS.has(w));
   else if (category === "food") pool = pool.filter((w) => FOOD.has(w));
   else if (category === "tech") pool = pool.filter((w) => TECH.has(w));
-  // else random => no filter
+  // nature/business/tv/film/politics → left as general pool unless you build buckets
 
-  // Education bias (simple: shorter/common letters for younger)
   if (edition === "edu") {
-    const easyLetters = /[aeiorsnt]/;
+    // simple bias rule by age band to keep difficulty reasonable
+    const easyLetters = /[aeiorsnt]/; // common letters
     const midLetters = /[dlump]/;
     if (age === "6-8") pool = pool.filter((w) => w.split("").filter((c) => easyLetters.test(c)).length >= 3);
     if (age === "9-11") pool = pool.filter((w) => w.split("").filter((c) => easyLetters.test(c) || midLetters.test(c)).length >= 3);
-    if (age === "12-14") pool = pool.filter((w) => true);
-    if (age === "15-18") pool = pool.filter((w) => true);
-    if (age === "19+") pool = pool.filter((w) => true);
+    // older ages → leave pool as-is
     if (pool.length === 0) pool = WORDS;
   }
 
-  const pick = pool[Math.floor(Math.random() * pool.length)];
-  res.json({ word: pick, mode, edition, subject, age, category });
+  const pick = pickNonRecent(pool);
+  res.json({ word: pick });
 });
 
-// ---------- SIMPLE LEADERBOARDS (per mode + regional) ----------
-const lbByMode = {
-  beginner: [],
-  advanced: [],
-  genius: [],
-};
-const lbRegional = new Map(); // key: region string, val: entries array
+// ---------- LEADERBOARDS (per mode + regional) ----------
+const lbByMode = { beginner: [], advanced: [], genius: [] };
+const lbRegional = new Map(); // region string -> entries[]
 
 function keepTop(arr, k = 100) {
   arr.sort((a, b) => b.points - a.points);
   if (arr.length > k) arr.length = k;
 }
 
-// submit cumulative total
 app.post("/api/lb/submit", (req, res) => {
   const { name = "Player", points = 0, mode = "beginner", region = "global" } = req.body || {};
   const entry = { name, points: Number(points), t: Date.now() };
-
   (lbByMode[mode] || lbByMode.beginner).push(entry);
-  keepTop(lbByMode[mode] || lbByMode.beginner, 100);
+  keepTop(lbByMode[mode] || lbByMode.beginner);
 
   const r = lbRegional.get(region) || [];
   r.push(entry);
-  keepTop(r, 100);
+  keepTop(r);
   lbRegional.set(region, r);
 
   res.json({ ok: true });
@@ -150,7 +163,7 @@ app.get("/api/lb/region", (req, res) => {
   res.json(lbRegional.get(region) || []);
 });
 
-// ---------- LIGHTWEIGHT MULTIPLAYER ROOMS ----------
+// ---------- MULTIPLAYER ROOMS (simple demo) ----------
 const rooms = new Map(); // code -> { created, members }
 app.post("/api/mp/create", (req, res) => {
   const code = Math.random().toString(36).slice(2, 7).toUpperCase();
@@ -195,17 +208,13 @@ app.post("/api/pay/checkout", async (req, res) => {
   }
 });
 
-// Minimal status (replace with your entitlements DB if you like)
+// Minimal status (until you add webhooks + DB)
 app.get("/api/pay/status", (_req, res) => {
-  // you can return owned: ['premium'] etc after you wire webhooks + DB
+  // TODO: Replace with real entitlements after adding Stripe webhooks + DB
   res.json({ owned: [], perks: { maxRows: 6 } });
 });
 
 // Donation link passthrough
-app.get("/api/pay/support-link", (_req, res) => {
-  return res.json({ url: DONATION_URL || "" });
-});
+app.get("/api/pay/support-link", (_req, res) => res.json({ url: DONATION_URL || "" }));
 
-app.listen(PORT, () => {
-  console.log(`API listening on :${PORT} (${NODE_ENV})`);
-});
+app.listen(PORT, () => console.log(`API listening on :${PORT} (${NODE_ENV})`));
