@@ -1,5 +1,7 @@
 // server.js
 // npm i express cors cookie-parser stripe crypto
+// Directory: add "data/words5.txt" (one word or word,category per line; lowercase)
+
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
@@ -12,21 +14,17 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// ───────────────────────────────────────────────────────────────────────────────
-// ENV
-// ───────────────────────────────────────────────────────────────────────────────
+/* ---------- ENV ---------- */
 const {
   PORT = 3000,
   NODE_ENV = "production",
-  ALLOWED_ORIGIN = "https://survive.com",
-  SESSION_SECRET = crypto.randomBytes(32).toString("hex"),
 
-  // Stripe
+  // accept either name for the Stripe key
   STRIPE_SECRET,
-  STRIPE_WEBHOOK_SECRET,
-  SUPPORT_LINK,
+  STRIPE_SECRET_KEY,
 
-  // One-time prices
+  STRIPE_WEBHOOK_SECRET,
+
   STRIPE_PRICE_ALLACCESS,
   STRIPE_PRICE_PREMIUM,
   STRIPE_PRICE_THEMES,
@@ -34,18 +32,22 @@ const {
   STRIPE_PRICE_STATS,
   STRIPE_PRICE_ADFREE,
   STRIPE_PRICE_DAILYHINT,
+  STRIPE_PRICE_MONTHLY,         // monthly subscription (optional)
 
-  // New monthly subscription
-  STRIPE_PRICE_MONTHLY,
+  SUPPORT_LINK,                 // Stripe payment link for Donate
+
+  ALLOWED_ORIGIN = "https://survive.com",
+  SESSION_SECRET = crypto.randomBytes(24).toString("hex"),
 } = process.env;
 
-if (!STRIPE_SECRET) console.warn("⚠️ STRIPE_SECRET missing");
-const stripe = STRIPE_SECRET ? new Stripe(STRIPE_SECRET, { apiVersion: "2024-06-20" }) : null;
+const STRIPE_KEY = STRIPE_SECRET || STRIPE_SECRET_KEY || "";
+if (!STRIPE_KEY) console.warn("⚠️  STRIPE secret key missing");
+if (!STRIPE_WEBHOOK_SECRET) console.warn("⚠️  STRIPE_WEBHOOK_SECRET missing");
 
-// ───────────────────────────────────────────────────────────────────────────────
-// App
-// ───────────────────────────────────────────────────────────────────────────────
+const stripe = STRIPE_KEY ? new Stripe(STRIPE_KEY, { apiVersion: "2024-06-20" }) : null;
+
 const app = express();
+app.set("trust proxy", true);
 
 app.use(
   cors({
@@ -54,17 +56,10 @@ app.use(
   })
 );
 app.use(cookieParser(SESSION_SECRET));
-
-// Use json for all /api except webhook (raw)
 app.use("/api", express.json());
 
-// Serve the front-end if you deploy both together
-app.use(express.static(path.join(__dirname, "public")));
-
-// ───────────────────────────────────────────────────────────────────────────────
-// Identify user (cookie 'uid')
-// ───────────────────────────────────────────────────────────────────────────────
-function getOrSetUID(req, res) {
+/* ---------- UID cookie ---------- */
+function uidMiddleware(req, res, next) {
   let uid = req.cookies?.uid;
   if (!uid) {
     uid = crypto.randomUUID();
@@ -76,90 +71,44 @@ function getOrSetUID(req, res) {
       maxAge: 1000 * 60 * 60 * 24 * 365,
     });
   }
-  return uid;
+  req.uid = uid;
+  next();
 }
+app.use(uidMiddleware);
 
-// ───────────────────────────────────────────────────────────────────────────────
-// Dictionary (full 5-letter), categories are optional tags you can expand later
-// File: /data/words5.txt (one word per line OR CSV "word,category")
-// ───────────────────────────────────────────────────────────────────────────────
-const WORDS = (() => {
+/* ---------- Words loader ---------- */
+const WORDS = []; // { word, cat }
+const CATS = new Set(["animals","science","geography","food","history","math","language","general"]);
+try {
   const p = path.join(__dirname, "data", "words5.txt");
-  let list = [];
-  try {
-    const raw = fs.readFileSync(p, "utf8");
-    for (const line of raw.split(/\r?\n/)) {
-      const t = line.trim().toLowerCase();
-      if (!t) continue;
-      const [word, cat] = t.split(",").map((s) => s?.trim());
-      if (/^[a-z]{5}$/.test(word)) list.push({ word, cat: cat || "general" });
+  if (fs.existsSync(p)) {
+    const raw = fs.readFileSync(p, "utf8").split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+    for (const line of raw) {
+      const [w,cat] = line.split(",").map(x=>x?.trim()||"");
+      if (/^[a-z]{5}$/.test(w)) {
+        WORDS.push({ word:w, cat: (cat && CATS.has(cat)?cat:"general") });
+      }
     }
-    console.log(`✅ Loaded ${list.length} words from data/words5.txt`);
-  } catch (e) {
-    console.warn("⚠️ Could not read data/words5.txt. Using tiny fallback wordlist.");
-    const fallback = ["apple","build","crane","zebra","mouse","donut","crown","flame","stone","tiger"].map(w=>({word:w,cat:"general"}));
-    list = fallback;
+    console.log(`✅ Loaded ${WORDS.length} words from data/words5.txt`);
+  } else {
+    console.warn("⚠️  data/words5.txt not found, fallback mini list");
+    for (const w of ["apple","build","crane","zebra","mouse","donut","crown"]) {
+      WORDS.push({ word:w, cat:"general" });
+    }
   }
-  return list;
-})();
-
-// Simple helpers
-const ANY_WORD = () => WORDS[(Math.random() * WORDS.length) | 0].word;
-function pickByCategory(category = "random") {
-  if (category === "random") return ANY_WORD();
-  const pool = WORDS.filter((w) => w.cat === category);
-  return (pool[(Math.random() * pool.length) | 0] || WORDS[(Math.random() * WORDS.length) | 0]).word;
+} catch (e) {
+  console.error("Word load error", e);
 }
 
-// ───────────────────────────────────────────────────────────────────────────────
-// In-memory “DB” (swap for real DB later)
-// ───────────────────────────────────────────────────────────────────────────────
-/** Map<uid, Set<product>> */
-const purchases = new Map();
-/** Map<uid, number> cumulative points */
-const totals = new Map();
-/** Array of scores for leaderboards (capped length) */
-const lb = []; // { uid, name, mode, points, region, tz, ts }
-const MAX_LB = 5000;
+/* ---------- In-memory DB (replace with real DB later) ---------- */
+const purchases = new Map();          // Map<uid, Set<product>>
+const scores = [];                    // {uid, pts, mode, tz, at}
+const regions = new Map();            // Map<uid, tz>
+const lastWordByUid = new Map();      // Map<uid, Set<recentWords>>
+const rooms = new Map();              // Map<roomId, {host, members:Set<uid>, createdAt, feed:[], max:10}>
+const emoteFeed = new Map();          // Map<roomId, Array<{ts, uid, kind}>>
 
-/** Multiplayer (in-memory) */
-const queues = {
-  "solo:beginner:random": [],
-  "solo:advanced:random": [],
-  "solo:genius:random": [],
-};
-const rooms = new Map(); // Map<roomId, { players: uid[], mode, category, word, createdAt }>
-
-/** Public room listing (open invites) */
-const publicRooms = new Set();
-
-// ───────────────────────────────────────────────────────────────────────────────
-// Purchases helpers
-// ───────────────────────────────────────────────────────────────────────────────
-function grant(uid, product) {
-  const set = purchases.get(uid) ?? new Set();
-  set.add(product);
-  // Map monthly/allaccess to sub-perks
-  if (product === "all_access" || product === "monthly_pass" || product === "premium") {
-    set.add("themes_pack");
-    set.add("survival");
-    set.add("premium_stats");
-    set.add("ad_free");
-    set.add("daily_hint");
-  }
-  purchases.set(uid, set);
-}
-
-function revoke(uid, product) {
-  const set = purchases.get(uid);
-  if (!set) return;
-  set.delete(product);
-  if (product === "monthly_pass" || product === "premium" || product === "all_access") {
-    ["themes_pack","survival","premium_stats","ad_free","daily_hint"].forEach((p)=>set.delete(p));
-  }
-}
-
-// Price map
+/* ---------- Helpers ---------- */
 const PRICE_TO_PRODUCT = new Map(
   [
     [STRIPE_PRICE_ALLACCESS, "all_access"],
@@ -184,266 +133,228 @@ const PRODUCT_TO_PRICE = {
   monthly_pass: STRIPE_PRICE_MONTHLY,
 };
 
-function perksFor(uid) {
-  const owned = purchases.get(uid) ?? new Set();
-  const hasAll = owned.has("all_access") || owned.has("premium") || owned.has("monthly_pass");
-  return {
-    owned: [...owned],
-    monthly: owned.has("monthly_pass"),
-    active: hasAll,
-    perks: {
-      maxRows: hasAll ? 8 : 6,
-      winBonus: hasAll ? 5 : 0,
-      themesPack: hasAll || owned.has("themes_pack"),
-      adFree: hasAll || owned.has("ad_free"),
-      stats: hasAll || owned.has("premium_stats"),
-      survival: hasAll || owned.has("survival"),
-      dailyHint: hasAll || owned.has("daily_hint"),
-      xpBoost: owned.has("monthly_pass") ? 1.05 : 1.0,
-      accent: hasAll ? "#ffb400" : undefined,
-    },
-    totalPoints: totals.get(uid) || 0,
-  };
+function grant(uid, product) {
+  const set = purchases.get(uid) ?? new Set();
+  set.add(product);
+  if (product === "premium" || product === "all_access") {
+    set.add("themes_pack"); set.add("premium_stats"); set.add("survival"); set.add("ad_free"); set.add("daily_hint");
+  }
+  purchases.set(uid, set);
 }
+function revoke(uid, product) {
+  const set = purchases.get(uid); if (!set) return;
+  set.delete(product); purchases.set(uid, set);
+}
+function countryFromTZ(tz){ return String(tz||"").split("/")[0] || "Region"; }
 
-// ───────────────────────────────────────────────────────────────────────────────
-// Routes
-// ───────────────────────────────────────────────────────────────────────────────
-app.get("/api/health", (_req, res) => res.json({ ok: true }));
+/* ---------- Health ---------- */
+app.get("/api/health", (_req,res) => res.json({ ok:true, words:WORDS.length, stripe: !!STRIPE_KEY }));
 
-// Dictionary check endpoint (optional)
-app.get("/api/isword/:w", (req, res) => {
-  const w = String(req.params.w || "").toLowerCase();
-  const ok = WORDS.some((x) => x.word === w);
+/* ---------- Dictionary & random word ---------- */
+app.get("/api/isword/:w", (req,res)=>{
+  const w = String(req.params.w||"").toLowerCase();
+  const ok = WORDS.some(x=>x.word===w);
   res.json({ ok });
 });
 
-// Create checkout
-app.post("/api/pay/checkout", async (req, res) => {
-  try {
-    const uid = getOrSetUID(req, res);
-    const { product } = req.body || {};
-    const price = PRODUCT_TO_PRICE[product];
-    if (!stripe) return res.status(500).json({ error: "stripe-not-configured" });
-    if (!price) return res.status(400).json({ error: "Unknown product" });
-
-    // For monthly, use mode: subscription
-    const isMonthly = product === "monthly_pass";
-    const session = await stripe.checkout.sessions.create({
-      mode: isMonthly ? "subscription" : "payment",
-      client_reference_id: uid,
-      line_items: [{ price, quantity: 1 }],
-      success_url: `${ALLOWED_ORIGIN}/?purchase=success`,
-      cancel_url: `${ALLOWED_ORIGIN}/?purchase=cancel`,
-      metadata: { product, uid },
-    });
-    res.json({ url: session.url });
-  } catch (e) {
-    console.error("checkout error", e);
-    res.status(500).json({ error: "checkout-failed" });
-  }
+app.get("/api/words5", (_req,res)=>{
+  res.type("text/plain").send(WORDS.map(x=>x.word).join("\n"));
 });
 
-// Optional “Donate”
-app.get("/api/pay/support-link", (_req, res) => {
-  if (!SUPPORT_LINK) return res.status(404).json({ error: "support-link-missing" });
+app.get("/api/random", (req,res)=>{
+  const cat = String(req.query.cat||"random");
+  const uid = req.uid;
+
+  let pool = WORDS;
+  if (cat !== "random") pool = WORDS.filter(x=>x.cat===cat);
+  if (!pool.length) return res.status(404).json({ error:"no-words" });
+
+  // avoid immediate repeats per uid
+  const recent = lastWordByUid.get(uid) ?? new Set();
+  let pick = pool[Math.floor(Math.random()*pool.length)].word;
+  let guard = 0;
+  while (recent.has(pick) && guard<30) {
+    pick = pool[Math.floor(Math.random()*pool.length)].word;
+    guard++;
+  }
+  recent.add(pick); if (recent.size>8) recent.delete([...recent][0]);
+  lastWordByUid.set(uid, recent);
+
+  res.json({ word: pick });
+});
+
+/* ---------- Leaderboards ---------- */
+app.post("/api/lb/submit", (req,res)=>{
+  const { points=0, mode="beginner", tz="UTC", name="Player" } = req.body || {};
+  const uid = req.uid;
+  regions.set(uid, tz);
+  scores.push({ uid, pts: Number(points)||0, mode, tz, at: Date.now(), name: String(name).slice(0,20) });
+  res.json({ ok:true });
+});
+function topBy(filter){
+  return scores
+    .filter(filter)
+    .sort((a,b)=>b.pts-a.pts)
+    .slice(0,20)
+    .map(x=>({ points:x.pts, mode:x.mode, when:x.at, name:x.name||"Player" }));
+}
+app.get("/api/lb/global",(req,res)=>{
+  const mode = String(req.query.mode||"beginner");
+  res.json({ top: topBy(x=>x.mode===mode) });
+});
+app.get("/api/lb/region",(req,res)=>{
+  const { tz="UTC", mode="beginner" } = req.query;
+  const region = countryFromTZ(tz);
+  res.json({ top: topBy(x=>countryFromTZ(x.tz)===region && x.mode===mode) });
+});
+
+/* ---------- Minimal “rooms” & safe emotes ---------- */
+function sanitizeEmotePayload(kind){
+  // allow only known emotes / canned phrases
+  const SAFE = new Set(["👍","😮","🔥","gg","ready","nice","again"]);
+  if (!SAFE.has(kind)) return null;
+  return kind;
+}
+// Reject contact info if we ever allow text (we don't here)
+function looksLikeContact(s){
+  const hasEmail = /@|mail\.|gmail|outlook|yahoo|icloud/i.test(s);
+  const hasPhone = /(\+\d{1,3}[-.\s]?)?(\(?\d{3}\)?[-.\s]?){2}\d{4}/.test(s);
+  const hasHandle = /@[\w]{3,}/.test(s);
+  return hasEmail || hasPhone || hasHandle;
+}
+
+const ROOM_MAX = 10;
+
+app.post("/api/mp/create",(req,res)=>{
+  const roomId = (Math.random().toString(36).slice(2,6)+Math.random().toString(36).slice(2,4)).toUpperCase();
+  rooms.set(roomId,{ host:req.uid, members:new Set([req.uid]), createdAt:Date.now(), max:ROOM_MAX });
+  emoteFeed.set(roomId,[]);
+  res.json({ ok:true, roomId, max:ROOM_MAX });
+});
+app.post("/api/mp/join",(req,res)=>{
+  const { roomId } = req.body||{};
+  const r = rooms.get(String(roomId||"").toUpperCase());
+  if (!r) return res.status(404).json({ error:"no-room" });
+  if (r.members.size >= (r.max||ROOM_MAX)) return res.status(403).json({ error:"room-full" });
+  r.members.add(req.uid);
+  res.json({ ok:true, roomId });
+});
+app.post("/api/match/queue",(req,res)=>{
+  // demo: instantly returns a fake match room
+  const roomId = (Math.random().toString(36).slice(2,6)+Math.random().toString(36).slice(2,4)).toUpperCase();
+  rooms.set(roomId,{ host:req.uid, members:new Set([req.uid]), createdAt:Date.now(), max:2 });
+  emoteFeed.set(roomId,[]);
+  res.json({ matched:true, roomId });
+});
+app.post("/api/mp/emote",(req,res)=>{
+  const { roomId, kind } = req.body||{};
+  const r = rooms.get(String(roomId||"").toUpperCase());
+  if (!r || !r.members.has(req.uid)) return res.status(403).json({ error:"not-in-room" });
+  const safe = sanitizeEmotePayload(String(kind||""));
+  if (!safe) return res.status(400).json({ error:"bad-emote" });
+  emoteFeed.get(roomId).push({ ts:Date.now(), uid:req.uid, kind:safe });
+  if (emoteFeed.get(roomId).length>60) emoteFeed.get(roomId).shift();
+  res.json({ ok:true });
+});
+app.get("/api/mp/feed",(req,res)=>{
+  const roomId = String(req.query.roomId||"").toUpperCase();
+  const since = Number(req.query.since||0);
+  const r = rooms.get(roomId);
+  if (!r || !r.members.has(req.uid)) return res.status(403).json({ error:"not-in-room" });
+  const feed = (emoteFeed.get(roomId)||[]).filter(x=>x.ts>since);
+  res.json({ items: feed, now: Date.now() });
+});
+
+/* ---------- Perks status ---------- */
+function perksFor(uid){
+  const owned = purchases.get(uid) ?? new Set();
+  const hasPremium = owned.has("premium") || owned.has("all_access") || owned.has("monthly_pass");
+  return {
+    active: hasPremium,
+    owned: [...owned],
+    perks: hasPremium
+      ? { maxRows: 8, winBonus: 5, accent:"#ffb400", themesPack:true, tag:"👑" }
+      : { maxRows: 6, winBonus: 0, themesPack: owned.has("themes_pack") }
+  };
+}
+app.get("/api/pay/status",(req,res)=> res.json(perksFor(req.uid)));
+
+/* ---------- Donate redirect ---------- */
+app.get("/api/pay/support-link",(req,res)=>{
+  if (!SUPPORT_LINK) return res.json({ error:"support-link-missing" });
   res.json({ url: SUPPORT_LINK });
 });
 
-// Webhook (raw body)
-app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
-  if (!stripe) return res.status(500).send("stripe-not-configured");
+/* ---------- Checkout ---------- */
+app.post("/api/pay/checkout", async (req,res)=>{
+  try {
+    if (!stripe) return res.status(500).json({ error:"stripe-key-missing" });
+    const uid = req.uid;
+    const { product } = req.body||{};
+    const price = PRODUCT_TO_PRICE[product];
+    if (!price) return res.status(400).json({ error:"Unknown product" });
+
+    const session = await stripe.checkout.sessions.create({
+      mode: product==="monthly_pass" ? "subscription" : "payment",
+      client_reference_id: uid,
+      line_items: [{ price, quantity:1 }],
+      success_url: `${ALLOWED_ORIGIN}/?purchase=success`,
+      cancel_url: `${ALLOWED_ORIGIN}/?purchase=cancel`,
+      metadata: { product, uid }
+    });
+    return res.json({ url: session.url });
+  } catch (e) {
+    console.error("checkout error", e);
+    return res.status(500).json({ error:"checkout-failed" });
+  }
+});
+
+/* ---------- Webhook ---------- */
+app.post("/api/stripe/webhook", express.raw({ type:"application/json" }), (req,res)=>{
+  if (!stripe) return res.status(500).send("stripe-key-missing");
   const sig = req.headers["stripe-signature"];
   let event;
   try {
     event = stripe.webhooks.constructEvent(req.body, sig, STRIPE_WEBHOOK_SECRET);
-  } catch (err) {
-    console.error("❌ Webhook signature verification failed.", err.message);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
-  }
-
-  try {
-    switch (event.type) {
-      case "checkout.session.completed": {
-        const session = await stripe.checkout.sessions.retrieve(event.data.object.id, {
-          expand: ["line_items.data.price"],
-        });
-        const uid = session.client_reference_id || session.metadata?.uid;
-        let product = session.metadata?.product || null;
-        if (!product && session.line_items?.data?.[0]?.price?.id) {
-          product = PRICE_TO_PRODUCT.get(session.line_items.data[0].price.id);
-        }
-        if (uid && product) {
-          grant(uid, product);
-          console.log(`✅ Granted ${product} to uid=${uid}`);
-        }
-        break;
-      }
-      case "invoice.payment_succeeded": {
-        const inv = event.data.object;
-        const subId = inv.subscription;
-        // optional: retrieve subscription to read metadata uid/product
-        break;
-      }
-      case "customer.subscription.updated":
-      case "customer.subscription.created": {
-        const sub = event.data.object;
-        const uid = sub.metadata?.uid || null;
-        if (uid) {
-          grant(uid, "monthly_pass");
-          console.log(`✅ Monthly active for uid=${uid}`);
-        }
-        break;
-      }
-      case "customer.subscription.deleted": {
-        const sub = event.data.object;
-        const uid = sub.metadata?.uid || null;
-        if (uid) {
-          revoke(uid, "monthly_pass");
-          console.log(`⚠️ Monthly canceled for uid=${uid}`);
-        }
-        break;
-      }
-      case "charge.refunded": {
-        // If you map charge->uid/product, revoke accordingly
-        console.log("Refund received for charge", event.data.object.id);
-        break;
-      }
-      default:
-        break;
-    }
-    res.json({ received: true });
   } catch (e) {
-    console.error("Webhook handler error", e);
-    res.status(500).send("webhook-handler-error");
+    console.error("Webhook verify failed", e.message);
+    return res.status(400).send(`Webhook Error: ${e.message}`);
   }
-});
 
-// Status (purchases & perks)
-app.get("/api/pay/status", (req, res) => {
-  const uid = getOrSetUID(req, res);
-  res.json(perksFor(uid));
-});
-
-// Leaderboards
-function pushLB(entry) {
-  lb.push(entry);
-  if (lb.length > MAX_LB) lb.shift();
-}
-function top(scope = "global", mode = null, limit = 50) {
-  // scope: "global" or region prefix (e.g., "America")
-  let arr = lb.slice();
-  if (mode) arr = arr.filter((x) => x.mode === mode);
-  if (scope !== "global") arr = arr.filter((x) => (x.tz || "").startsWith(scope));
-  arr.sort((a, b) => b.points - a.points || b.ts - a.ts);
-  const out = [];
-  const seen = new Set();
-  for (const x of arr) {
-    if (seen.has(x.uid)) continue;
-    out.push(x);
-    seen.add(x.uid);
-    if (out.length >= limit) break;
-  }
-  return out;
-}
-
-app.post("/api/lb/submit", (req, res) => {
-  const uid = getOrSetUID(req, res);
-  const { name = "Player", mode = "beginner", points = 0, tz = "UTC" } = req.body || {};
-  const total = (totals.get(uid) || 0) + Number(points || 0);
-  totals.set(uid, total);
-  pushLB({ uid, name, mode, points: total, tz, ts: Date.now() });
-  res.json({ ok: true, total });
-});
-
-app.get("/api/lb/global", (req, res) => {
-  const mode = req.query.mode || null;
-  res.json({ top: top("global", mode, Number(req.query.limit) || 50) });
-});
-
-app.get("/api/lb/region", (req, res) => {
-  const tz = String(req.query.tz || "UTC");
-  const region = tz.split("/")[0] || "UTC";
-  const mode = req.query.mode || null;
-  res.json({ region, top: top(region, mode, Number(req.query.limit) || 50) });
-});
-
-// Multiplayer (Option A: in-memory queues, long-polling)
-// Quick match
-app.post("/api/match/queue", (req, res) => {
-  const uid = getOrSetUID(req, res);
-  const { queue = "solo:beginner:random" } = req.body || {};
-  if (!queues[queue]) queues[queue] = [];
-  const waiting = queues[queue].shift();
-  if (waiting && waiting.uid !== uid) {
-    // create room
-    const roomId = crypto.randomBytes(6).toString("hex");
-    const [mode, category] = queue.split(":").slice(1);
-    const word = pickByCategory(category);
-    rooms.set(roomId, { players: [waiting.uid, uid], mode, category, word, createdAt: Date.now() });
-    return res.json({ matched: true, roomId, mode, category });
-  }
-  const ticket = crypto.randomUUID();
-  queues[queue].push({ uid, ticket, ts: Date.now() });
-  res.json({ queued: true, ticket });
-});
-
-app.post("/api/match/cancel", (req, res) => {
-  const uid = getOrSetUID(req, res);
-  const { queue = "solo:beginner:random", ticket } = req.body || {};
-  if (!queues[queue]) return res.json({ ok: true });
-  queues[queue] = queues[queue].filter((x) => !(x.uid === uid && (!ticket || x.ticket === ticket)));
-  res.json({ ok: true });
-});
-
-app.get("/api/match/poll", (req, res) => {
-  // naïve poll: if a match was created with this uid, return it
-  const uid = getOrSetUID(req, res);
-  for (const [id, r] of rooms) {
-    if (r.players.includes(uid) && r.createdAt > Date.now() - 60000) {
-      return res.json({ matched: true, roomId: id, mode: r.mode, category: r.category });
+  (async ()=>{
+    try{
+      switch (event.type) {
+        case "checkout.session.completed": {
+          const session = await stripe.checkout.sessions.retrieve(event.data.object.id, { expand:["line_items.data.price"] });
+          const uid = session.client_reference_id || session.metadata?.uid;
+          let product = session.metadata?.product;
+          if (!product && session.line_items?.data?.[0]?.price?.id) {
+            product = PRICE_TO_PRODUCT.get(session.line_items.data[0].price.id);
+          }
+          if (uid && product) {
+            grant(uid, product);
+            console.log(`✅ Granted ${product} to ${uid}`);
+          } else {
+            console.warn("⚠️ Missing uid or product");
+          }
+          break;
+        }
+        case "charge.refunded": {
+          // optional: look up original session -> product and revoke
+          console.log("Refund", event.data.object.id);
+          break;
+        }
+        default: break;
+      }
+      res.json({ received:true });
+    } catch (e) {
+      console.error("Webhook handler error", e);
+      res.status(500).send("webhook-handler-error");
     }
-  }
-  res.json({ matched: false });
+  })();
 });
 
-// Private rooms (friends)
-app.post("/api/mp/create", (req, res) => {
-  const uid = getOrSetUID(req, res);
-  const { mode = "beginner", category = "random", isPublic = false } = req.body || {};
-  const roomId = crypto.randomBytes(4).toString("hex").toUpperCase();
-  const word = pickByCategory(category);
-  rooms.set(roomId, { players: [uid], owner: uid, mode, category, word, createdAt: Date.now() });
-  if (isPublic) publicRooms.add(roomId);
-  res.json({ roomId });
-});
-app.post("/api/mp/join", (req, res) => {
-  const uid = getOrSetUID(req, res);
-  const { roomId } = req.body || {};
-  const r = rooms.get(roomId);
-  if (!r) return res.status(404).json({ error: "room-not-found" });
-  if (!r.players.includes(uid)) r.players.push(uid);
-  res.json({ ok: true, mode: r.mode, category: r.category });
-});
-app.get("/api/mp/room/:id", (req, res) => {
-  const r = rooms.get(req.params.id);
-  if (!r) return res.status(404).json({ error: "room-not-found" });
-  res.json({ players: r.players.length, mode: r.mode, category: r.category });
-});
-app.get("/api/lobby/public", (_req, res) => {
-  res.json({ rooms: [...publicRooms].slice(0, 50) });
-});
-
-// Lobby stats
-app.get("/api/lobby/stats", (_req, res) => {
-  const out = {};
-  for (const k of Object.keys(queues)) out[k] = queues[k].length;
-  res.json({ queues: out, onlineRooms: publicRooms.size });
-});
-
-// ───────────────────────────────────────────────────────────────────────────────
-// Start
-// ───────────────────────────────────────────────────────────────────────────────
-app.listen(PORT, () => {
+/* ---------- Start ---------- */
+app.listen(PORT, ()=> {
   console.log(`API listening on :${PORT} (${NODE_ENV})`);
 });
