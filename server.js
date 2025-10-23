@@ -18,7 +18,7 @@ const __dirname = path.dirname(__filename);
 const {
   PORT = 3000,
   NODE_ENV = "production",
-  ALLOWED_ORIGIN = "http://localhost:3000",
+  ALLOWED_ORIGIN = "https://survive.com",
 
   // Stripe keys
   STRIPE_SECRET,
@@ -48,6 +48,9 @@ const {
   CHAT_ENABLED = "true",
   CHAT_RATE_MS = "3000",
   CHAT_MAX_MSG_LEN = "200",
+
+  // Optional: guess categories when missing (otherwise -> general)
+  AUTO_CATEGORIZE = "false",
 } = process.env;
 
 // Normalize keys / envs
@@ -57,6 +60,7 @@ const ROOM_MAX = Number(ROOM_MAX_ENV || 10);
 const CHAT_ON = String(CHAT_ENABLED).toLowerCase() !== "false";
 const CHAT_RATE = Math.max(1000, Number(CHAT_RATE_MS) || 3000);
 const CHAT_MAXLEN = Math.min(500, Math.max(50, Number(CHAT_MAX_MSG_LEN) || 200));
+const DO_AUTO_CAT = String(AUTO_CATEGORIZE).toLowerCase() === "true";
 
 const stripe = STRIPE_KEY ? new Stripe(STRIPE_KEY, { apiVersion: "2024-06-20" }) : null;
 
@@ -67,12 +71,7 @@ const app = express();
 app.set("trust proxy", true);
 
 // CORS
-app.use(
-  cors({
-    origin: ALLOWED_ORIGIN,
-    credentials: true,
-  })
-);
+app.use(cors({ origin: ALLOWED_ORIGIN, credentials: true }));
 
 // Cookies + JSON (note: webhook uses express.raw later)
 app.use(cookieParser());
@@ -84,9 +83,9 @@ function uidMiddleware(req, res, next) {
   if (!uid) {
     uid = crypto.randomUUID();
     res.cookie("uid", uid, {
-      httpOnly: false, // front-end only needs it sent back
+      httpOnly: false, // FE just needs it echoed
       sameSite: "none",
-      secure: NODE_ENV !== "development",
+      secure: true,
       path: "/",
       maxAge: 1000 * 60 * 60 * 24 * 365, // 1y
     });
@@ -102,24 +101,43 @@ const CLASSIC_CATS = [
   "animals","plants","food","health","body","emotions","objects","business",
   "politics","technology","places","nature","sports","people","general"
 ];
-// Education
-const EDUCATION_CATS = [
+// Educational
+const EDU_CATS = [
   "math","sciences","biology","chemistry","physics","history","geography","socials"
 ];
-// Unified allow-list
-const CATS = new Set([...CLASSIC_CATS, ...EDUCATION_CATS]);
+const CATS = new Set([...CLASSIC_CATS, ...EDU_CATS]);
 
-/* ------------------ Words ------------------ */
-/**
- * Place your dictionary at: data/words5.txt
- * Format: word,category
- * Example:
- *   apple,food
- *   zebra,animals
- * Rules:
- *   - word: exactly 5 lowercase letters [a-z]
- *   - category: one of the allowed categories above (else mapped to 'general')
- */
+/* ------------------ Words loader ------------------ */
+function inferCategory(w) {
+  if (!DO_AUTO_CAT) return "general";
+  const hints = {
+    animals: new Set(["zebra","tiger","panda","whale","eagle","horse","shark"]),
+    plants: new Set(["plant","cacti","grass","olive"]),
+    food: new Set(["apple","bread","grape","onion","pizza","cocoa","sushi"]),
+    health: new Set(["nurse","vital"]),
+    body: new Set(["brain","tooth","elbow","knees","hands","heart"]),
+    emotions: new Set(["happy","angry","proud","smile","scare"]),
+    objects: new Set(["chair","table","couch","phone","clock"]),
+    business: new Set(["money","sales","stock","trade","loans"]),
+    politics: new Set(["voter","party","union","civic"]),
+    technology: new Set(["laser","cable","fiber","robot","chips"]),
+    places: new Set(["paris","tokyo","spain","plaza","delta"]),
+    nature: new Set(["stone","river","beach","storm","cloud"]),
+    sports: new Set(["chess","skate","tenis","hockey","soccer"]),
+    people: new Set(["human","adult","pilot","guard"]),
+    math: new Set(["angle","ratio","sigma","theta","minus"]),
+    sciences: new Set(["cells","atoms","field","light","waves"]),
+    biology: new Set(["flora","fauna","spore","organ","genes"]),
+    chemistry: new Set(["ionic","oxide","ester","atoms","bondy"]),
+    physics: new Set(["force","quark","boson","laser"]),
+    history: new Set(["roman","noble","union","empir"]),
+    geography: new Set(["delta","atlas","plain","coast","ocean"]),
+    socials: new Set(["group","class","norms","ethic"]),
+  };
+  for (const cat of Object.keys(hints)) if (hints[cat].has(w)) return cat;
+  return "general";
+}
+
 const WORDS = [];
 try {
   const p = path.join(__dirname, "data", "words5.txt");
@@ -129,15 +147,17 @@ try {
       if (!line) continue;
       const [w0, cat0] = line.split(",").map(s => (s || "").trim());
       const w = (w0 || "").toLowerCase();
-      const cat = (cat0 || "").toLowerCase();
+      let cat = (cat0 || "").toLowerCase();
       if (/^[a-z]{5}$/.test(w)) {
-        WORDS.push({ word: w, cat: CATS.has(cat) ? cat : "general" });
+        if (!cat) cat = inferCategory(w);
+        if (!CATS.has(cat)) cat = "general";
+        WORDS.push({ word: w, cat });
       }
     }
     console.log(`✅ Loaded ${WORDS.length} words from data/words5.txt`);
   } else {
     console.warn("⚠️ data/words5.txt not found — using a tiny fallback list");
-    for (const w of ["apple","zebra","plant","brain","heart","chair","nurse","crown","cable","tiger"]) {
+    for (const w of ["apple","build","crane","zebra","mouse","donut","crown","flame","stone","tiger"]) {
       WORDS.push({ word: w, cat: "general" });
     }
   }
@@ -151,7 +171,7 @@ const lastWordByUid = new Map();  // Map<uid, Set<recent words>>
 const scores = [];                // {uid, pts, mode, tz, at, name}
 const rooms = new Map();          // Map<roomId, {host, members:Set<uid>, createdAt, max, msgs:[], __last:Map<uid,ts>}>
 
-/* ------------------ Helpers ------------------ */
+/* ------------------ Payments helpers ------------------ */
 const PRICE_TO_PRODUCT = new Map(
   [
     [PRICE_ALLACCESS, "all_access"],
@@ -179,6 +199,7 @@ const PRODUCT_TO_PRICE = {
 function grant(uid, product) {
   const set = purchases.get(uid) ?? new Set();
   set.add(product);
+  // Bundles imply others
   if (product === "premium" || product === "all_access" || product === "monthly_pass") {
     set.add("themes_pack");
     set.add("premium_stats");
@@ -208,18 +229,12 @@ function looksLikeContact(str) {
   return email || phone || handle || link;
 }
 
-/* ------------------ Health & categories ------------------ */
+/* ------------------ Health + Categories ------------------ */
 app.get("/api/health", (_req, res) => {
-  res.json({
-    ok: true,
-    words: WORDS.length,
-    stripe: !!STRIPE_KEY,
-    chat: CHAT_ON,
-    roomMax: ROOM_MAX,
-  });
+  res.json({ ok: true, words: WORDS.length, stripe: !!STRIPE_KEY, chat: CHAT_ON, roomMax: ROOM_MAX });
 });
 app.get("/api/categories", (_req, res) => {
-  res.json({ classic: CLASSIC_CATS, education: EDUCATION_CATS });
+  res.json({ classic: CLASSIC_CATS, education: EDU_CATS });
 });
 
 /* ------------------ Dictionary + Random ------------------ */
@@ -231,7 +246,6 @@ app.get("/api/isword/:w", (req, res) => {
 app.get("/api/random", (req, res) => {
   const uid = req.uid;
   const cat = String(req.query.cat || "random").toLowerCase();
-
   let pool = WORDS;
   if (cat !== "random") {
     if (!CATS.has(cat)) return res.status(400).json({ error: "unknown-category" });
@@ -306,6 +320,7 @@ app.post("/api/mp/join", (req, res) => {
 });
 
 app.post("/api/match/queue", (req, res) => {
+  // Minimal quick match: create a 2-player room
   const roomId =
     (Math.random().toString(36).slice(2, 6) + Math.random().toString(36).slice(2, 4)).toUpperCase();
   rooms.set(roomId, {
@@ -450,6 +465,7 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), (req,
         case "charge.refunded": {
           const charge = event.data.object;
           console.log("Refund received for charge", charge.id);
+          // Optional: track & revoke
           break;
         }
         default:
@@ -463,88 +479,137 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), (req,
   })();
 });
 
-/* ------------------ Minimal frontend & SW ------------------ */
-// Serve index.html (we keep a 2-file repo)
+/* ------------------ Serve index.html ------------------ */
 app.get("/", (_req, res) => {
-  res.setHeader("Content-Type", "text/html; charset=utf-8");
-  fs.createReadStream(path.join(__dirname, "index.html")).pipe(res);
+  const f = path.join(__dirname, "index.html");
+  if (fs.existsSync(f)) {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    fs.createReadStream(f).pipe(res);
+  } else {
+    res.status(200).send("<h1>Survive API</h1>");
+  }
 });
 
-// Dynamically serve the service worker at /sw.js
+/* ------------------ Service Worker at /sw.js ------------------ */
+/* Network-first for API & navigations, with offline fallback for /api/random.
+   This keeps the app switching between online/offline cleanly. */
 app.get("/sw.js", (_req, res) => {
   res.setHeader("Content-Type", "application/javascript; charset=utf-8");
   res.setHeader("Service-Worker-Allowed", "/");
-  const CACHE_VER = "v1-" + Math.floor(Date.now() / (1000 * 60 * 60)); // bump hourly to help with deploys
-  const sw = `/* Service Worker (offline support) */
-const CACHE_NAME = "app-shell-${CACHE_VER}";
-const APP_SHELL = ["/","/sw.js"]; // add more assets if you later host them
+  const VERSION = `v${Date.now()}`;
+  const sw = `/* Survive SW ${VERSION} */
+const CACHE = "survive-${VERSION}";
+const APP_SHELL = ["/","/index.html","/sw.js","/survive-logo.png"];
 
-// very small offline dictionary fallback (5-letter words)
 const OFFLINE_WORDS = {
-  general: ["apple","chair","crown","zebra","tiger","cable","nurse","plant","brain","heart"],
+  general:["apple","chair","crown","zebra","tiger","cable","nurse","plant","brain","heart"],
+  animals:["zebra","tiger","panda","whale","eagle"],
+  plants:["plant","grass","olive","cacti","flora"],
+  food:["apple","bread","grape","onion","pizza"],
+  health:["nurse","vital","salts","clean","medic"],
+  body:["brain","tooth","elbow","knees","hands"],
+  emotions:["happy","angry","proud","smile","scare"],
+  objects:["chair","table","couch","phone","clock"],
+  business:["money","sales","stock","trade","loans"],
+  politics:["voter","party","union","civic","bills"],
+  technology:["laser","cable","fiber","robot","chips"],
+  places:["paris","tokyo","spain","plaza","delta"],
+  nature:["stone","river","beach","storm","cloud"],
+  sports:["chess","skate","tenis","hockey","socer"],
+  people:["human","adult","pilot","guard","nurse"],
+  math:["angle","ratio","sigma","theta","minus"],
+  sciences:["cells","atoms","field","light","waves"],
+  biology:["flora","fauna","spore","organ","genes"],
+  chemistry:["ionic","oxide","ester","atoms","amine"],
+  physics:["force","quark","boson","laser","field"],
+  history:["roman","noble","union","empir","spain"],
+  geography:["delta","atlas","plain","coast","ocean"],
+  socials:["group","class","norms","ethic","civix"],
 };
 
-// Install: cache the app shell
-self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(APP_SHELL)));
+self.addEventListener("install", e=>{
+  e.waitUntil(caches.open(CACHE).then(c=>c.addAll(APP_SHELL)).catch(()=>{}));
   self.skipWaiting();
 });
-
-// Activate: clean old caches
-self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
-    )
-  );
-  self.clients.claim();
+self.addEventListener("activate", e=>{
+  e.waitUntil((async()=>{
+    const keys = await caches.keys();
+    await Promise.all(keys.map(k=>k===CACHE?null:caches.delete(k)));
+    self.clients.claim();
+  })());
 });
 
-function offlineRandom(cat) {
-  const list = OFFLINE_WORDS[cat] || OFFLINE_WORDS.general;
-  const word = list[(Math.random()*list.length)|0];
-  return new Response(JSON.stringify({ word, cat: cat || "general", offline: true }), {
-    headers: { "Content-Type": "application/json" },
-    status: 200
-  });
+function offlineRandom(cat){
+  const list = OFFLINE_WORDS[cat] || OFFLINE_WORDS.general || ["apple"];
+  const word = list[(Math.random()*list.length)|0] || "apple";
+  return new Response(JSON.stringify({ word, cat, offline:true }), { headers:{ "Content-Type":"application/json" }});
 }
 
 self.addEventListener("fetch", (event) => {
-  const url = new URL(event.request.url);
+  const req = event.request;
+  const url = new URL(req.url);
+  if (url.origin !== location.origin) return;
 
-  // Offline fallback for random word API
-  if (url.pathname === "/api/random") {
-    event.respondWith(
-      (async () => {
+  // API: network-first; /api/random has offline fallback
+  if (url.pathname.startsWith("/api/")) {
+    if (url.pathname === "/api/random") {
+      event.respondWith((async()=>{
         try {
-          const net = await fetch(event.request);
+          const net = await fetch(req);
           if (net && net.ok) return net;
-          // network failed or non-200
           const cat = url.searchParams.get("cat") || "general";
           return offlineRandom(cat);
         } catch {
           const cat = url.searchParams.get("cat") || "general";
           return offlineRandom(cat);
         }
-      })()
-    );
+      })());
+      return;
+    }
+    event.respondWith((async()=>{
+      try {
+        const net = await fetch(req);
+        if (net && net.ok) return net;
+        const cache = await caches.open(CACHE);
+        const cached = await cache.match(req);
+        return cached || net;
+      } catch {
+        const cache = await caches.open(CACHE);
+        const cached = await cache.match(req);
+        return cached || new Response(JSON.stringify({error:"offline"}), {status:503});
+      }
+    })());
     return;
   }
 
-  // Cache-first for app shell requests (GET only)
-  if (event.request.method === "GET" && (url.origin === location.origin)) {
-    event.respondWith(
-      caches.match(event.request).then(cached => {
-        const network = fetch(event.request).then(resp => {
-          if (resp && resp.ok && resp.type === "basic") {
-            const clone = resp.clone();
-            caches.open(CACHE_NAME).then(c => c.put(event.request, clone));
-          }
-          return resp;
-        }).catch(() => cached);
-        return cached || network;
-      })
-    );
+  // Navigations: network-first with cached fallback
+  if (req.mode === "navigate") {
+    event.respondWith((async()=>{
+      try {
+        const net = await fetch(req);
+        const cache = await caches.open(CACHE);
+        cache.put("/index.html", net.clone());
+        return net;
+      } catch {
+        const cache = await caches.open(CACHE);
+        const cached = await cache.match("/index.html");
+        return cached || new Response("<h1>Offline</h1>",{headers:{"Content-Type":"text/html"}});
+      }
+    })());
+    return;
+  }
+
+  // Other same-origin GET: stale-while-revalidate
+  if (req.method === "GET") {
+    event.respondWith((async()=>{
+      const cache = await caches.open(CACHE);
+      const cached = await cache.match(req);
+      const netP = fetch(req).then(resp=>{
+        if (resp && resp.ok) cache.put(req, resp.clone());
+        return resp;
+      }).catch(()=>null);
+      return cached || (await netP) || Response.error();
+    })());
   }
 });`;
   res.end(sw);
@@ -552,5 +617,5 @@ self.addEventListener("fetch", (event) => {
 
 /* ------------------ Start ------------------ */
 app.listen(PORT, () => {
-  console.log(`Web + API listening on :${PORT} (${NODE_ENV})`);
+  console.log(`API listening on :${PORT} (${NODE_ENV})`);
 });
