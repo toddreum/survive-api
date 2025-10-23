@@ -86,7 +86,7 @@ function uidMiddleware(req, res, next) {
   if (!uid) {
     uid = crypto.randomUUID();
     res.cookie("uid", uid, {
-      httpOnly: false, // front-end only needs it sent back
+      httpOnly: false,
       sameSite: "none",
       secure: true,
       path: "/",
