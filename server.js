@@ -137,8 +137,14 @@ function inferCategory(w) {
 
 const WORDS = [];
 try {
-  // Use path.resolve to ensure the path is absolute and correct regardless of the launch directory
-  const p = path.resolve(__dirname, "data", "words5.txt"); 
+  // Primary path (GitHub structure)
+  let p = path.resolve(__dirname, "data", "words5.txt"); 
+  
+  // Secondary path (check if data folder is missing and file is in root)
+  if (!fs.existsSync(p)) {
+      p = path.resolve(__dirname, "words5.txt"); 
+  }
+  
   if (fs.existsSync(p)) {
     const raw = fs.readFileSync(p, "utf8").split(/\r?\n/);
     for (const line of raw) {
@@ -152,10 +158,10 @@ try {
         WORDS.push({ word: w, cat });
       }
     }
-    console.log(`✅ Loaded ${WORDS.length} words from data/words5.txt`);
+    console.log(`✅ Loaded ${WORDS.length} words from ${path.basename(p)}`);
   } else {
     // If the words file isn't found, log a warning and use fallbacks.
-    console.warn("⚠️ data/words5.txt not found — using fallback list");
+    console.warn(`⚠️ words5.txt not found (tried: ${path.resolve(__dirname, "data", "words5.txt")} and ${path.resolve(__dirname, "words5.txt")}) — using fallback list`);
     for (const w of ["apple","build","crane","zebra","mouse","donut","crown","flame","stone","tiger"]) {
       WORDS.push({ word: w, cat: "general" });
     }
