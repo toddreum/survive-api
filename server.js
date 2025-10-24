@@ -1,172 +1,206 @@
-// server.js — fresh build synced to frontend
-require('dotenv').config();
+import express from "express";
+import http from "http";
+import { Server as IOServer } from "socket.io";
+import cors from "cors";
+import fetch from "node-fetch";
+import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
 
-const express = require('express');
-const path = require('path');
-const helmet = require('helmet');
-const compression = require('compression');
-const morgan = require('morgan');
-const rateLimit = require('express-rate-limit');
-const cors = require('cors');
-const http = require('http');
+dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = http.createServer(app);
-const io = require('socket.io')(server, {
-  cors: { origin: process.env.FRONTEND_URL || '*', methods: ['GET','POST'] }
+const io = new IOServer(server, {
+  cors: { origin: "*", methods: ["GET", "POST"] }
 });
 
-const PORT = process.env.PORT || 8080;
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:8080';
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Security + perf
-app.enable('trust proxy');
-app.use(helmet({ contentSecurityPolicy:false, crossOriginEmbedderPolicy:false }));
-app.use(compression());
-app.use(morgan(process.env.NODE_ENV === 'production' ? 'tiny' : 'dev'));
-app.use(cors({ origin: FRONTEND_URL, credentials:false }));
+// ---------- Static (Frontend) ----------
+app.use(express.static(path.join(__dirname, "public")));
 
-// Parsers
-app.use('/api', express.json({ limit: '1mb' }));
+// ---------- Leaderboards / History (in-memory MVP; swap to DB in prod) ----------
+const LEADERBOARD = []; // { label, city, state, wins, best, updatedAt }
+const HISTORY = [];     // { ts, mode, winner, youHealth, duration }
 
-// Rate limit
-const apiLimiter = rateLimit({ windowMs:60*1000, max:200, standardHeaders:true, legacyHeaders:false });
-app.use(['/api'], apiLimiter);
+app.get("/api/leaderboard", (req, res) => {
+  res.json({
+    ok: true,
+    data: LEADERBOARD.sort(
+      (a, b) => (b.wins || 0) - (a.wins || 0) || (b.best || 0) - (a.best || 0)
+    ).slice(0, 100)
+  });
+});
 
-// Static
-app.use(express.static(path.join(__dirname, 'public'), {
-  setHeaders: (res, fp)=>{
-    if (/\.(css|js|png|jpg|jpeg|gif|svg|webp|woff2?)$/i.test(fp)) res.setHeader('Cache-Control','public, max-age=86400, immutable');
-    else res.setHeader('Cache-Control','no-store');
+app.post("/api/leaderboard", (req, res) => {
+  const { label, city = "", state = "", win = false, best = 0 } = req.body || {};
+  if (!label) return res.status(400).json({ ok: false, error: "label required" });
+  let row = LEADERBOARD.find(
+    (r) => r.label === label && r.city === city && r.state === state
+  );
+  if (!row) {
+    row = { label, city, state, wins: 0, best: 0, updatedAt: Date.now() };
+    LEADERBOARD.push(row);
   }
-}));
+  if (win) row.wins += 1;
+  row.best = Math.max(row.best || 0, best || 0);
+  row.updatedAt = Date.now();
+  res.json({ ok: true, row });
+});
 
-app.get('/healthz', (_req,res)=> res.json({ ok:true, ts:Date.now() }));
+app.get("/api/history", (req, res) => {
+  res.json({ ok: true, data: HISTORY.slice(-200).reverse() });
+});
+app.post("/api/history", (req, res) => {
+  const { ts = Date.now(), mode = "Practice", winner = "", youHealth = 0, duration = "" } = req.body || {};
+  HISTORY.push({ ts, mode, winner, youHealth, duration });
+  res.json({ ok: true });
+});
 
-// Stripe booster only
-let stripe;
-if (process.env.STRIPE_SECRET_KEY){
-  stripe = require('stripe')(process.env.STRIPE_SECRET_KEY, { apiVersion: '2023-10-16' });
-}
-app.post('/api/buy_health', async (req,res)=>{
-  try{
-    if(!stripe) return res.status(503).json({ error:'Stripe not configured' });
-    const { playerId='anon', roomCode='practice' } = req.body || {};
-    const session = await stripe.checkout.sessions.create({
-      mode:'payment',
-      line_items: [{ price: process.env.STRIPE_PRICE_HEALTH_BOOST, quantity:1 }],
-      success_url: `${FRONTEND_URL}/?purchase=success`,
-      cancel_url: `${FRONTEND_URL}/?purchase=cancel`,
-      metadata: { type:'HEALTH_BOOST', playerId, roomCode }
+// ---------- ElevenLabs TTS proxy ----------
+const XI_API_KEY = process.env.ELEVENLABS_API_KEY || "";
+const VOICE_CALLER = process.env.ELEVENLABS_VOICE_CALLER || ""; // caller voice ID
+const VOICE_TARGET = process.env.ELEVENLABS_VOICE_TARGET || ""; // target voice ID
+
+app.post("/api/tts", async (req, res) => {
+  try {
+    if (!XI_API_KEY) return res.status(500).json({ ok: false, error: "Missing ELEVENLABS_API_KEY" });
+    const { text = "", role = "caller" } = req.body || {};
+    if (!text) return res.status(400).json({ ok: false, error: "Missing text" });
+
+    const voiceId = role === "target" ? VOICE_TARGET : VOICE_CALLER;
+    if (!voiceId) return res.status(500).json({ ok: false, error: "Missing voice ID(s)" });
+
+    const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+      method: "POST",
+      headers: {
+        "xi-api-key": XI_API_KEY,
+        "Content-Type": "application/json",
+        "accept": "audio/mpeg"
+      },
+      body: JSON.stringify({
+        text,
+        model_id: "eleven_monolingual_v1",
+        voice_settings: { stability: 0.5, similarity_boost: 0.8 }
+      })
     });
-    res.json({ url: session.url });
-  }catch(e){
-    console.error('buy_health error', e);
-    res.status(500).json({ error:'Failed to create checkout session' });
-  }
-});
-const rawBody = express.raw({ type:'application/json' });
-app.post('/webhook', rawBody, (req,res)=>{
-  if(!stripe) return res.status(503).end();
-  try{
-    const sig = req.headers['stripe-signature'];
-    const evt = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
-    if (evt.type === 'checkout.session.completed'){
-      const s = evt.data.object;
-      const { playerId, roomCode } = s.metadata || {};
-      // notify room for +2 HP grant
-      if(roomCode) io.to(roomCode).emit('boost:granted', { playerId, roomCode, hp:+2 });
-      console.log('Boost granted', { playerId, roomCode });
+
+    if (!r.ok) {
+      const errText = await r.text();
+      return res.status(500).json({ ok: false, error: `TTS failed: ${errText}` });
     }
-    res.json({ received:true });
-  }catch(e){
-    console.warn('Webhook verify failed', e.message);
-    res.status(400).send(`Webhook Error: ${e.message}`);
+
+    res.setHeader("Content-Type", "audio/mpeg");
+    r.body.pipe(res);
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
   }
 });
 
-// -------------- Socket.IO Room Manager (in-memory for MVP) --------------
-const ROOMS = new Map();
-// helper to make codes
-function code(n=5){ const A='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; return Array.from({length:n},()=>A[Math.floor(Math.random()*A.length)]).join(''); }
-const ANIMALS = require('./animals.json');
+// ---------- Socket.IO game skeleton ----------
+const rooms = new Map(); // code -> { players: Map, picks:Set, hidden:number, status:'draw'|'live', theme }
 
-function uniqueAnimal(room){
-  const pack = room.animalPack || 'All';
-  const pool = ANIMALS; // single pool, room enforces uniqueness
-  const remaining = pool.filter(a => !room.used.has(a));
-  if (!remaining.length) return null;
-  const pick = remaining[Math.floor(Math.random()*remaining.length)];
-  room.used.add(pick);
-  return pick;
-}
+const ANIMALS = [
+  "Aardvark","Alpaca","Antelope","Badger","Bat","Bear","Beaver","Bison","Boar","Buffalo","Camel","Caracal","Cat","Cheetah","Cougar","Coyote","Crane","Crocodile","Crow","Deer","Dog","Donkey",
+  "Dolphin","Duck","Eagle","Elephant","Elk","Emu","Falcon","Ferret","Flamingo","Fox","Gazelle","Giraffe","Goat","Gorilla","Hamster","Hare","Hawk","Hedgehog","Hippo","Horse","Hyena","Ibis",
+  "Iguana","Jackal","Jaguar","Kangaroo","Koala","Lemur","Leopard","Lion","Llama","Lynx","Mole","Monkey","Moose","Mouse","Ox","Otter","Owl","Panda","Panther","Parrot","Penguin","Pig",
+  "Pigeon","Polar Bear","Puma","Quail","Rabbit","Raccoon","Rat","Raven","Rhino","Seal","Shark","Sheep","Skunk","Sloth","Snake","Swan","Tiger","Turtle","Walrus","Wolf","Zebra"
+];
 
-io.on('connection', (socket)=>{
-  socket.on('room:create', ({ theme='jungle', minHumans=4, maxBots=10 }, cb)=>{
-    const id = code(5);
-    const room = { id, theme, minHumans, maxBots, players:new Map(), used:new Set(), started:false, createdAt:Date.now() };
-    ROOMS.set(id, room);
-    cb?.({ ok:true, code:id });
+io.on("connection", (socket) => {
+  // Create room
+  socket.on("room:create", ({ theme = "jungle" } = {}, cb) => {
+    const code = Math.random().toString(36).slice(2, 7).toUpperCase();
+    rooms.set(code, { theme, players: new Map(), picks: new Map(), hidden: null, status: "draw" });
+    cb?.({ ok: true, code, theme });
   });
 
-  socket.on('room:join', ({ code:id, name='Player', lastInitial='' }, cb)=>{
-    const room = ROOMS.get(id);
-    if(!room) return cb?.({ ok:false, error:'Room not found' });
-    const animal = uniqueAnimal(room);
-    if(!animal) return cb?.({ ok:false, error:'Room animal pool exhausted' });
-    const playerId = socket.id;
-    const label = `${name} ${String(lastInitial||'').slice(0,1).toUpperCase()}.`.trim();
-    room.players.set(playerId, { id:playerId, label, name, animal, hp:20, isBot:false, lastPauseAt:0 });
-    socket.join(id);
-    io.to(id).emit('room:state', serializeRoom(room));
-    cb?.({ ok:true, room: serializeRoom(room) });
+  // Join room
+  socket.on("room:join", ({ code, name = "Player", lastInitial = "", city = "", state = "" } = {}, cb) => {
+    const room = rooms.get(code);
+    if (!room) return cb?.({ ok: false, error: "Room not found" });
+
+    const label = lastInitial ? `${name} ${lastInitial}.` : name;
+    // Assign a unique animal (Aardvark reserved for starter later)
+    const usedAnimals = new Set([...room.players.values()].map(p => p.animal));
+    let animal = "Aardvark";
+    if (usedAnimals.has("Aardvark")) {
+      const pool = ANIMALS.filter((a) => !usedAnimals.has(a));
+      animal = pool[Math.floor(Math.random() * pool.length)] || `Animal${room.players.size + 1}`;
+    }
+    room.players.set(socket.id, {
+      id: socket.id, label, name, city, state, animal, hp: 20, isBot: false, lastPauseAt: 0
+    });
+    socket.join(code);
+    cb?.({ ok: true, code, player: room.players.get(socket.id), status: room.status, theme: room.theme });
+    io.to(code).emit("room:update", { players: [...room.players.values()], status: room.status, theme: room.theme, picks: Object.fromEntries(room.picks) });
   });
 
-  socket.on('match:quick', ({ name='Player', lastInitial='' }, cb)=>{
-    // naive: reuse an existing public room or create one
-    let room = [...ROOMS.values()].find(r=>!r.started && (r.minHumans||0) <= (r.players?.size||0)+1);
-    if(!room){ const id=code(5); room = { id, theme:'jungle', minHumans:4, maxBots:10, players:new Map(), used:new Set(), started:false, createdAt:Date.now() }; ROOMS.set(id, room); }
-    const animal = uniqueAnimal(room);
-    const playerId = socket.id;
-    const label = `${name} ${String(lastInitial||'').slice(0,1).toUpperCase()}.`.trim();
-    room.players.set(playerId, { id:playerId, label, name, animal, hp:20, isBot:false, lastPauseAt:0 });
-    socket.join(room.id);
-    io.to(room.id).emit('room:state', serializeRoom(room));
-    cb?.({ ok:true, code: room.id, room: serializeRoom(room) });
-  });
-
-  socket.on('pauseMatch', ({ code:id }, cb)=>{
-    const room = ROOMS.get(id);
-    const me = room?.players.get(socket.id);
-    if(!room || !me) return cb?.({ ok:false });
-    const now=Date.now();
-    if(me.lastPauseAt && now - me.lastPauseAt < 60000) return cb?.({ ok:false, error:'Cooldown' });
-    me.lastPauseAt = now;
-    room.pausedUntil = now + 8000;
-    io.to(id).emit('paused', { by: me.id, until: room.pausedUntil });
+  // Number pick (1..20 unique)
+  socket.on("draw:pick", ({ code, number }, cb) => {
+    const room = rooms.get(code); if(!room) return;
+    if(room.status !== "draw") return cb?.({ ok:false, error:"Not in draw phase" });
+    const n = parseInt(number, 10);
+    if(!(n>=1 && n<=20)) return cb?.({ ok:false, error:"Pick 1-20" });
+    if([...room.picks.values()].includes(n)) return cb?.({ ok:false, error:"Number already taken" });
+    room.picks.set(socket.id, n);
+    io.to(code).emit("room:update", { players: [...room.players.values()], status: room.status, theme: room.theme, picks: Object.fromEntries(room.picks) });
     cb?.({ ok:true });
   });
 
-  socket.on('disconnect', ()=>{
-    for (const [id, room] of ROOMS){
-      if (room.players.delete(socket.id)){
-        io.to(id).emit('room:state', serializeRoom(room));
+  // Start round after picks are in (host calls this)
+  socket.on("draw:start", ({ code }, cb) => {
+    const room = rooms.get(code); if(!room) return;
+    if(room.status !== "draw") return cb?.({ ok:false, error:"Already started" });
+    // roll hidden number
+    const hidden = Math.floor(Math.random() * 20) + 1;
+    room.hidden = hidden;
+    // choose closest; make them Aardvark and caller
+    const entries = [...room.picks.entries()].map(([id,val]) => ({ id, val, dist: Math.abs(val - hidden) }));
+    if(entries.length === 0) return cb?.({ ok:false, error:"No picks yet" });
+    entries.sort((a,b)=> a.dist - b.dist || a.id.localeCompare(b.id));
+    const starterId = entries[0].id;
+
+    // set starter as Aardvark animal explicitly
+    for (const p of room.players.values()) {
+      if (p.id === starterId) p.animal = "Aardvark";
+    }
+    room.status = "live";
+
+    io.to(code).emit("draw:result", { hidden, starterId });
+    io.to(code).emit("room:live", { starterId, players: [...room.players.values()] });
+    cb?.({ ok:true, hidden, starterId });
+  });
+
+  // Broadcast typed call (e.g., "Aardvark calls Bear!")
+  socket.on("call:phrase", ({ code, fromAnimal, toAnimal }, cb) => {
+    const room = rooms.get(code); if(!room) return;
+    io.to(code).emit("call:phrase", { fromAnimal, toAnimal, ts: Date.now() });
+    cb?.({ ok:true });
+  });
+
+  socket.on("disconnect", () => {
+    for (const [code, room] of rooms) {
+      if (room.players.delete(socket.id)) {
+        room.picks.delete(socket.id);
+        io.to(code).emit("room:update", { players: [...room.players.values()], status: room.status, theme: room.theme, picks: Object.fromEntries(room.picks) });
       }
     }
   });
 });
 
-function serializeRoom(room){
-  return {
-    id: room.id, theme: room.theme, started: room.started, pausedUntil: room.pausedUntil||0,
-    players: [...room.players.values()].map(p=>({ id:p.id, label:p.label, animal:p.animal, hp:p.hp, isBot:p.isBot })),
-  };
-}
-
-// SPA fallback
-app.get('*', (req,res,next)=>{
-  const file = path.join(__dirname, 'public', 'index.html');
-  res.sendFile(file, (err)=>{ if(err) next(); });
+// ---------- Fallback to SPA index ----------
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-server.listen(PORT, ()=> console.log(`✅ Server on ${PORT}`));
+const PORT = process.env.PORT || 8080;
+server.listen(PORT, () => {
+  console.log(`Survive server running on http://localhost:${PORT}`);
+});
