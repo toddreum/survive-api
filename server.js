@@ -79,13 +79,12 @@ app.use(cookieParser());
 app.use("/api", express.json());
 
 /* ------------------ Static files ------------------ */
-// FIX: Serve / and static files from the root of the project
+// Serve static files (like /sw.js, /survive-logo.png, etc.) from the root
 app.use(express.static(__dirname, {
   setHeaders(res, p) {
     if (p.endsWith(".html")) res.setHeader("Cache-Control", "no-store");
   }
 }));
-// FIX: If index.html is in a subfolder (like /client), adjust __dirname. Assuming it's in the root for now.
 
 /* ------------------ UID cookie ------------------ */
 function uidMiddleware(req, res, next) {
@@ -106,20 +105,17 @@ function uidMiddleware(req, res, next) {
 app.use(uidMiddleware);
 
 /* ------------------ Categories & Ages ------------------ */
-// Classic (your list)
 const CLASSIC_CATS = [
   "animals","plants","food","health","body","emotions","objects","business",
   "politics","technology","places","nature","sports","people","general"
 ];
-// Educational (your list)
 const EDU_CATS = ["math","sciences","biology","chemistry","physics","history","geography","socials"];
 const CATS = new Set([...CLASSIC_CATS, ...EDU_CATS, "general"]);
-const AGE_GROUPS = ["6-8", "9-11", "12-14", "15-18", "19+"]; // Used for difficulty tuning
+const AGE_GROUPS = ["6-8", "9-11", "12-14", "15-18", "19+"];
 
 /* ------------------ Words loader ------------------ */
 function inferCategory(w) {
   if (!DO_AUTO_CAT) return "general";
-  // lightweight heuristics; anything unknown -> general
   const hints = {
     animals: ["zebra","tiger","whale","horse","eagle","shark","panda"],
     plants: ["cacti","flora","olive","grass"],
@@ -136,8 +132,7 @@ function inferCategory(w) {
   return "general";
 }
 
-// Word structure: { word: 'apple', cat: 'food', difficulty: 2 }
-// Difficulty is a number 1-5, higher is harder/rarer. Default is 3.
+// Word structure: { word: 'apple', cat: 'food', difficulty: 3 }
 const WORDS = [];
 let wordLoadSuccess = false;
 try {
@@ -153,7 +148,6 @@ try {
     const raw = fs.readFileSync(p, "utf8").split(/\r?\n/);
     for (const line of raw) {
       if (!line) continue;
-      // FIX: Add support for difficulty (default is 3 if not provided)
       const [w0, cat0, diff0] = line.split(",").map(s => (s || "").trim());
       const w = (w0 || "").toLowerCase();
       let cat = (cat0 || "").toLowerCase();
@@ -181,10 +175,10 @@ if (WORDS.length === 0) {
 }
 
 /* ------------------ In-memory DB ------------------ */
-const purchases = new Map();      // Map<uid, Set<product>>
-const lastWordByUid = new Map();  // Map<uid, Set<recent words>>
-const scores = [];                // {uid, pts, mode, tz, at, name}
-const rooms = new Map();          // Map<roomId, {host, members:Set<uid>, createdAt, max, msgs:[], __last:Map<uid,ts>}
+const purchases = new Map();
+const lastWordByUid = new Map();
+const scores = [];
+const rooms = new Map();
 
 /* ------------------ Payments helpers (unchanged) ------------------ */
 const PRICE_TO_PRODUCT = new Map(
@@ -271,17 +265,14 @@ app.get("/api/random", (req, res) => {
 
   // 2. Filter by Age/Difficulty (only if subject/educational mode is active)
   if (subject && AGE_GROUPS.includes(age)) {
-    // Map age group to difficulty (1=easiest, 5=hardest)
-    // 6-8: Diff 1-2 (easiest)
-    // 9-11: Diff 2-3
-    // 12-14: Diff 3-4
-    // 15-18: Diff 4-5
-    // 19+: Diff 5 (hardest)
-    const [minStr, maxStr] = age.replace('+', '-5').split('-');
-    const minDiff = Number(minStr) > 18 ? 5 : Math.floor(Number(minStr)/3);
-    const maxDiff = Number(maxStr) === 5 ? 5 : Math.ceil(Number(maxStr)/3);
-
-    // Filter the pool to include words within the difficulty range
+    // Map age group to difficulty
+    let minDiff = 1, maxDiff = 5;
+    if (age === "6-8") { minDiff = 1; maxDiff = 2; }
+    else if (age === "9-11") { minDiff = 2; maxDiff = 3; }
+    else if (age === "12-14") { minDiff = 3; maxDiff = 4; }
+    else if (age === "15-18") { minDiff = 4; maxDiff = 5; }
+    else if (age === "19+") { minDiff = 5; maxDiff = 5; }
+    
     pool = pool.filter(x => x.difficulty >= minDiff && x.difficulty <= maxDiff);
   }
 
@@ -371,7 +362,6 @@ app.post("/api/mp/emote", (req, res) => {
   const { roomId, kind } = req.body || {};
   const r = rooms.get(String(roomId || "").toUpperCase());
   if (!r || !r.members.has(req.uid)) return res.status(403).json({ error: "not-in-room" });
-  // Add 'nice' and 'again' to the safe list
   const SAFE = new Set(["👍", "😮", "🔥", "gg", "ready", "nice", "again"]);
   if (!SAFE.has(String(kind || ""))) return res.status(400).json({ error: "bad-emote" });
   r.msgs.push({ ts: Date.now(), uid: req.uid, type: "emote", kind: String(kind) });
@@ -383,7 +373,6 @@ app.post("/api/mp/emote", (req, res) => {
 app.post("/api/mp/chat", (req, res) => {
   if (!CHAT_ON) return res.status(403).json({ error: "chat-disabled" });
 
-  // FIX: Text chat now requires monthly pass
   if (!hasMonthly(req.uid)) return res.status(402).json({ error: "subscription-required" });
 
   const over18 = String(req.headers["x-over-18"] || "").toLowerCase() === "true";
@@ -415,35 +404,29 @@ app.get("/api/mp/feed", (req, res) => {
   if (!r || !r.members.has(req.uid)) return res.status(403).json({ error: "not-in-room" });
   const items = r.msgs.filter(x => x.ts > since);
 
-  // FIX: Add basic user name lookup for feed (using a placeholder for now)
+  // FIX: Add basic user name lookup for feed
   const memberNames = new Map([...r.members].map(uid => [uid, 'Player-' + uid.slice(0,4)]));
   const itemsWithNames = items.map(item => ({...item, name: memberNames.get(item.uid) || 'Player'}));
 
   res.json({ items: itemsWithNames, now: Date.now() });
 });
 
-/* ------------------ Perks / Status (unchanged) ------------------ */
+/* ------------------ Perks / Status (updated for perks list) ------------------ */
 function perksFor(uid) {
   const owned = purchases.get(uid) ?? new Set();
   const hasPremium = owned.has("premium") || owned.has("all_access") || owned.has("monthly_pass");
-  const hasSurvival = hasPremium || owned.has("survival");
-  const hasThemes = hasPremium || owned.has("themes_pack");
-  const hasAdFree = hasPremium || owned.has("ad_free");
-  const hasStats = hasPremium || owned.has("premium_stats");
-  const hasDailyHint = hasPremium || owned.has("daily_hint");
-
+  
   return {
     active: hasPremium,
-    // FIX: Ensure 'survival' is included in owned if purchased individually
     owned: [...owned].filter(p => p !== 'donation'),
     perks: {
       maxRows: hasPremium ? 8 : 6,
       winBonus: hasPremium ? 5 : 0,
-      themesPack: hasThemes,
-      survival: hasSurvival,
-      adFree: hasAdFree,
-      premiumStats: hasStats,
-      dailyHint: hasDailyHint,
+      themesPack: hasPremium || owned.has("themes_pack"),
+      survival: hasPremium || owned.has("survival"),
+      adFree: hasPremium || owned.has("ad_free"),
+      premiumStats: hasPremium || owned.has("premium_stats"),
+      dailyHint: hasPremium || owned.has("daily_hint"),
       tag: hasPremium ? "👑" : null,
     },
     canChat: owned.has("monthly_pass"),
@@ -451,23 +434,9 @@ function perksFor(uid) {
 }
 app.get("/api/pay/status", (req, res) => res.json(perksFor(req.uid)));
 
-/* ------------------ Donate (unchanged) ------------------ */
-app.get("/api/pay/support-link", (req, res) => {
-  // Use STRIPE_PRICE_DONATION to trigger checkout for a one-time payment if no external link is set.
-  if (STRIPE_PRICE_DONATION) {
-    // Note: The client will handle calling checkout with 'donation' product ID.
-    return res.json({ url: `${ALLOWED_ORIGIN}/?product=donation` });
-  }
-
-  // Fallback to external link if provided
-  if (!SUPPORT_LINK) return res.json({ error: "support-link-missing" });
-  res.json({ url: SUPPORT_LINK });
-});
-
-/* ------------------ Stripe Checkout (unchanged) ------------------ */
+/* ------------------ Stripe Checkout/Webhook (unchanged) ------------------ */
 app.post("/api/pay/checkout", async (req, res) => {
   try {
-    // Check if Stripe is available
     if (!stripe) return res.status(500).json({ error: "stripe-key-missing" });
     const uid = req.uid;
     const { product } = req.body || {};
@@ -486,12 +455,10 @@ app.post("/api/pay/checkout", async (req, res) => {
     res.json({ url: session.url });
   } catch (e) {
     console.error("checkout error", e);
-    // Return a generic payment failure error
     res.status(500).json({ error: "checkout-failed" });
   }
 });
 
-/* ------------------ Stripe Webhook (unchanged) ------------------ */
 app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), (req, res) => {
   if (!stripe) return res.status(500).send("stripe-key-missing");
   const sig = req.headers["stripe-signature"];
@@ -505,29 +472,22 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), (req,
 
   (async () => {
     try {
-      switch (event.type) {
-        case "checkout.session.completed": {
+      if (event.type === "checkout.session.completed") {
           const session = await stripe.checkout.sessions.retrieve(event.data.object.id, {
             expand: ["line_items.data.price"],
           });
           const uid = session.client_reference_id || session.metadata?.uid;
           let product = session.metadata?.product;
-
           if (!product && session.line_items?.data?.[0]?.price?.id) {
             product = PRICE_TO_PRODUCT.get(session.line_items.data[0].price.id);
           }
-
           if (uid && product) {
             grant(uid, product);
             console.log(`✅ Granted ${product} to ${uid}`);
           } else {
             console.warn("⚠️ Missing uid or product in webhook");
           }
-          break;
         }
-        default:
-          break;
-      }
       res.json({ received: true });
     } catch (e) {
       console.error("Webhook handler error", e);
@@ -537,26 +497,23 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), (req,
 });
 
 /* ------------------ Root ------------------ */
-// FIX: Force the root path to look for 'index.html' first, fixing blank page issue.
+// FIX: This section ensures index.html is served for the root path
 app.get("/", (_req, res) => {
   const f = path.join(__dirname, "index.html");
   if (fs.existsSync(f)) {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    // Ensure we use res.sendFile for clean serving, which also handles the stream
     res.sendFile(f);
   } else {
-    // Fallback if index.html is truly missing
+    // If index.html is missing, this message helps diagnose the issue
     res.status(200).send("<h1>Survive API</h1><p>index.html not found in the current directory.</p>");
   }
 });
 
-/* ------------------ Service Worker at /sw.js (minor fix to include educational words) ------------------ */
-// Network-first; falls back to offline words if /api/random fails.
+/* ------------------ Service Worker at /sw.js ------------------ */
 app.get("/sw.js", (_req, res) => {
   res.setHeader("Content-Type", "application/javascript; charset=utf-8");
   res.setHeader("Service-Worker-Allowed", "/");
   const VERSION = `v${Date.now()}`;
-  // Ensure APP_SHELL includes common static assets for offline use
   const sw = `/* Survive SW ${VERSION} */
 const CACHE = "survive-${VERSION}";
 const APP_SHELL = ["/","/index.html","/sw.js","/survive-logo.png","/data/words5.txt","/words5.txt"];
@@ -578,7 +535,6 @@ const OFFLINE_WORDS = {
   nature:["stone","river","beach","storm","cloud"],
   sports:["chess","skate","tenis","hockey","socer"],
   people:["human","adult","pilot","guard","nurse"],
-  // Educational
   math:["angle","ratio","sigma","theta","minus"],
   sciences:["cells","atoms","field","light","waves"],
   biology:["flora","fauna","spore","organ","genes"],
@@ -619,7 +575,6 @@ self.addEventListener("fetch", (event) => {
         try {
           const net = await fetch(req);
           if (net && net.ok) return net;
-          // FIX: Use 'subject' parameter for offline lookup if 'cat' is missing
           const cat = (url.searchParams.get("cat") || url.searchParams.get("subject") || "general").toLowerCase();
           return offlineRandom(cat);
         } catch {
@@ -674,7 +629,7 @@ self.addEventListener("fetch", (event) => {
       return cached || (await netP) || Response.error();
     })());
   }
-});`; // Closing template literal
+});`;
   res.end(sw);
 });
 
