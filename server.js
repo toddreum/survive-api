@@ -1,122 +1,54 @@
-// server.js
-require('dotenv').config();
+// server.js - lightweight Express server serving static client and proxying TTS (ElevenLabs)
+// Place client files under ./public
 const express = require('express');
+const axios = require('axios');
 const path = require('path');
-const morgan = require('morgan');
-const helmet = require('helmet');
-const compression = require('compression');
-const rateLimit = require('express-rate-limit');
-const fetch = (...args) => import('node-fetch').then(({default: f}) => f(...args));
+const cors = require('cors');
+require('dotenv').config();
 
 const app = express();
-const PORT = process.env.PORT || 8080;
+app.use(cors());
+app.use(express.json({limit:'1mb'}));
+app.use(express.urlencoded({extended:true}));
+app.use(express.static(path.join(__dirname, 'public')));
 
-// --- Basic security & perf ---
-app.enable('trust proxy');
-app.use(helmet({
-  contentSecurityPolicy: false, // keep off if you rely on 3rd-party iframes; tighten later
-}));
-app.use(compression());
-app.use(morgan('tiny'));
+// Health
+app.get('/api/health', (req, res) => res.json({ ok: true, env: process.env.NODE_ENV || 'development' }));
 
-// --- Rate limiting on proxy routes ---
-const limiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 120,
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-app.use('/proxy', limiter);
+// POST /api/tts - proxy ElevenLabs text-to-speech (server-side key)
+app.post('/api/tts', async (req, res) => {
+  const { text, voice = 'alloy' } = req.body || {};
+  if(!text || typeof text !== 'string') return res.status(400).json({ error: 'text required' });
 
-// --- Static site ---
-// Put your files (including gem.fixed.txt → rename to gem.txt if needed) in ./public
-app.use(express.static(path.join(__dirname, 'public'), {
-  setHeaders: (res, filePath) => {
-    if (/\.(css|js|png|jpg|jpeg|gif|svg|webp|woff2?)$/i.test(filePath)) {
-      res.setHeader('Cache-Control', 'public, max-age=86400, immutable');
-    } else {
-      res.setHeader('Cache-Control', 'no-store');
-    }
-  }
-}));
+  const XI_KEY = process.env.ELEVEN_API_KEY;
+  if(!XI_KEY) return res.status(500).json({ error: 'ELEVEN_API_KEY not configured' });
 
-// --- Simple health check ---
-app.get('/healthz', (_req, res) => {
-  res.json({ ok: true, ts: Date.now() });
-});
-
-// --- CORS-safe fetch proxy ---
-// Usage: /proxy?url=https%3A%2F%2Fexample.com%2Frss
-// NOTE: Tighten allowlist as needed.
-const ALLOWLIST = (process.env.PROXY_ALLOWLIST || '')
-  .split(',')
-  .map(s => s.trim())
-  .filter(Boolean);
-
-// quick host checker
-const isAllowedHost = (targetUrl) => {
   try {
-    const u = new URL(targetUrl);
-    if (!ALLOWLIST.length) return true; // if you don't set allowlist, allow all (dev mode)
-    return ALLOWLIST.some(h => u.hostname.endsWith(h));
-  } catch {
-    return false;
-  }
-};
-
-app.get('/proxy', async (req, res) => {
-  try {
-    const target = req.query.url;
-    if (!target) {
-      return res.status(400).json({ error: 'Missing url param' });
-    }
-    if (!isAllowedHost(target)) {
-      return res.status(403).json({ error: 'Host not allowed by proxy allowlist' });
-    }
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
-
-    const upstream = await fetch(target, {
-      signal: controller.signal,
-      redirect: 'follow',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; DudeBot/1.0; +https://www.dude.com)',
-        'Accept': '*/*',
-      },
+    const url = `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voice)}/stream`;
+    const r = await axios.post(url, { text }, {
+      headers: { 'xi-api-key': XI_KEY, 'Content-Type': 'application/json' },
+      responseType: 'arraybuffer',
+      timeout: 30000
     });
-    clearTimeout(timeout);
-
-    // Pass through content-type
-    const ct = upstream.headers.get('content-type') || 'application/octet-stream';
-    res.setHeader('Content-Type', ct);
-    res.setHeader('Cache-Control', 'no-store');
-
-    if (!upstream.ok) {
-      const text = await upstream.text().catch(() => '');
-      return res.status(upstream.status).send(text || `Upstream error: ${upstream.status}`);
-    }
-
-    // Stream the body
-    upstream.body.pipe(res);
-  } catch (err) {
-    if (err && err.name === 'AbortError') {
-      return res.status(504).json({ error: 'Proxy timeout' });
-    }
-    res.status(502).json({ error: 'Proxy failed', detail: String(err && err.message || err) });
+    const type = r.headers['content-type'] || 'audio/mpeg';
+    res.setHeader('Content-Type', type);
+    res.send(Buffer.from(r.data));
+  } catch(err) {
+    console.error('tts proxy error', err?.response?.data || err.message);
+    res.status(502).json({ error: 'tts_proxy_failed', detail: err.message });
   }
 });
 
-// --- SPA fallback (optional) ---
-// If you have an index.html you want to always serve:
-app.get('*', (req, res, next) => {
-  // serve index.html for unknown routes if you are using a single-page app
-  const file = path.join(__dirname, 'public', 'index.html');
-  res.sendFile(file, (err) => {
-    if (err) next();
-  });
+// Demo checkout endpoint (no real payment)
+app.post('/api/checkout', async (req, res) => {
+  const { qty } = req.body || {};
+  if(!qty || qty < 1) return res.status(400).json({ error: 'qty required' });
+  await new Promise(r => setTimeout(r, 700));
+  res.json({ ok:true, applied: Math.min(10, qty), banked: Math.max(0, qty - Math.min(10, qty)) });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-});
+// SPA fallback
+app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+
+const port = process.env.PORT || 3000;
+app.listen(port, () => console.log(`Server running on http://localhost:${port}`));
