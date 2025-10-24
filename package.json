@@ -1,7 +1,7 @@
 {
-  "name": "survive-server",
+  "name": "survive-api",
   "version": "1.0.0",
-  "description": "Backend server for Survive.com using Socket.io and Express.",
+  "description": "Backend server for Survive.com using Socket.io, Express, and Stripe.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
