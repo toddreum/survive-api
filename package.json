@@ -1,12 +1,14 @@
 {
   "name": "survive-dot-com",
   "version": "1.0.0",
-  "description": "Survive.com - lightweight game server + client (TTS proxy)",
+  "description": "Survive.com — lightweight client + server with TTS proxy (ElevenLabs)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js"
   },
+  "author": "toddreum",
+  "license": "MIT",
   "dependencies": {
     "axios": "^1.4.0",
     "cors": "^2.8.5",
@@ -15,7 +17,5 @@
   },
   "devDependencies": {
     "nodemon": "^2.0.22"
-  },
-  "license": "MIT",
-  "author": "toddreum"
+  }
 }
