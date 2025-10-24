@@ -1,10 +1,20 @@
-// In the fixed server.js:
-app.get("/", (_req, res) => {
-    const f = path.join(__dirname, "index.html");
-    if (fs.existsSync(f)) {
-        res.setHeader("Content-Type", "text/html; charset=utf-8");
-        res.sendFile(f); // This reliably sends the file
-    } else {
-        res.status(200).send("<h1>Survive API</h1><p>index.html not found in the current directory.</p>");
-    }
-});
+{
+  "name": "survive-api",
+  "version": "1.0.0",
+  "description": "Backend API for the Survive word game.",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "stripe": "^16.5.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
