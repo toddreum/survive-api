@@ -74,12 +74,12 @@ app.set("trust proxy", true);
 // CORS
 app.use(cors({ origin: ALLOWED_ORIGIN, credentials: true }));
 
-// Cookies + JSON (note: webhook uses express.raw later)
+// Cookies + JSON
 app.use(cookieParser());
 app.use("/api", express.json());
 
 /* ------------------ Static files ------------------ */
-// Serve static files (like /sw.js, /survive-logo.png, etc.) from the root
+// CRITICAL FIX: Ensure this is high up to serve CSS, JS, and image assets from the root.
 app.use(express.static(__dirname, {
   setHeaders(res, p) {
     if (p.endsWith(".html")) res.setHeader("Cache-Control", "no-store");
@@ -136,13 +136,8 @@ function inferCategory(w) {
 const WORDS = [];
 let wordLoadSuccess = false;
 try {
-  // Try primary path: ./data/words5.txt
   let p = path.resolve(__dirname, "data", "words5.txt");
-
-  // Try secondary path: ./words5.txt (in case deployed flat)
-  if (!fs.existsSync(p)) {
-      p = path.resolve(__dirname, "words5.txt");
-  }
+  if (!fs.existsSync(p)) { p = path.resolve(__dirname, "words5.txt"); }
 
   if (fs.existsSync(p)) {
     const raw = fs.readFileSync(p, "utf8").split(/\r?\n/);
@@ -151,7 +146,7 @@ try {
       const [w0, cat0, diff0] = line.split(",").map(s => (s || "").trim());
       const w = (w0 || "").toLowerCase();
       let cat = (cat0 || "").toLowerCase();
-      const difficulty = Math.min(5, Math.max(1, Number(diff0) || 3)); // 1-5 range
+      const difficulty = Math.min(5, Math.max(1, Number(diff0) || 3));
 
       if (/^[a-z]{5}$/.test(w)) {
         if (!cat) cat = inferCategory(w);
@@ -166,7 +161,7 @@ try {
   console.error("Word load failed during parsing:", e);
 }
 
-// Fallback to minimal list if WORDS is still empty
+// Fallback to minimal list
 if (WORDS.length === 0) {
     console.warn(`⚠️ Word list failed to load. Using minimal fallback list.`);
     for (const w of ["apple","build","crane","zebra","mouse","donut","crown","flame","stone","tiger"]) {
@@ -210,7 +205,6 @@ const PRODUCT_TO_PRICE = {
 function grant(uid, product) {
   const set = purchases.get(uid) ?? new Set();
   set.add(product);
-  // Bundles imply others
   if (product === "premium" || product === "all_access" || product === "monthly_pass") {
     set.add("themes_pack");
     set.add("premium_stats");
@@ -250,9 +244,9 @@ app.get("/api/isword/:w", (req, res) => {
 
 app.get("/api/random", (req, res) => {
   const uid = req.uid;
-  const cat = String(req.query.cat || "").toLowerCase(); // Classic mode category
-  const subject = String(req.query.subject || "").toLowerCase(); // Educational mode subject
-  const age = String(req.query.age || "9-11"); // Educational mode age for difficulty
+  const cat = String(req.query.cat || "").toLowerCase();
+  const subject = String(req.query.subject || "").toLowerCase();
+  const age = String(req.query.age || "9-11");
 
   const effectiveCat = subject || cat;
   let pool = WORDS;
@@ -265,7 +259,6 @@ app.get("/api/random", (req, res) => {
 
   // 2. Filter by Age/Difficulty (only if subject/educational mode is active)
   if (subject && AGE_GROUPS.includes(age)) {
-    // Map age group to difficulty
     let minDiff = 1, maxDiff = 5;
     if (age === "6-8") { minDiff = 1; maxDiff = 2; }
     else if (age === "9-11") { minDiff = 2; maxDiff = 3; }
@@ -404,29 +397,35 @@ app.get("/api/mp/feed", (req, res) => {
   if (!r || !r.members.has(req.uid)) return res.status(403).json({ error: "not-in-room" });
   const items = r.msgs.filter(x => x.ts > since);
 
-  // FIX: Add basic user name lookup for feed
   const memberNames = new Map([...r.members].map(uid => [uid, 'Player-' + uid.slice(0,4)]));
   const itemsWithNames = items.map(item => ({...item, name: memberNames.get(item.uid) || 'Player'}));
 
   res.json({ items: itemsWithNames, now: Date.now() });
 });
 
-/* ------------------ Perks / Status (updated for perks list) ------------------ */
+/* ------------------ Perks / Status (UPDATED) ------------------ */
 function perksFor(uid) {
   const owned = purchases.get(uid) ?? new Set();
   const hasPremium = owned.has("premium") || owned.has("all_access") || owned.has("monthly_pass");
   
+  // Check individual unlocks and bundles
+  const hasThemes = hasPremium || owned.has("themes_pack");
+  const hasSurvival = hasPremium || owned.has("survival");
+  const hasAdFree = hasPremium || owned.has("ad_free");
+  const hasStats = hasPremium || owned.has("premium_stats");
+  const hasDailyHint = hasPremium || owned.has("daily_hint");
+
   return {
     active: hasPremium,
     owned: [...owned].filter(p => p !== 'donation'),
     perks: {
       maxRows: hasPremium ? 8 : 6,
       winBonus: hasPremium ? 5 : 0,
-      themesPack: hasPremium || owned.has("themes_pack"),
-      survival: hasPremium || owned.has("survival"),
-      adFree: hasPremium || owned.has("ad_free"),
-      premiumStats: hasPremium || owned.has("premium_stats"),
-      dailyHint: hasPremium || owned.has("daily_hint"),
+      themesPack: hasThemes,
+      survival: hasSurvival,
+      adFree: hasAdFree,
+      premiumStats: hasStats,
+      dailyHint: hasDailyHint,
       tag: hasPremium ? "👑" : null,
     },
     canChat: owned.has("monthly_pass"),
@@ -497,14 +496,13 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), (req,
 });
 
 /* ------------------ Root ------------------ */
-// FIX: This section ensures index.html is served for the root path
+// CRITICAL FIX: Explicitly serve index.html for the root path
 app.get("/", (_req, res) => {
   const f = path.join(__dirname, "index.html");
   if (fs.existsSync(f)) {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.sendFile(f);
   } else {
-    // If index.html is missing, this message helps diagnose the issue
     res.status(200).send("<h1>Survive API</h1><p>index.html not found in the current directory.</p>");
   }
 });
@@ -516,9 +514,8 @@ app.get("/sw.js", (_req, res) => {
   const VERSION = `v${Date.now()}`;
   const sw = `/* Survive SW ${VERSION} */
 const CACHE = "survive-${VERSION}";
-const APP_SHELL = ["/","/index.html","/sw.js","/survive-logo.png","/data/words5.txt","/words5.txt"];
+const APP_SHELL = ["/","/index.html","/sw.js","/survive-logo.png","/data/words5.txt","/words5.txt", "/style.css"];
 
-// FIX: Added educational words to the offline list for the Service Worker
 const OFFLINE_WORDS = {
   general:["apple","chair","crown","zebra","tiger","cable","nurse","plant","brain","heart"],
   animals:["zebra","tiger","panda","whale","eagle"],
@@ -568,7 +565,6 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(req.url);
   if (url.origin !== location.origin) return;
 
-  // API: network-first; /api/random has offline fallback
   if (url.pathname.startsWith("/api/")) {
     if (url.pathname === "/api/random") {
       event.respondWith((async()=>{
@@ -600,7 +596,6 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Navigations: network-first with cached fallback
   if (req.mode === "navigate") {
     event.respondWith((async()=>{
       try {
@@ -617,7 +612,6 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Other same-origin GET: stale-while-revalidate
   if (req.method === "GET") {
     event.respondWith((async()=>{
       const cache = await caches.open(CACHE);
