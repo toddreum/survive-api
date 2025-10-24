@@ -1,27 +1,19 @@
 {
-  "name": "survive-com",
-  "version": "1.0.0",
-  "private": true,
-  "description": "Survive.com server (static hosting + Stripe Health Booster + optional proxy).",
+  "name": "survive-dot-com",
+  "version": "1.0.2",
+  "description": "Survive.com - client + server (TTS proxy)",
+  "main": "server.js",
   "scripts": {
-    "dev": "nodemon server.js",
-    "start": "NODE_ENV=production node server.js"
+    "start": "node server.js",
+    "dev": "nodemon server.js"
   },
   "dependencies": {
-    "compression": "^1.7.4",
+    "axios": "^1.4.0",
     "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
-    "express": "^4.21.1",
-    "express-rate-limit": "^7.4.0",
-    "helmet": "^7.1.0",
-    "morgan": "^1.10.0",
-    "node-fetch": "^3.3.2",
-    "stripe": "^16.0.0"
+    "dotenv": "^16.0.0",
+    "express": "^4.18.2"
   },
   "devDependencies": {
-    "nodemon": "^3.1.7"
-  },
-  "engines": {
-    "node": ">=18"
+    "nodemon": "^2.0.22"
   }
 }
