@@ -1,7 +1,7 @@
 {
   "name": "survive-com",
-  "version": "3.1.0",
-  "description": "Survive.com — stable baseline with clear gameplay and robust fallbacks.",
+  "version": "1.0.0",
+  "description": "Survive.com — the call-@Name arena game",
   "type": "module",
   "scripts": {
     "dev": "node server.js",
