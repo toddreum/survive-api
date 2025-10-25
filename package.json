@@ -1,7 +1,7 @@
 {
   "name": "survive-com",
-  "version": "3.0.0",
-  "description": "Survive.com — circular call-@Name arena with boosters, music/SFX, and dual ElevenLabs voices.",
+  "version": "3.1.0",
+  "description": "Survive.com — stable baseline with clear gameplay and robust fallbacks.",
   "type": "module",
   "scripts": {
     "dev": "node server.js",
