@@ -1,10 +1,3 @@
-/**
- * Survive.com server — static hosting + ElevenLabs TTS proxy
- * Run:
- *   npm i
- *   ELEVENLABS_API_KEY=sk_... PORT=3000 npm run dev
- */
-
 import express from "express";
 import cors from "cors";
 import fetch from "node-fetch";
@@ -18,26 +11,27 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: "2mb" }));
 
-// Static files
+// Static
 app.use(express.static(path.join(__dirname, "public"), { maxAge: "1h", etag: true }));
 
-// Health
-app.get("/health", (_req, res) => res.json({ ok: true, ts: Date.now() }));
+app.get("/health", (_req, res) => {
+  res.json({
+    ok: true,
+    ts: Date.now(),
+    ttsConfigured: !!process.env.ELEVENLABS_API_KEY
+  });
+});
 
-/**
- * ElevenLabs TTS proxy
- * POST /api/tts?voice=<VOICE_ID>
- * body: { text: "..." }
- */
+/** ElevenLabs proxy (optional; UI falls back if it fails) */
 app.post("/api/tts", async (req, res) => {
   try {
     const apiKey = process.env.ELEVENLABS_API_KEY;
-    if (!apiKey) return res.status(500).json({ error: "ELEVENLABS_API_KEY is not set." });
+    if (!apiKey) return res.status(503).json({ error: "TTS disabled (no ELEVENLABS_API_KEY)" });
 
     const voiceId = (req.query.voice || "").toString().trim();
     const textRaw = (req.body?.text ?? "");
     const text = typeof textRaw === "string" ? textRaw.trim() : "";
-    if (!voiceId) return res.status(400).json({ error: "voice query param required" });
+    if (!voiceId) return res.status(400).json({ error: "voice param required" });
     if (!text) return res.status(400).json({ error: "text required" });
 
     const url = `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}?optimize_streaming_latency=0&output_format=mp3_44100_128`;
@@ -66,7 +60,7 @@ app.post("/api/tts", async (req, res) => {
     r.body.pipe(res);
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: "Proxy error" });
+    res.status(500).json({ error: "TTS proxy error" });
   }
 });
 
@@ -77,4 +71,4 @@ app.get("*", (req, res, next) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`✅ Survive.com running at http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`✅ Survive.com baseline at http://localhost:${PORT}`));
