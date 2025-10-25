@@ -1,3 +1,4 @@
+// Minimal, reliable server + optional ElevenLabs proxy
 import express from "express";
 import cors from "cors";
 import fetch from "node-fetch";
@@ -9,7 +10,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({ limit: "1mb" }));
 
 // Static
 app.use(express.static(path.join(__dirname, "public"), { maxAge: "1h", etag: true }));
@@ -22,24 +23,27 @@ app.get("/health", (_req, res) => {
   });
 });
 
-/** ElevenLabs proxy (optional; UI falls back if it fails) */
+/**
+ * POST /api/tts?voice=<VOICE_ID>
+ * body: { text: "..." }
+ * Works only if ELEVENLABS_API_KEY is set. Otherwise returns 503;
+ * the client quietly falls back (no crashes).
+ */
 app.post("/api/tts", async (req, res) => {
   try {
-    const apiKey = process.env.ELEVENLABS_API_KEY;
-    if (!apiKey) return res.status(503).json({ error: "TTS disabled (no ELEVENLABS_API_KEY)" });
+    const key = process.env.ELEVENLABS_API_KEY;
+    if (!key) return res.status(503).json({ error: "TTS disabled (no ELEVENLABS_API_KEY)" });
 
-    const voiceId = (req.query.voice || "").toString().trim();
-    const textRaw = (req.body?.text ?? "");
-    const text = typeof textRaw === "string" ? textRaw.trim() : "";
-    if (!voiceId) return res.status(400).json({ error: "voice param required" });
+    const voiceId = String(req.query.voice || "").trim();
+    const text = String(req.body?.text || "").trim();
+    if (!voiceId) return res.status(400).json({ error: "voice required" });
     if (!text) return res.status(400).json({ error: "text required" });
 
     const url = `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}?optimize_streaming_latency=0&output_format=mp3_44100_128`;
-
     const r = await fetch(url, {
       method: "POST",
       headers: {
-        "xi-api-key": apiKey,
+        "xi-api-key": key,
         "Content-Type": "application/json",
         "Accept": "audio/mpeg"
       },
@@ -50,16 +54,13 @@ app.post("/api/tts", async (req, res) => {
       })
     });
 
-    if (!r.ok) {
-      const detail = await r.text();
-      return res.status(502).json({ error: "Upstream TTS failed", detail });
-    }
+    if (!r.ok) return res.status(502).json({ error: "Upstream TTS failed", detail: await r.text() });
 
     res.setHeader("Content-Type", "audio/mpeg");
     res.setHeader("Cache-Control", "no-store");
     r.body.pipe(res);
-  } catch (e) {
-    console.error(e);
+  } catch (err) {
+    console.error(err);
     res.status(500).json({ error: "TTS proxy error" });
   }
 });
@@ -71,4 +72,4 @@ app.get("*", (req, res, next) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`✅ Survive.com baseline at http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`✅ Survive.com running at http://localhost:${PORT}`));
