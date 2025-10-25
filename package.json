@@ -1,7 +1,7 @@
 {
-  "name": "aardvark-call",
-  "version": "2.0.0",
-  "description": "Call-@Name party game with boosters and ElevenLabs voice.",
+  "name": "survive-com",
+  "version": "3.0.0",
+  "description": "Survive.com — circular call-@Name arena with boosters, music/SFX, and dual ElevenLabs voices.",
   "type": "module",
   "scripts": {
     "dev": "node server.js",
