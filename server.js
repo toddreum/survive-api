@@ -1,8 +1,8 @@
 /**
- * server.js — serves the app and proxies ElevenLabs TTS
+ * Survive.com server — static hosting + ElevenLabs TTS proxy
  * Run:
  *   npm i
- *   ELEVENLABS_API_KEY=sk_xxx PORT=3000 npm run dev
+ *   ELEVENLABS_API_KEY=sk_... PORT=3000 npm run dev
  */
 
 import express from "express";
@@ -32,16 +32,15 @@ app.get("/health", (_req, res) => res.json({ ok: true, ts: Date.now() }));
 app.post("/api/tts", async (req, res) => {
   try {
     const apiKey = process.env.ELEVENLABS_API_KEY;
-    if (!apiKey) return res.status(500).json({ error: "ELEVENLABS_API_KEY missing" });
+    if (!apiKey) return res.status(500).json({ error: "ELEVENLABS_API_KEY is not set." });
 
     const voiceId = (req.query.voice || "").toString().trim();
-    const text = (req.body?.text || "").toString().trim();
-    if (!voiceId) return res.status(400).json({ error: "voice param required" });
+    const textRaw = (req.body?.text ?? "");
+    const text = typeof textRaw === "string" ? textRaw.trim() : "";
+    if (!voiceId) return res.status(400).json({ error: "voice query param required" });
     if (!text) return res.status(400).json({ error: "text required" });
 
-    const url = `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(
-      voiceId
-    )}?optimize_streaming_latency=0&output_format=mp3_44100_128`;
+    const url = `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}?optimize_streaming_latency=0&output_format=mp3_44100_128`;
 
     const r = await fetch(url, {
       method: "POST",
@@ -67,7 +66,7 @@ app.post("/api/tts", async (req, res) => {
     r.body.pipe(res);
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: "TTS proxy error" });
+    res.status(500).json({ error: "Proxy error" });
   }
 });
 
@@ -78,4 +77,4 @@ app.get("*", (req, res, next) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`✅ http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`✅ Survive.com running at http://localhost:${PORT}`));
