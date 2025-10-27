@@ -3,18 +3,10 @@
   "short_name": "Survive",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#222",
-  "theme_color": "#444",
+  "background_color": "#15003a",
+  "theme_color": "#00bcd4",
+  "description": "Survive.com gamifies real life: missions, XP, family mode, encrypted vault, memories, goals, games, and more.",
   "icons": [
-    {
-      "src": "/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png"
-    },
-    {
-      "src": "/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png"
-    }
+    { "src": "/icon.svg", "sizes": "512x512", "type": "image/svg+xml" }
   ]
 }
