@@ -1,17 +1,21 @@
 const express = require('express');
 const bodyParser = require('body-parser');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const stripe = require('stripe')(process.env.STRIPE_UNLOCK);
 const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Stripe Price ID for monthly sub
 const PRICE_ID = process.env.STRIPE_PRICE_ID;
+const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
 
+// Serve static frontend from /public (index.html, app.js, etc.)
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Parse JSON requests for APIs
 app.use(bodyParser.json());
 
-// Create Stripe Checkout session for subscription
+// API: Create Stripe Checkout session for subscription
 app.post('/api/create-checkout-session', async (req, res) => {
   try {
     const session = await stripe.checkout.sessions.create({
@@ -26,7 +30,7 @@ app.post('/api/create-checkout-session', async (req, res) => {
   }
 });
 
-// Pro-Christian Conservative Advice API
+// API: Pro-Christian Conservative Advice
 app.post('/api/advice', (req, res) => {
   const q = (req.body.question||'').toLowerCase();
   let answer = "Seek wisdom from God, stand for truth, live boldly, and let your light shine for Christ in all you do!";
@@ -41,6 +45,27 @@ app.post('/api/advice', (req, res) => {
   else if (q.includes("gender")) answer = "God created male and female. Affirm biblical truth, love all people, and speak with compassion but clarity.";
   else if (q.includes("politics")) answer = "Engage politics as a Christian: seek justice, defend liberty, vote for truth, and pray for your leaders.";
   res.json({answer});
+});
+
+// Stripe webhook endpoint for advanced management (demo: logs event)
+app.post('/webhook', bodyParser.raw({type: 'application/json'}), (req, res) => {
+  let event;
+  try {
+    const sig = req.headers['stripe-signature'];
+    event = stripe.webhooks.constructEvent(req.body, sig, WEBHOOK_SECRET);
+
+    // Example: handle subscription events
+    if (event.type === 'checkout.session.completed') {
+      // You can save user info, email, etc. for premium unlock
+      console.log("Stripe checkout completed:", event.data.object.id);
+    }
+    // Add more Stripe event handling as needed
+
+    res.status(200).send('Webhook received');
+  } catch (err) {
+    console.error('Webhook Error:', err.message);
+    res.status(400).send(`Webhook Error: ${err.message}`);
+  }
 });
 
 // Health check for Render.com
