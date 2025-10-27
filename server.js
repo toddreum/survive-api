@@ -1,17 +1,17 @@
 const express = require('express');
 const bodyParser = require('body-parser');
-const stripe = require('stripe')(process.env.STRIPE_UNLOCK);
+const stripe = require('stripe')(process.env.STRIPE_UNLOCK); // Set in Render.com ENV
 const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const PRICE_ID = process.env.STRIPE_PRICE_ID;
-const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
+const PRICE_ID = process.env.STRIPE_PRICE_ID; // Set in Render.com ENV
+const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET; // Set in Render.com ENV
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(bodyParser.json());
 
-// Stripe Checkout session for monthly subscription
+// Stripe Checkout for Monthly Subscription
 app.post('/api/create-checkout-session', async (req, res) => {
   try {
     const session = await stripe.checkout.sessions.create({
@@ -26,7 +26,7 @@ app.post('/api/create-checkout-session', async (req, res) => {
   }
 });
 
-// Pro-Christian Conservative Advice API
+// Pro-Christian Advice API
 app.post('/api/advice', (req, res) => {
   const q = (req.body.question||'').toLowerCase();
   let answer = "Seek wisdom from God, stand for truth, live boldly, and let your light shine for Christ in all you do!";
@@ -43,18 +43,16 @@ app.post('/api/advice', (req, res) => {
   res.json({answer});
 });
 
-// Stripe webhook endpoint (for advanced subscription management)
+// Stripe Webhook (for advanced Stripe management, optional)
 app.post('/webhook', bodyParser.raw({type: 'application/json'}), (req, res) => {
   let event;
   try {
     const sig = req.headers['stripe-signature'];
     event = stripe.webhooks.constructEvent(req.body, sig, WEBHOOK_SECRET);
-
     if (event.type === 'checkout.session.completed') {
       console.log("Stripe checkout completed:", event.data.object.id);
       // Optionally, manage premium user status here
     }
-
     res.status(200).send('Webhook received');
   } catch (err) {
     console.error('Webhook Error:', err.message);
