@@ -1,92 +1,118 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Survive.com — Regulate, Survive, Thrive Offline!</title>
+  <meta charset="UTF-8">
+  <title>Survive.com: Win IRL</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="style.css">
-  <script src="https://js.stripe.com/v3/"></script>
 </head>
 <body>
   <header>
-    <h1>Survive.com</h1>
-    <p>Christian, pro-family, pro-life, pro-freedom platform to thrive offline.</p>
-    <a href="mailto:support@survive.com">Contact support@survive.com</a>
+    <h1>Survive.com: Win IRL</h1>
+    <nav>
+      <button onclick="showSection('dashboard')">Dashboard</button>
+      <button onclick="showSection('bibleStudy')">Bible Study</button>
+      <button onclick="showSection('journal')">Journal</button>
+      <button onclick="showSection('organizer')">Organizer</button>
+      <button onclick="showSection('family')">Family Mode</button>
+      <button onclick="showSection('aiAdvice')">AI Advice</button>
+      <button onclick="showSection('offlineBreak')">Offline Break</button>
+      <button onclick="showSection('downloadApp')">Download App</button>
+      <button onclick="showSection('contact')">Contact Us</button>
+    </nav>
   </header>
   <main>
-    <!-- Premium Subscription Card -->
-    <section id="subscriptionSection">
-      <h2>Premium Subscription</h2>
-      <div id="subscriptionStatus"></div>
-      <button id="subscribeBtn">Subscribe Monthly</button>
-      <small>Only $7.99/month. Cancel anytime.</small>
+    <section id="dashboard" class="app-section">
+      <h2>Dashboard</h2>
+      <div id="xpDisplay"></div>
+      <div>
+        <h3>Daily Missions</h3>
+        <ul id="missionsList"></ul>
+      </div>
+      <div>
+        <h3>Are You Equipped for Battle?</h3>
+        <p>Biblical readiness for today's world means daily prayer, scripture study, and living by Christ's example. Daily check: Armor up with Ephesians 6!</p>
+      </div>
+      <div>
+        <h3>What Would Jesus Do?</h3>
+        <p>Ask yourself in every challenge: WWJD? Seek prayer, compassion, truth, and courage.</p>
+      </div>
+      <div>
+        <h3>Bible in a Year Tracker</h3>
+        <ul id="bibleYearList"></ul>
+        <button id="markBibleReadBtn">Mark Today's Reading Done</button>
+      </div>
     </section>
-    <!-- Youth Group Area -->
-    <section>
-      <h2>Youth Group</h2>
-      <button id="attendYouthGroupBtn">I Attended Youth Group</button>
-      <div id="youthGroupXPStatus"></div>
-      <ul id="youthGroupEvents">
-        <li>Wednesday 7PM: Bible Study & Games</li>
-        <li>Friday 6PM: Worship Night</li>
-        <li>Next Retreat: Nov 15-17</li>
-      </ul>
+    <section id="bibleStudy" class="app-section">
+      <h2>Bible Study & Tribulation Talk</h2>
+      <div>
+        <h3>Deep Daily Study</h3>
+        <textarea id="bibleStudyNotes" placeholder="Today's passage, thoughts, and prayers..."></textarea>
+        <button id="saveBibleStudyBtn">Save Today's Study</button>
+        <div id="bibleStudyStatus"></div>
+      </div>
+      <div>
+        <h3>Discussion: Tribulation & End Times</h3>
+        <p>How do today's events reflect biblical prophecy? What does Jesus say about tribulation? Reflect, pray, and journal your thoughts. Explore passages like Matthew 24, Revelation, Daniel, and Thessalonians. Consider: Are you ready for trials and equipped with faith?</p>
+      </div>
+      <div>
+        <h3>Bible Study in a Year</h3>
+        <p>Use the tracker on the Dashboard. Each day, read the assigned passage and mark it done!</p>
+        <ul id="bibleYearPlan"></ul>
+      </div>
     </section>
-    <!-- Church/Sunday School Attendance -->
-    <section>
-      <h2>Faith Actions</h2>
-      <button id="churchBtn">I went to Church</button>
-      <button id="sundaySchoolBtn">I went to Sunday School</button>
-      <div id="faithActionsStatus"></div>
-      <ul id="churchEvents">
-        <li>Sunday 10AM: Service & Worship</li>
-        <li>Saturday 4PM: Youth Service</li>
-      </ul>
+    <section id="journal" class="app-section">
+      <h2>Journal</h2>
+      <textarea id="journalEntry" placeholder="Write about today, your faith, or anything..."></textarea>
+      <button id="saveJournalBtn">Save Journal Entry</button>
+      <input type="file" id="journalPhoto" accept="image/*">
+      <div id="journalStatus"></div>
+      <h3>My Journal Entries</h3>
+      <div id="journalLog"></div>
     </section>
-    <!-- Acts of Service / Family Help -->
-    <section>
-      <h2>Acts of Service</h2>
-      <button id="droveSiblingBtn">I drove my brother/sister to an activity</button>
-      <button id="helpedSomeoneBtn">I helped someone today</button>
-      <input id="serviceDesc" placeholder="Describe what you did..." />
-      <button id="logServiceBtn">Log Service</button>
-      <div id="serviceStatus"></div>
-      <div id="serviceLog"></div>
+    <section id="organizer" class="app-section">
+      <h2>Organizer</h2>
+      <input id="taskInput" placeholder="New Task">
+      <button id="addTaskBtn">Add Task</button>
+      <ul id="taskList"></ul>
+      <input id="reminderInput" type="datetime-local">
+      <button id="addReminderBtn">Add Reminder</button>
+      <ul id="reminderList"></ul>
     </section>
-    <!-- Extracurriculars -->
-    <section>
-      <h2>Extracurriculars</h2>
-      <button id="extracurricularBtn">I attended an extracurricular activity</button>
-      <div id="extracurricularStatus"></div>
+    <section id="family" class="app-section">
+      <h2>Family Mode</h2>
+      <div id="familyDashboard"></div>
     </section>
-    <!-- Youth Leaders Area -->
-    <section id="youthLeaderArea" style="display:none;">
-      <h2>Youth Leaders Dashboard</h2>
-      <button id="addYouthEventBtn">Add Youth Group Event</button>
-      <input id="newYouthEventText" placeholder="Event Description" />
-      <ul id="youthLeaderEvents"></ul>
-      <button id="sendEncouragementBtn">Send Encouragement to Youth</button>
-      <input id="encouragementText" placeholder="Encouragement or reminder..." />
-      <div id="leaderMessages"></div>
+    <section id="aiAdvice" class="app-section">
+      <h2>AI Advice</h2>
+      <input id="adviceQuestion" placeholder="Ask for advice...">
+      <button id="getAdviceBtn">Get Advice</button>
+      <div id="adviceAnswer"></div>
     </section>
-    <!-- Advice API Card -->
-    <section>
-      <h2>Ask for Advice (Pro-Christian, Pro-Conservative, Pro-Family)</h2>
-      <input id="adviceIn" placeholder="Ask about faith, life, family, culture..." />
-      <button id="askAdvice">Ask</button>
-      <div id="adviceOut"></div>
+    <section id="offlineBreak" class="app-section">
+      <h2>Offline Break / Mindfulness</h2>
+      <button id="offlineBreakBtn">Start Offline Break</button>
+      <div id="offlineTimerDisplay"></div>
+      <button id="meditateBtn">Meditate on Jesus Christ</button>
+      <div id="meditationStatus"></div>
+    </section>
+    <section id="downloadApp" class="app-section">
+      <h2>Download App</h2>
+      <button id="downloadAppBtn">Download App</button>
+      <div id="downloadAppStatus"></div>
+    </section>
+    <section id="contact" class="app-section">
+      <h2>Contact Us</h2>
+      <form id="contactForm">
+        <input type="text" id="contactName" placeholder="Your Name" required>
+        <input type="email" id="contactEmail" placeholder="Your Email" required>
+        <textarea id="contactMsg" placeholder="Your Message" required></textarea>
+        <button type="submit">Send</button>
+      </form>
+      <div id="contactStatus"></div>
     </section>
   </main>
-  <footer>
-    <div>
-      © Survive.com — Regulate yourself, survive and thrive offline!
-      <br>
-      <a href="mailto:support@survive.com">Contact support@survive.com</a>
-      <br>
-      Pro-family • Pro-life • Pro-Jesus Christ • Conservative • Freedom
-    </div>
-  </footer>
   <script src="app.js"></script>
 </body>
 </html>
