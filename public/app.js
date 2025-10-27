@@ -1,27 +1,35 @@
-// Survive.com — Fully Feature-Rich, Balanced, Dynamic Frontend
+// Survive.com — Maximum Feature-Rich, Fully Synced App.js (matches full index.html grid/cards)
+// All logic: Missions, Organizer, Advice, Vaulted Chat, Starter, Games, Parent Mode, Sleep, Memories, Journal, Recipes, Goals, Guest, Vault, Inbox, Modals, Streaks, Theme, PWA
 
 const $ = id => document.getElementById(id);
 function escapeHTML(str) { return (str || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;', '"':'&quot;', "'":'&#039;'}[m])); }
 function now() { return new Date().toISOString(); }
 function cid() { return Math.random().toString(36).substr(2,9); }
 
-const STORAGE_KEY = "survive_data_vaulted_v4";
+const STORAGE_KEY = "survive_data_vaulted_v5";
 const THEME_KEY = "survive_theme";
 
-// --- State ---
+const starters = [
+  "What was the best part of your day and why?",
+  "What's one way our family can help someone this week?",
+  "What did you learn from a tough choice?",
+  "What's something brave you'd try with family beside you?",
+  "What's a hobby you want to spend more time on?",
+  "How could you help someone in your school or community?",
+  "What helps you relax when you're stressed?",
+  "What's a goal for next month?"
+];
+
 const defaults = {
   xp:0, level:1, streak:0, lastDay:null,
   missions:[], organizer:[], advice:[], parentMode:false,
-  sleep: { target:"21:30", lastCredit:null },
-  games: [], starters: [], theme: localStorage.getItem(THEME_KEY) || "dark",
+  sleep: { target:"21:30", lastCredit:null }, memories:[], journal:[], recipes:[], goals:[],
+  chat:[], guest:{code:"",pin:""}, inbox:[], vault:{status:"Locked"},
+  theme: localStorage.getItem(THEME_KEY) || "dark",
   modal: { open: false, title:"", body:"", confirm:null }
 };
+
 let state = Object.assign({}, defaults, JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}'));
-if(!state.missions) state.missions = [];
-if(!state.organizer) state.organizer = [];
-if(!state.advice) state.advice = [];
-if(!state.games) state.games = [];
-if(!state.starters) state.starters = [];
 
 // --- Theme ---
 document.documentElement.setAttribute('data-theme', state.theme);
@@ -29,6 +37,7 @@ $("themeToggle").onclick = () => {
   state.theme = state.theme === "dark" ? "light" : "dark";
   document.documentElement.setAttribute('data-theme', state.theme);
   localStorage.setItem(THEME_KEY, state.theme);
+  save();
   renderAll();
 };
 
@@ -37,16 +46,7 @@ window.addEventListener('scroll', () => {
   document.querySelector('.hero').style.backgroundPositionY = -(window.scrollY/2)+'px';
 });
 
-// --- XP Pop Animation ---
-function showXP(amount) {
-  let xp = document.createElement('div');
-  xp.className = 'xp-pop';
-  xp.textContent = `+${amount} XP!`;
-  document.body.appendChild(xp);
-  setTimeout(()=>xp.remove(), 800);
-}
-
-// --- Stats Row ---
+// --- Stats Bar ---
 function renderStats() {
   $("level").textContent = state.level;
   $("xp").textContent = state.xp;
@@ -67,7 +67,7 @@ function renderXPChart() {
   });
 }
 
-// --- Missions Logic ---
+// --- Missions ---
 function addMission(title = "Test mission", xp = 150) {
   state.missions.push({id: cid(), title, xp});
   save();
@@ -106,6 +106,13 @@ function renderMissions() {
 }
 
 // --- Modal System ---
+function showXP(amount) {
+  let xp = document.createElement('div');
+  xp.className = 'xp-pop';
+  xp.textContent = `+${amount} XP!`;
+  document.body.appendChild(xp);
+  setTimeout(()=>xp.remove(), 800);
+}
 function openCompleteModal(m) {
   openModal({
     title: "Complete Mission",
@@ -130,7 +137,7 @@ $("modalConfirm") && ($("modalConfirm").onclick = () => {
 });
 $("modalCancel") && ($("modalCancel").onclick = closeModal);
 
-// --- Organizer Logic ---
+// --- Organizer ---
 function addOrganizerItem() {
   const title = $("orgTitle").value || "Untitled";
   const details = $("orgDetails").value || "";
@@ -151,49 +158,190 @@ function renderOrganizer() {
   });
 }
 
-// --- Advice Logic ---
+// --- Advice ---
 async function getAdvice(question) {
-  // Placeholder: actual advice endpoint can be used here
   const answer = "Advice: " + (question || "Ask about friends, money, faith...");
   state.advice.push({q: question, a: answer});
-  renderAdvice(answer);
+  $("adviceOut").textContent = answer;
   save();
 }
-function renderAdvice(answer) {
-  $("adviceOut").textContent = answer;
-}
 
-// --- Games/Starters ---
-function pickStarter() {
-  const starters = [
-    "What was the best part of your day and why?",
-    "What's one way our family can help someone this week?",
-    "What did you learn from a tough choice?",
-    "What's something brave you'd try with family beside you?",
-    "What's a hobby you want to spend more time on?",
-    "How could you help someone in your school or community?",
-    "What helps you relax when you're stressed?",
-    "What's a goal for next month?"
-  ];
-  return starters[Math.floor(Math.random()*starters.length)];
-}
+// --- Starter ---
 function renderStarter() {
-  $("verseBox").textContent = "🌟 " + pickStarter();
+  $("starter").textContent = starters[Math.floor(Math.random()*starters.length)];
 }
+$("starterBtn") && ($("starterBtn").onclick = renderStarter);
 
 // --- Parent Mode ---
 $("toggleParent").onclick = () => {
   state.parentMode = !state.parentMode;
   save();
-  alert(state.parentMode ? "Parent Mode Enabled" : "Parent Mode Disabled");
+  $("parentModeNotice").textContent = state.parentMode ? "Parent Mode ON" : "Parent Mode OFF";
+  $("parentTools").style.display = state.parentMode ? "" : "none";
 };
 
-// --- Local Storage ---
-function save() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+// --- Vaulted Chat ---
+function sendChat() {
+  const to = $("chatTo").value || "family";
+  const msg = $("chatMsg").value;
+  if(!msg) return;
+  state.chat.push({id: cid(), to, msg, time: now()});
+  save();
+  renderChat();
+  $("chatMsg").value = "";
+}
+function renderChat() {
+  const el = $("chatList");
+  if(!el) return;
+  el.innerHTML = "";
+  state.chat.slice(-10).forEach(c => {
+    let div = document.createElement("div");
+    div.className = "mission";
+    div.innerHTML = `<div><b>${escapeHTML(c.to)}</b> <span class="muted">${new Date(c.time).toLocaleTimeString()}</span></div>
+      <div>${escapeHTML(c.msg)}</div>`;
+    el.appendChild(div);
+  });
 }
 
-// --- App Install Button ---
+// --- Sleep Habit ---
+$("sleepSet") && ($("sleepSet").onclick = () => {
+  state.sleep.target = $("sleepTime").value || "21:30";
+  save();
+  renderSleep();
+});
+$("sleepImInBed") && ($("sleepImInBed").onclick = () => {
+  state.sleep.lastCredit = now();
+  state.streak++;
+  save();
+  renderStats();
+  renderSleep();
+});
+function renderSleep() {
+  $("sleepStatus").textContent = "Sleep Goal: " + (state.sleep.target||"Not set") + ". Last credit: " + (state.sleep.lastCredit||"Never");
+}
+
+// --- Memories ---
+function addMemory() {
+  const title = $("memTitle").value || "Untitled";
+  const note = $("memText").value || "";
+  state.memories.push({id: cid(), title, note, time: now()});
+  save();
+  renderMemories();
+}
+function renderMemories() {
+  const el = $("memList");
+  if(!el) return;
+  el.innerHTML = "";
+  state.memories.slice(-10).forEach(m => {
+    let div = document.createElement("div");
+    div.className = "mission";
+    div.innerHTML = `<div><b>${escapeHTML(m.title)}</b> <span class="muted">${new Date(m.time).toLocaleDateString()}</span></div>
+      <div>${escapeHTML(m.note)}</div>`;
+    el.appendChild(div);
+  });
+}
+
+// --- Journal ---
+function saveJournal() {
+  const text = $("jtext").value;
+  if(!text) return;
+  state.journal.push({id: cid(), text, time: now()});
+  save();
+  renderJournal();
+  $("jtext").value = "";
+}
+function renderJournal() {
+  const el = $("journal");
+  if(!el) return;
+  el.innerHTML = "";
+  state.journal.slice(-10).forEach(j => {
+    let div = document.createElement("div");
+    div.className = "mission";
+    div.innerHTML = `<div class="muted">${new Date(j.time).toLocaleDateString()}</div>
+      <div>${escapeHTML(j.text)}</div>`;
+    el.appendChild(div);
+  });
+}
+
+// --- Recipes ---
+function addRecipe() {
+  const title = $("recTitle").value || "Untitled";
+  const body = $("recBody").value || "";
+  state.recipes.push({id: cid(), title, body, time: now()});
+  save();
+  renderRecipes();
+}
+function renderRecipes() {
+  const el = $("recList");
+  if(!el) return;
+  el.innerHTML = "";
+  state.recipes.slice(-10).forEach(r => {
+    let div = document.createElement("div");
+    div.className = "mission";
+    div.innerHTML = `<div><b>${escapeHTML(r.title)}</b> <span class="muted">${new Date(r.time).toLocaleDateString()}</span></div>
+      <div>${escapeHTML(r.body)}</div>`;
+    el.appendChild(div);
+  });
+}
+
+// --- Goals ---
+function addGoal() {
+  const title = $("goalTitle").value || "Untitled";
+  const due = $("goalDue").value || "";
+  state.goals.push({id: cid(), title, due});
+  save();
+  renderGoals();
+}
+function renderGoals() {
+  const el = $("goalList");
+  if(!el) return;
+  el.innerHTML = "";
+  state.goals.slice(-10).forEach(g => {
+    let div = document.createElement("div");
+    div.className = "mission";
+    div.innerHTML = `<div><b>${escapeHTML(g.title)}</b> <span class="muted">Due: ${escapeHTML(g.due)}</span></div>`;
+    el.appendChild(div);
+  });
+}
+
+// --- Guest/Share ---
+$("genGuest") && ($("genGuest").onclick = () => {
+  state.guest.code = cid();
+  state.guest.pin = Math.floor(1000+Math.random()*9000);
+  save();
+  $("guestCode").value = state.guest.code;
+  $("guestPIN").value = state.guest.pin;
+  $("guestLink").textContent = window.location.origin + "/?guest=" + state.guest.code;
+});
+$("copyLink") && ($("copyLink").onclick = () => {
+  navigator.clipboard.writeText($("guestLink").textContent||"");
+});
+
+// --- Inbox ---
+function renderInbox() {
+  $("inbox").textContent = state.inbox.length ? state.inbox.join(", ") : "No new messages";
+}
+
+// --- Vault ---
+function renderVault() {
+  $("vaultStatus").textContent = "Vault status: " + (state.vault.status || "Locked");
+}
+$("vaultSet") && ($("vaultSet").onclick = () => { state.vault.status="Set"; save(); renderVault(); });
+$("vaultUnlock") && ($("vaultUnlock").onclick = () => { state.vault.status="Unlocked"; save(); renderVault(); });
+$("vaultLock") && ($("vaultLock").onclick = () => { state.vault.status="Locked"; save(); renderVault(); });
+$("vaultSyncNow") && ($("vaultSyncNow").onclick = () => { /* placeholder for sync logic */ });
+$("vaultFetch") && ($("vaultFetch").onclick = () => { /* placeholder for fetch logic */ });
+
+// --- How It Works ---
+$("howItWorksBtn") && ($("howItWorksBtn").onclick = () => {
+  openModal({
+    title: "How Survive.com Works",
+    body: "Complete missions, earn XP, unlock rewards, regulate your time, play games, track streaks, connect with family, and thrive offline.",
+    confirm: closeModal
+  });
+});
+
+// --- App Install PWA ---
 let deferredPrompt;
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
@@ -207,16 +355,10 @@ $("installAppBtn").onclick = () => {
   }
 };
 
-// --- "How It Works" Button ---
-$("howItWorksBtn") && ($("howItWorksBtn").onclick = () => {
-  openModal({
-    title: "How Survive.com Works",
-    body: "Complete missions, earn XP, unlock rewards, and regulate your time! Play games, track streaks, connect with family, and thrive offline.",
-    confirm: closeModal
-  });
-});
-
-// --- Parallax (already included above) ---
+// --- Save to Local Storage ---
+function save() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
 
 // --- Render All Cards ---
 function renderAll() {
@@ -224,13 +366,27 @@ function renderAll() {
   renderXPChart();
   renderMissions();
   renderOrganizer();
+  renderAdvice();
   renderStarter();
+  renderChat();
+  renderSleep();
+  renderMemories();
+  renderJournal();
+  renderRecipes();
+  renderGoals();
+  renderInbox();
+  renderVault();
 }
 
-// --- DOMContentLoaded ---
+// --- Initial Rendering ---
 document.addEventListener("DOMContentLoaded", function() {
   renderAll();
   $("newMissionBtn") && ($("newMissionBtn").onclick = () => addMission("Do homework", 200));
   $("orgAdd") && ($("orgAdd").onclick = addOrganizerItem);
   $("askAdvice") && ($("askAdvice").onclick = () => getAdvice($("adviceIn")?.value));
+  $("sendChat") && ($("sendChat").onclick = sendChat);
+  $("memAdd") && ($("memAdd").onclick = addMemory);
+  $("saveJ") && ($("saveJ").onclick = saveJournal);
+  $("recAdd") && ($("recAdd").onclick = addRecipe);
+  $("goalAdd") && ($("goalAdd").onclick = addGoal);
 });
