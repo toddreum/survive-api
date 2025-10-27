@@ -1,7 +1,7 @@
 {
   "name": "survive-com",
   "version": "1.0.0",
-  "description": "Survive.com gamified family app",
+  "description": "Survive.com gamified family app with Node.js/Express server",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
