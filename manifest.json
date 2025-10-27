@@ -1,1 +1,10 @@
-
+{
+  "name": "Survive.com",
+  "short_name": "Survive",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#eef",
+  "theme_color": "#e91e63",
+  "description": "Christian, pro-family, pro-life, pro-freedom platform to thrive offline.",
+  "icons": []
+}
