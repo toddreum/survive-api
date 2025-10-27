@@ -1,28 +1,16 @@
 {
-  "name": "survive-api",
+  "name": "survive-com",
   "version": "1.0.0",
-  "description": "Survive.com IRL gamified faith tool",
+  "description": "Survive.com gamified family app",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
     "express": "^4.18.2",
-    "nodemailer": "^6.9.7"
+    "chart.js": "^4.4.1"
   },
-  "devDependencies": {},
   "engines": {
-    "node": ">=18"
-  },
-  "keywords": [
-    "faith",
-    "bible",
-    "xp",
-    "journal",
-    "family",
-    "irl",
-    "gamify"
-  ],
-  "author": "toddreum",
-  "license": "MIT"
+    "node": ">=16.0.0"
+  }
 }
