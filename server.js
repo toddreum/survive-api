@@ -5,17 +5,13 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Stripe Price ID for monthly sub
 const PRICE_ID = process.env.STRIPE_PRICE_ID;
 const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
 
-// Serve static frontend from /public (index.html, app.js, etc.)
 app.use(express.static(path.join(__dirname, 'public')));
-
-// Parse JSON requests for APIs
 app.use(bodyParser.json());
 
-// API: Create Stripe Checkout session for subscription
+// Stripe Checkout session for monthly subscription
 app.post('/api/create-checkout-session', async (req, res) => {
   try {
     const session = await stripe.checkout.sessions.create({
@@ -30,7 +26,7 @@ app.post('/api/create-checkout-session', async (req, res) => {
   }
 });
 
-// API: Pro-Christian Conservative Advice
+// Pro-Christian Conservative Advice API
 app.post('/api/advice', (req, res) => {
   const q = (req.body.question||'').toLowerCase();
   let answer = "Seek wisdom from God, stand for truth, live boldly, and let your light shine for Christ in all you do!";
@@ -47,19 +43,17 @@ app.post('/api/advice', (req, res) => {
   res.json({answer});
 });
 
-// Stripe webhook endpoint for advanced management (demo: logs event)
+// Stripe webhook endpoint (for advanced subscription management)
 app.post('/webhook', bodyParser.raw({type: 'application/json'}), (req, res) => {
   let event;
   try {
     const sig = req.headers['stripe-signature'];
     event = stripe.webhooks.constructEvent(req.body, sig, WEBHOOK_SECRET);
 
-    // Example: handle subscription events
     if (event.type === 'checkout.session.completed') {
-      // You can save user info, email, etc. for premium unlock
       console.log("Stripe checkout completed:", event.data.object.id);
+      // Optionally, manage premium user status here
     }
-    // Add more Stripe event handling as needed
 
     res.status(200).send('Webhook received');
   } catch (err) {
