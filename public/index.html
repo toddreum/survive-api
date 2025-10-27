@@ -4,13 +4,12 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Survive.com — Regulate, Play, Thrive!</title>
-  <meta name="description" content="Survive.com gamifies real life: missions, XP, family mode, encrypted vault, memories, goals, games, and more.">
+  <meta name="description" content="Survive.com gamifies real life: missions, XP, faith, family mode, encrypted vault, memories, goals, games, and more.">
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
-    /* FULL original cPanel-style CSS here: glassmorphism, grid, cards, header, etc. */
     :root {
       --bg: linear-gradient(120deg, #15003a 0%, #00bcd4 100%);
       --glass: rgba(31, 35, 70, 0.93);
@@ -37,9 +36,13 @@
     .container { max-width:1200px; margin:0 auto; padding:22px; }
     .nav, .row { display:flex; align-items:center; justify-content:space-between; gap:20px; flex-wrap:wrap; }
     .logo-hero {
-      font-size:44px; font-weight:900; letter-spacing:2.5px;
+      font-size:48px;
+      font-weight:900;
+      letter-spacing:2.5px;
       background: linear-gradient(90deg,#ffd600,#00bcd4,#e91e63);
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip:text;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip:text;
       text-shadow: 0 4px 22px #00bcd4, 0 1px 0 #ffd600, 0 0 18px #e91e63;
       animation:logoPop 2.2s cubic-bezier(.5,.3,.2,1) infinite alternate;
       display:inline-block;
@@ -49,57 +52,58 @@
       50%{transform:scale(1.08);}
       100%{transform:scale(1);}
     }
-    .slogan { font-size:20px; font-weight:700; color:#fff; margin-bottom:10px; text-shadow:0 1px 12px #00bcd4; margin-left:14px;}
+    .slogan { font-size:22px; font-weight:700; color:#fff; margin-bottom:10px; text-shadow:0 1px 12px #00bcd4; margin-left:14px;}
     .hero { background:var(--glass-gradient); border-radius:28px; box-shadow:0 8px 52px #00bcd48d; margin:22px 0 18px 0; padding:28px; display:flex; flex-direction:column; align-items:center; border: var(--glass-border); backdrop-filter: var(--glass-blur);}
-    .hero h1 { font-size:38px; font-weight:900; color:var(--brand); margin:0 0 12px 0; text-shadow:0 2px 15px #e91e6333;}
-    .hero p { color:var(--muted); margin:8px 0 16px; font-size:18px; font-weight:500;}
+    .hero h1 { font-size:42px; font-weight:900; color:var(--brand); margin:0 0 12px 0; text-shadow:0 2px 15px #e91e6333;}
+    .hero p { color:var(--muted); margin:8px 0 16px; font-size:20px; font-weight:500;}
     .stats-row {display:flex; flex-wrap:wrap; gap:18px; justify-content:center; margin:14px 0 18px 0;}
     .stat, .stat-xp {margin:0 3px;}
-    .stat, .stat-xp { background:var(--glass); border-radius:18px; border:var(--glass-border); box-shadow:0 2px 8px #232b4d44; padding:12px 20px; min-width:90px; min-height:56px; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:18px; position:relative; font-weight:700;}
+    .stat, .stat-xp { background:var(--glass); border-radius:18px; border:var(--glass-border); box-shadow:0 2px 8px #232b4d44; padding:14px 22px; min-width:100px; min-height:66px; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:20px; position:relative; font-weight:700;}
     .stat-xp {background:linear-gradient(120deg,#232b4d 80%,#ffd60022 120%);}
-    .stat-label { font-size: 1em; font-weight: 700; margin-bottom: 2px; letter-spacing:.7px; display:flex;align-items:center;}
-    .stat-value { font-size: 1.4em; font-weight: 900; margin-bottom: 2px; margin-top:2px; text-shadow:0 2px 6px #ffd60088;}
-    .xpBar { width: 90%; height:8px; background:var(--card); border-radius:6px; margin-top:8px; overflow:hidden; border:1px solid var(--brand); box-shadow:0 1px 6px #ffd60033;}
+    .stat-label { font-size: 1.05em; font-weight: 700; margin-bottom: 2px; letter-spacing:.7px; display:flex;align-items:center;}
+    .stat-value { font-size: 1.6em; font-weight: 900; margin-bottom: 2px; margin-top:2px; text-shadow:0 2px 6px #ffd60088;}
+    .xpBar { width: 90%; height:10px; background:var(--card); border-radius:8px; margin-top:8px; overflow:hidden; border:1px solid var(--brand); box-shadow:0 1px 6px #ffd60033;}
     .xpBar-fill { height:100%; background:var(--xp); transition:width .2s cubic-bezier(.5,.75,.3,1);}
     .stat-xp .tooltip-trigger { cursor: pointer; font-size: 1em; color: #ffd600; display: inline-block; font-weight: 700; margin-left: 6px; position:relative;}
-    .tooltip-content { visibility:hidden; width:180px; background:#232b4d; color:#fff; text-align:center; border-radius:8px; padding:5px 8px; position:absolute; z-index:10; top:24px; left:50%; margin-left:-90px; opacity:0; transition:opacity .2s; font-size:12px; font-weight:500; box-shadow:0 1px 9px #232b4d44;}
+    .tooltip-content { visibility:hidden; width:190px; background:#232b4d; color:#fff; text-align:center; border-radius:8px; padding:5px 8px; position:absolute; z-index:10; top:24px; left:50%; margin-left:-95px; opacity:0; transition:opacity .2s; font-size:13px; font-weight:500; box-shadow:0 1px 9px #232b4d44;}
     .tooltip-trigger:hover .tooltip-content { visibility:visible; opacity:1; }
-    .badge { font-size:13px; border-radius:7px; padding:5px 8px; font-weight:700; border:1.5px solid var(--brand); margin-bottom:2px; }
-    .mission { display:flex; align-items:flex-start; gap:10px; background:linear-gradient(120deg,#232b4d 75%,#1a237e 100%); border-radius:14px; padding:7px 10px; margin-bottom:7px; animation:fadein .5s; box-shadow:0 2px 8px #232b4d55; font-size:14px;}
+    .badge { font-size:14px; border-radius:7px; padding:5px 8px; font-weight:700; border:1.5px solid var(--brand); margin-bottom:2px; }
+    .mission { display:flex; align-items:flex-start; gap:10px; background:linear-gradient(120deg,#232b4d 75%,#1a237e 100%); border-radius:14px; padding:7px 10px; margin-bottom:7px; animation:fadein .5s; box-shadow:0 2px 8px #232b4d55; font-size:15px;}
     @keyframes fadein { from{opacity:.4; transform:translateY(8px);} to{opacity:1;transform:none;} }
     .modal { position:fixed; inset:0; background:rgba(26,35,126,.7); display:none; align-items:center; justify-content:center; z-index:100; }
     .modal.show { display:flex; }
-    .modal-content { max-width:500px; width:98vw; max-height:85vh; overflow-y:auto; position:relative;}
-    .close { position:absolute; top:10px; right:8px; font-size:22px; cursor:pointer; color:var(--brand);}
-    footer { background: linear-gradient(135deg, #00acc1 0%, #26c6da 100%); border-top: 2px solid #1a237e; margin-top: 28px; font-size: 15px; padding: 0; letter-spacing:.6px;}
-    .footer-content { text-align: center; color: #fff; font-weight: bold; padding: 18px 0 8px 0; line-height: 1.45; font-size:16px; text-shadow:0 2px 8px #00bcd4;}
-    .footer-meta { margin-top: 7px; color: #fff; font-size: 15px; font-weight: bold; text-shadow:0 1px 7px #ffd60044;}
-    .footer-content b { font-weight: 900; font-size: 1.05em; }
-    .game-list { background:linear-gradient(90deg,#00bcd4 20%,#e91e63 80%); color:#fff; border-radius:18px; box-shadow:0 2px 14px #00acc155; padding:12px 18px 6px 18px; margin:12px 0 0 0; font-weight:700; font-size:16px; animation:fadein 1.4s; border:var(--glass-border); backdrop-filter: var(--glass-blur); max-width:650px;}
-    .game-list ul {margin:0 0 4px 0;padding:0;}
-    .game-list li {margin:8px 0 0 0;padding:0;font-size:15px;}
+    .modal-content { max-width:540px; width:98vw; max-height:85vh; overflow-y:auto; position:relative;}
+    .close { position:absolute; top:12px; right:10px; font-size:22px; cursor:pointer; color:var(--brand);}
+    footer { background: linear-gradient(135deg, #00acc1 0%, #26c6da 100%); border-top: 2px solid #1a237e; margin-top: 28px; font-size: 16px; padding: 0; letter-spacing:.6px;}
+    .footer-content { text-align: center; color: #fff; font-weight: bold; padding: 20px 0 10px 0; line-height: 1.45; font-size:18px; text-shadow:0 2px 8px #00bcd4;}
+    .footer-meta { margin-top: 7px; color: #fff; font-size: 16px; font-weight: bold; text-shadow:0 1px 7px #ffd60044;}
+    .footer-content b { font-weight: 900; font-size: 1.15em; }
+    .game-list { background:linear-gradient(90deg,#00bcd4 20%,#e91e63 80%); color:#fff; border-radius:20px; box-shadow:0 2px 18px #00acc155; padding:18px 26px 10px 26px; margin:16px 0 0 0; font-weight:700; font-size:18px; animation:fadein 1.4s; border:var(--glass-border); backdrop-filter: var(--glass-blur); max-width:700px;}
+    .game-list ul {margin:0 0 6px 0;padding:0;}
+    .game-list li {margin:10px 0 0 0;padding:0;font-size:17px;}
     .game-list b {font-weight:900;}
-    .btn { cursor:pointer; user-select:none; border:2px solid var(--ring); border-radius:11px; background:var(--btn); color:#fff; padding:10px 15px; font-weight:900; font-size:15px; margin:4px 0; box-shadow:0 2px 8px rgba(233,30,99,.18); transition:.1s;}
+    .btn { cursor:pointer; user-select:none; border:2px solid var(--ring); border-radius:13px; background:var(--btn); color:#fff; padding:11px 18px; font-weight:900; font-size:16px; margin:4px 0; box-shadow:0 2px 8px rgba(233,30,99,.18); transition:.1s;}
     .btn:active { transform:scale(.97); box-shadow:0 1px 6px rgba(233,30,99,.14); }
     .btn.ghost { background:transparent; color:var(--brand); }
     .btn.success { background:linear-gradient(90deg,#ffd600,#00bcd4); color:#232b4d; }
     .btn.primary { background:linear-gradient(90deg,#e40e58,#ff80ab); }
     .btn.danger { background:linear-gradient(90deg,#232b4d,#e91e63); }
-    input,textarea,select,.card button { width:100%; max-width:100%; min-width:0; box-sizing: border-box; margin-bottom:6px; font-size:15px; border-radius:10px; border:1px solid #ffd60088; padding:6px;}
-    .card label { font-size:13px;}
-    .xp-pop { position:fixed; left:50%; top:40px; transform:translateX(-50%); font-size:34px; font-weight:900; color:#ffd600; text-shadow:0 0 14px #e91e63; z-index:9999; animation:popxp .8s cubic-bezier(.4,.7,.3,1); pointer-events:none;}
+    input,textarea,select,.card button { width:100%; max-width:100%; min-width:0; box-sizing: border-box; margin-bottom:8px; font-size:16px; border-radius:11px; border:1.5px solid #ffd60088; padding:8px;}
+    .card label { font-size:14px;}
+    .xp-pop { position:fixed; left:50%; top:40px; transform:translateX(-50%); font-size:38px; font-weight:900; color:#ffd600; text-shadow:0 0 16px #e91e63; z-index:9999; animation:popxp .8s cubic-bezier(.4,.7,.3,1); pointer-events:none;}
     @keyframes popxp { 0%{opacity:0;transform:translateY(24px) scale(.5);}
       50%{opacity:1;transform:translateY(0) scale(1.2);}
       100%{opacity:0;transform:translateY(-24px) scale(.8);}
     }
-    .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:14px;}
+    .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:18px;}
     @media(max-width:1000px) { .grid{grid-template-columns:repeat(2,1fr);} }
     @media(max-width:700px) { .container{padding:8px;} .card{padding:8px;} .grid{grid-template-columns:repeat(1,1fr);} .card--half{grid-column:span 1;} }
-    .card { margin-bottom:10px; width:100%; max-width:100%; box-sizing: border-box; overflow:hidden;}
+    .card { margin-bottom:12px; width:100%; max-width:100%; box-sizing: border-box; overflow:hidden;}
     .card--half{grid-column:span 2;}
     .card--third{grid-column:span 1;}
-    .title { margin:0 0 5px; font-size:18px; font-weight:900; letter-spacing:.7px; color:var(--accent);}
-    .muted { color:var(--muted); font-size:12px; }
+    .title { margin:0 0 8px; font-size:22px; font-weight:900; letter-spacing:.8px; color:var(--accent);}
+    .muted { color:var(--muted); font-size:14px; }
+    .modal .btn { width:auto; min-width:100px; margin:0 10px; }
   </style>
 </head>
 <body>
@@ -139,10 +143,16 @@
       <span class="stat" id="verseBox"></span>
     </div>
     <div id="avatar" style="margin:14px auto;text-align:center;"></div>
-    <canvas id="xpChart" width="180" height="90"></canvas>
+    <canvas id="xpChart" width="200" height="100"></canvas>
+    <div class="card card--third">
+      <h2 class="title">Bible Verse / Faith</h2>
+      <div id="bibleVerse" class="muted"></div>
+      <button id="refreshVerse" class="btn">New Verse</button>
+      <div id="faithQuestion" class="muted" style="margin-top:8px;"></div>
+    </div>
   </div>
   <div class="container game-list">
-    <div style="font-size:18px;font-weight:900;letter-spacing:1px;margin-bottom:4px;text-align:center;">Unique Family & Friend Games</div>
+    <div style="font-size:20px;font-weight:900;letter-spacing:1px;margin-bottom:4px;text-align:center;">Unique Family & Friend Games</div>
     <ul>
       <li>🕹️ <b>Mission Race:</b> Compete to complete the most real-life missions in a day. Track XP, unlock fun rewards!</li>
       <li>🎨 <b>Offline Challenge:</b> Draw, cook, or build something creative and share a photo in the Vaulted Chat.</li>
@@ -151,7 +161,7 @@
       <li>🤔 <b>Starter Showdown:</b> Take turns answering daily family starter questions. Earn XP for best answers.</li>
       <li>🌟 <b>XP Board:</b> Play together, see who levels up fastest offline & online (connect as a group, compare XP stats).</li>
     </ul>
-    <div style="font-size:14px;margin-top:5px;text-align:center;">Play these games with your family or friends, online or offline, and build deeper connections!</div>
+    <div style="font-size:16px;margin-top:5px;text-align:center;">Play these games with your family or friends, online or offline, and build deeper connections!</div>
   </div>
   <div class="container grid">
     <div class="card card--half">
@@ -171,6 +181,94 @@
       <input id="adviceIn" placeholder="Ask about friends, money, faith..." />
       <button id="askAdvice" class="btn">Ask</button>
       <div class="muted" id="adviceOut"></div>
+    </div>
+    <div class="card card--third">
+      <h2 class="title">Starter</h2>
+      <div id="starter" class="muted"></div>
+      <button id="starterBtn" class="btn">Get Random Starter</button>
+    </div>
+    <div class="card card--third">
+      <h2 class="title">Parent Mode Tools</h2>
+      <div id="parentTools" style="display:none;">
+        <button id="parentApprove" class="btn success">Approve Mission</button>
+        <button id="parentAddReward" class="btn primary">Add Reward</button>
+        <div id="parentList"></div>
+      </div>
+      <div id="parentModeNotice" class="muted"></div>
+    </div>
+    <div class="card card--third">
+      <h2 class="title">Vaulted Chat</h2>
+      <input id="chatTo" placeholder="Chat with (Parent/Child name or code)" />
+      <textarea id="chatMsg" placeholder="Type your message..."></textarea>
+      <button id="sendChat" class="btn success">Send Message</button>
+      <div id="chatList"></div>
+    </div>
+    <div class="card card--third">
+      <h2 class="title">Sleep Habit</h2>
+      <input id="sleepTime" type="time" />
+      <button id="sleepSet" class="btn">Set Sleep Goal</button>
+      <button id="sleepImInBed" class="btn success">I'm in bed!</button>
+      <div id="sleepStatus"></div>
+    </div>
+    <div class="card card--third">
+      <h2 class="title">Memories</h2>
+      <input id="memTitle" placeholder="Memory Title" />
+      <textarea id="memText" placeholder="Memory Note"></textarea>
+      <button id="memAdd" class="btn">Add Memory</button>
+      <div id="memList"></div>
+    </div>
+    <div class="card card--third">
+      <h2 class="title">Journal</h2>
+      <textarea id="jtext" placeholder="Write your thoughts..."></textarea>
+      <button id="saveJ" class="btn">Save Entry</button>
+      <div id="journal"></div>
+    </div>
+    <div class="card card--third">
+      <h2 class="title">Guest/Share</h2>
+      <button id="genGuest" class="btn">Generate Share Code</button>
+      <input id="guestCode" readonly style="margin:4px 0;" />
+      <input id="guestPIN" readonly />
+      <div id="guestLink" class="muted"></div>
+      <button id="copyLink" class="btn ghost">Copy Link</button>
+    </div>
+    <div class="card card--third">
+      <h2 class="title">Inbox</h2>
+      <div id="inbox"></div>
+    </div>
+    <div class="card card--third">
+      <h2 class="title">Vault</h2>
+      <div id="vaultStatus"></div>
+      <input id="vaultCode" type="password" placeholder="Vault Password" />
+      <button id="vaultSet" class="btn">Set Password</button>
+      <button id="vaultUnlock" class="btn success">Unlock Vault</button>
+      <button id="vaultLock" class="btn danger">Lock Vault</button>
+      <button id="vaultSyncNow" class="btn">Sync Now</button>
+      <button id="vaultFetch" class="btn ghost">Fetch</button>
+    </div>
+    <div class="card card--third">
+      <h2 class="title">Recipes</h2>
+      <input id="recTitle" placeholder="Recipe Name" />
+      <textarea id="recBody" placeholder="Ingredients & Instructions"></textarea>
+      <button id="recAdd" class="btn">Add Recipe</button>
+      <div id="recList"></div>
+    </div>
+    <div class="card card--third">
+      <h2 class="title">Goals</h2>
+      <input id="goalTitle" placeholder="Goal Title" />
+      <input id="goalDue" type="date" />
+      <button id="goalAdd" class="btn">Add Goal</button>
+      <div id="goalList"></div>
+    </div>
+  </div>
+  <div id="modal" class="modal">
+    <div class="modal-content">
+      <span id="modalClose" class="close">&times;</span>
+      <h2 id="modalTitle"></h2>
+      <div id="modalBody" class="muted"></div>
+      <div style="text-align:center;margin:12px 0;">
+        <button id="modalConfirm" class="btn success">Confirm</button>
+        <button id="modalCancel" class="btn ghost">Cancel</button>
+      </div>
     </div>
   </div>
 </main>
