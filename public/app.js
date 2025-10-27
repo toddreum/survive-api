@@ -1,251 +1,236 @@
-// Section Navigation
-function showSection(sectionId) {
-  document.querySelectorAll('.app-section').forEach(s => s.style.display = 'none');
-  document.getElementById(sectionId).style.display = 'block';
-}
-showSection('dashboard');
+// Survive.com — Fully Feature-Rich, Balanced, Dynamic Frontend
 
-// XP and Missions
-let xp = Number(localStorage.getItem('xp') || 0);
-function updateXPDisplay() {
-  document.getElementById('xpDisplay').textContent = `XP: ${xp}`;
-}
-function addXRP(amt, reason) {
-  xp += amt;
-  localStorage.setItem('xp', xp);
-  updateXPDisplay();
-  if (reason) alert(`+${amt} XP: ${reason}`);
-}
-updateXPDisplay();
+const $ = id => document.getElementById(id);
+function escapeHTML(str) { return (str || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;', '"':'&quot;', "'":'&#039;'}[m])); }
+function now() { return new Date().toISOString(); }
+function cid() { return Math.random().toString(36).substr(2,9); }
 
-// Missions
-const missions = [
-  {name: "Morning Prayer", cat: "Faith", desc: "Begin your day with prayer", xp: 10},
-  {name: "Bible Study", cat: "Study", desc: "Read today's scripture and journal", xp: 20},
-  {name: "Are You Equipped for Battle?", cat: "Spiritual Warfare", desc: "Review Ephesians 6 armor of God checklist", xp: 15},
-  {name: "What Would Jesus Do?", cat: "Reflection", desc: "Face a daily challenge, ask WWJD, and record your response", xp: 15},
-  {name: "Tribulation Talk", cat: "End Times", desc: "Reflect on tribulation passages and journal thoughts", xp: 15},
-  {name: "Offline Break", cat: "Discipline", desc: "Take a phone-free break", xp: 10},
-  {name: "Help a Family Member", cat: "Family", desc: "Assist someone in your household", xp: 10},
-];
-function renderMissions() {
-  document.getElementById('missionsList').innerHTML = missions.map((m,i) =>
-    `<li>
-      <b>${m.name}</b> (${m.cat})<br>${m.desc}
-      <button onclick="addXRP(${m.xp},'${m.name}')">Complete Mission (+${m.xp} XP)</button>
-    </li>`
-  ).join('');
-}
-renderMissions();
+const STORAGE_KEY = "survive_data_vaulted_v4";
+const THEME_KEY = "survive_theme";
 
-// Bible in a Year Tracker
-const bibleYearPlan = [
-  "Genesis 1-3", "Exodus 12-14", "Psalms 1-5", "Matthew 1-2"
-  // ... add more as desired
-];
-function renderBibleYearList() {
-  document.getElementById('bibleYearList').innerHTML = bibleYearPlan.map((p,i) =>
-    `<li>${p} <span>${localStorage.getItem('bibleYear-'+i) ? '✅' : ''}</span></li>`).join('');
-}
-document.getElementById('markBibleReadBtn').onclick = function() {
-  let day = new Date().getDay();
-  localStorage.setItem('bibleYear-'+day, '1');
-  renderBibleYearList();
-  addXRP(5, "Bible in a Year reading");
+// --- State ---
+const defaults = {
+  xp:0, level:1, streak:0, lastDay:null,
+  missions:[], organizer:[], advice:[], parentMode:false,
+  sleep: { target:"21:30", lastCredit:null },
+  games: [], starters: [], theme: localStorage.getItem(THEME_KEY) || "dark",
+  modal: { open: false, title:"", body:"", confirm:null }
 };
-renderBibleYearList();
+let state = Object.assign({}, defaults, JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}'));
+if(!state.missions) state.missions = [];
+if(!state.organizer) state.organizer = [];
+if(!state.advice) state.advice = [];
+if(!state.games) state.games = [];
+if(!state.starters) state.starters = [];
 
-document.getElementById('saveBibleStudyBtn').onclick = function() {
-  let notes = document.getElementById('bibleStudyNotes').value.trim();
-  if (!notes) return;
-  let log = JSON.parse(localStorage.getItem('bibleStudyLog') || '[]');
-  log.push({date: new Date().toLocaleString(), notes});
-  localStorage.setItem('bibleStudyLog', JSON.stringify(log));
-  document.getElementById('bibleStudyStatus').textContent = "Saved!";
-  addXRP(20, "Deep Bible Study");
-  document.getElementById('bibleStudyNotes').value = '';
+// --- Theme ---
+document.documentElement.setAttribute('data-theme', state.theme);
+$("themeToggle").onclick = () => {
+  state.theme = state.theme === "dark" ? "light" : "dark";
+  document.documentElement.setAttribute('data-theme', state.theme);
+  localStorage.setItem(THEME_KEY, state.theme);
+  renderAll();
 };
-function renderBibleYearPlan() {
-  document.getElementById('bibleYearPlan').innerHTML = bibleYearPlan.map((p,i) =>
-    `<li>${p} <span>${localStorage.getItem('bibleYear-'+i) ? '✅' : ''}</span></li>`).join('');
-}
-renderBibleYearPlan();
 
-// Journal
-document.getElementById('saveJournalBtn').onclick = function() {
-  let entry = document.getElementById('journalEntry').value.trim();
-  let photo = document.getElementById('journalPhoto').files[0];
-  let log = JSON.parse(localStorage.getItem('journalLog') || '[]');
-  let obj = {date: new Date().toLocaleString(), entry};
-  if (photo) {
-    let reader = new FileReader();
-    reader.onload = function(e) {
-      obj.photo = e.target.result;
-      log.push(obj);
-      localStorage.setItem('journalLog', JSON.stringify(log));
-      document.getElementById('journalStatus').textContent = "Journal entry saved with photo!";
-      renderJournalLog();
-    };
-    reader.readAsDataURL(photo);
-  } else {
-    log.push(obj);
-    localStorage.setItem('journalLog', JSON.stringify(log));
-    document.getElementById('journalStatus').textContent = "Journal entry saved!";
-    renderJournalLog();
+// --- Parallax ---
+window.addEventListener('scroll', () => {
+  document.querySelector('.hero').style.backgroundPositionY = -(window.scrollY/2)+'px';
+});
+
+// --- XP Pop Animation ---
+function showXP(amount) {
+  let xp = document.createElement('div');
+  xp.className = 'xp-pop';
+  xp.textContent = `+${amount} XP!`;
+  document.body.appendChild(xp);
+  setTimeout(()=>xp.remove(), 800);
+}
+
+// --- Stats Row ---
+function renderStats() {
+  $("level").textContent = state.level;
+  $("xp").textContent = state.xp;
+  $("streak").textContent = state.streak + " 🔥";
+  let next = 500 + (state.level-1)*150;
+  $("xpBar").style.width = Math.min(100, Math.round((state.xp/next)*100)) + "%";
+}
+
+// --- XP Chart ---
+function renderXPChart() {
+  const ctx = $("xpChart");
+  if(!ctx) return;
+  if(window.xpChartInst) window.xpChartInst.destroy();
+  window.xpChartInst = new Chart(ctx.getContext("2d"), {
+    type: "doughnut",
+    data: { labels: ["XP"], datasets: [{ data: [state.xp, 500], backgroundColor: ["#ffd600", "#e91e63"], borderWidth: 2 }] },
+    options: { cutout: "80%", plugins: { legend: {display: false} }, animation: {animateScale: true} }
+  });
+}
+
+// --- Missions Logic ---
+function addMission(title = "Test mission", xp = 150) {
+  state.missions.push({id: cid(), title, xp});
+  save();
+  renderMissions();
+}
+function completeMission(id) {
+  const mission = state.missions.find(m => m.id === id);
+  if(!mission) return;
+  state.xp += mission.xp;
+  showXP(mission.xp);
+  state.missions = state.missions.filter(m => m.id !== id);
+  if(state.xp > 500 + (state.level-1)*150) {
+    state.xp = 0;
+    state.level++;
+    showXP("LEVEL UP!");
   }
-  document.getElementById('journalEntry').value = '';
-  document.getElementById('journalPhoto').value = '';
-};
-function renderJournalLog() {
-  let log = JSON.parse(localStorage.getItem('journalLog') || '[]');
-  let div = document.getElementById('journalLog');
-  div.innerHTML = log.map(e => `<div><b>${e.date}:</b> ${e.entry} ${e.photo ? `<img src="${e.photo}" width="64">` : ''}</div>`).join('');
+  state.streak++;
+  save();
+  renderStats();
+  renderXPChart();
+  renderMissions();
 }
-renderJournalLog();
-
-// Organizer
-document.getElementById('addTaskBtn').onclick = function() {
-  let task = document.getElementById('taskInput').value.trim();
-  if (!task) return;
-  let list = JSON.parse(localStorage.getItem('taskList') || '[]');
-  list.push({task, done: false});
-  localStorage.setItem('taskList', JSON.stringify(list));
-  renderTaskList();
-  document.getElementById('taskInput').value = '';
-};
-function renderTaskList() {
-  let list = JSON.parse(localStorage.getItem('taskList') || '[]');
-  document.getElementById('taskList').innerHTML = list.map((t,i) =>
-    `<li>${t.done ? '✅' : ''} ${t.task} <button onclick="toggleTaskDone(${i})">${t.done ? 'Undo' : 'Done'}</button></li>`
-  ).join('');
-}
-function toggleTaskDone(idx) {
-  let list = JSON.parse(localStorage.getItem('taskList') || '[]');
-  list[idx].done = !list[idx].done;
-  localStorage.setItem('taskList', JSON.stringify(list));
-  renderTaskList();
-}
-renderTaskList();
-
-document.getElementById('addReminderBtn').onclick = function() {
-  let time = document.getElementById('reminderInput').value;
-  if (!time) return;
-  let list = JSON.parse(localStorage.getItem('reminderList') || '[]');
-  list.push({time});
-  localStorage.setItem('reminderList', JSON.stringify(list));
-  renderReminderList();
-};
-function renderReminderList() {
-  let list = JSON.parse(localStorage.getItem('reminderList') || '[]');
-  document.getElementById('reminderList').innerHTML = list.map((r,i) =>
-    `<li>${r.time}</li>`
-  ).join('');
-}
-renderReminderList();
-
-// Family Mode
-document.getElementById('familyDashboard').innerHTML = `
-  <h3>Send a Note/Task to Family</h3>
-  <input id="familyNoteIn">
-  <button id="sendFamilyNoteBtn">Send</button>
-  <div id="familyNotesLog"></div>
-  <h3>Approve Missions & Rewards</h3>
-  <input id="familyRewardIn" placeholder="Reward for member">
-  <button id="sendFamilyRewardBtn">Grant Reward</button>
-  <div id="familyRewardsLog"></div>
-`;
-document.getElementById('sendFamilyNoteBtn').onclick = function() {
-  let note = document.getElementById('familyNoteIn').value.trim();
-  if (!note) return;
-  let notes = JSON.parse(localStorage.getItem('familyNotesLog') || '[]');
-  notes.push({date: new Date().toLocaleString(), note});
-  localStorage.setItem('familyNotesLog', JSON.stringify(notes));
-  renderFamilyNotesLog();
-  document.getElementById('familyNoteIn').value = '';
-};
-function renderFamilyNotesLog() {
-  let notes = JSON.parse(localStorage.getItem('familyNotesLog') || '[]');
-  document.getElementById('familyNotesLog').innerHTML = notes.map(n =>
-    `<div><b>${n.date}:</b> ${n.note}</div>`).join('');
-}
-renderFamilyNotesLog();
-
-document.getElementById('sendFamilyRewardBtn').onclick = function() {
-  let reward = document.getElementById('familyRewardIn').value.trim();
-  if (!reward) return;
-  let rewards = JSON.parse(localStorage.getItem('familyRewardsLog') || '[]');
-  rewards.push({date: new Date().toLocaleString(), reward});
-  localStorage.setItem('familyRewardsLog', JSON.stringify(rewards));
-  renderFamilyRewardsLog();
-  document.getElementById('familyRewardIn').value = '';
-};
-function renderFamilyRewardsLog() {
-  let rewards = JSON.parse(localStorage.getItem('familyRewardsLog') || '[]');
-  document.getElementById('familyRewardsLog').innerHTML = rewards.map(r =>
-    `<div><b>${r.date}:</b> ${r.reward}</div>`).join('');
-}
-renderFamilyRewardsLog();
-
-// AI Advice
-document.getElementById('getAdviceBtn').onclick = async function() {
-  let question = document.getElementById('adviceQuestion').value.trim();
-  if (!question) return;
-  document.getElementById('adviceAnswer').textContent = "Thinking...";
-  let res = await fetch('/api/advice', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({question})
+function renderMissions() {
+  const el = $("missionList");
+  if(!el) return;
+  el.innerHTML = "";
+  state.missions.forEach(m => {
+    let div = document.createElement("div");
+    div.className = "mission";
+    div.innerHTML = `<div style="font-weight:700">${escapeHTML(m.title)}</div>
+      <div class="muted">Reward: ${m.xp} XP</div>
+      <button class="btn primary">Complete</button>`;
+    div.querySelector("button").onclick = () => openCompleteModal(m);
+    el.appendChild(div);
   });
-  let data = await res.json();
-  document.getElementById('adviceAnswer').textContent = data.answer || "No answer yet.";
+}
+
+// --- Modal System ---
+function openCompleteModal(m) {
+  openModal({
+    title: "Complete Mission",
+    body: `${escapeHTML(m.title)} — Reward: ${m.xp} XP`,
+    confirm: () => completeMission(m.id)
+  });
+}
+function openModal({title, body, confirm}) {
+  state.modal = {open:true, title, body, confirm};
+  $("modalTitle").textContent = title;
+  $("modalBody").textContent = body;
+  $("modal").classList.add("show");
+}
+function closeModal() {
+  state.modal = {open:false, title:"", body:"", confirm:null};
+  $("modal").classList.remove("show");
+}
+$("modalClose") && ($("modalClose").onclick = closeModal);
+$("modalConfirm") && ($("modalConfirm").onclick = () => {
+  if(state.modal.confirm) state.modal.confirm();
+  closeModal();
+});
+$("modalCancel") && ($("modalCancel").onclick = closeModal);
+
+// --- Organizer Logic ---
+function addOrganizerItem() {
+  const title = $("orgTitle").value || "Untitled";
+  const details = $("orgDetails").value || "";
+  state.organizer.push({id: cid(), title, details});
+  save();
+  renderOrganizer();
+}
+function renderOrganizer() {
+  const el = $("orgList");
+  if(!el) return;
+  el.innerHTML = "";
+  state.organizer.forEach(item => {
+    let div = document.createElement("div");
+    div.className = "mission";
+    div.innerHTML = `<div style="font-weight:700">${escapeHTML(item.title)}</div>
+      <div class="muted">${escapeHTML(item.details)}</div>`;
+    el.appendChild(div);
+  });
+}
+
+// --- Advice Logic ---
+async function getAdvice(question) {
+  // Placeholder: actual advice endpoint can be used here
+  const answer = "Advice: " + (question || "Ask about friends, money, faith...");
+  state.advice.push({q: question, a: answer});
+  renderAdvice(answer);
+  save();
+}
+function renderAdvice(answer) {
+  $("adviceOut").textContent = answer;
+}
+
+// --- Games/Starters ---
+function pickStarter() {
+  const starters = [
+    "What was the best part of your day and why?",
+    "What's one way our family can help someone this week?",
+    "What did you learn from a tough choice?",
+    "What's something brave you'd try with family beside you?",
+    "What's a hobby you want to spend more time on?",
+    "How could you help someone in your school or community?",
+    "What helps you relax when you're stressed?",
+    "What's a goal for next month?"
+  ];
+  return starters[Math.floor(Math.random()*starters.length)];
+}
+function renderStarter() {
+  $("verseBox").textContent = "🌟 " + pickStarter();
+}
+
+// --- Parent Mode ---
+$("toggleParent").onclick = () => {
+  state.parentMode = !state.parentMode;
+  save();
+  alert(state.parentMode ? "Parent Mode Enabled" : "Parent Mode Disabled");
 };
 
-// Offline Break
-document.getElementById('offlineBreakBtn').onclick = function() {
-  let minutes = prompt("How many minutes offline?");
-  if (!minutes || isNaN(minutes) || minutes <= 0) return;
-  let seconds = minutes * 60;
-  let display = document.getElementById('offlineTimerDisplay');
-  display.textContent = `Offline break started for ${minutes} minutes.`;
-  let interval = setInterval(() => {
-    if (seconds > 0) {
-      display.textContent = `Time left: ${Math.floor(seconds/60)}m ${seconds%60}s`;
-      seconds--;
-    } else {
-      clearInterval(interval);
-      addXRP(50, "Offline break completed");
-      display.textContent = "Offline break finished! Credited 50 XP.";
-    }
-  }, 1000);
-};
+// --- Local Storage ---
+function save() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
 
-// Mindfulness: Meditate on Jesus Christ
-document.getElementById('meditateBtn').onclick = function() {
-  let meditationStatus = document.getElementById('meditationStatus');
-  meditationStatus.textContent = "Reflect and pray on Jesus Christ for 5 minutes.";
-  setTimeout(() => {
-    addXRP(30, "Meditated on Jesus Christ");
-    meditationStatus.textContent = "Meditation complete! Credited 30 XP.";
-  }, 5*60*1000); // 5 minutes
-};
-
-// Download App
-document.getElementById('downloadAppBtn').onclick = function() {
-  document.getElementById('downloadAppStatus').textContent =
-    "On mobile, tap the browser menu and 'Add to Home Screen' to install as an app!";
-};
-
-// Contact Us form: send email via backend
-document.getElementById('contactForm').onsubmit = async function(e) {
+// --- App Install Button ---
+let deferredPrompt;
+window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
-  let name = document.getElementById('contactName').value.trim();
-  let email = document.getElementById('contactEmail').value.trim();
-  let msg = document.getElementById('contactMsg').value.trim();
-  let res = await fetch('/api/contact', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({name, email, msg})
-  });
-  let data = await res.json();
-  document.getElementById('contactStatus').textContent = data.status || "Submitted!";
+  deferredPrompt = e;
+  $("installAppBtn").style.display = '';
+});
+$("installAppBtn").onclick = () => {
+  if(deferredPrompt){
+    deferredPrompt.prompt();
+    deferredPrompt = null;
+  }
 };
+
+// --- "How It Works" Button ---
+$("howItWorksBtn") && ($("howItWorksBtn").onclick = () => {
+  openModal({
+    title: "How Survive.com Works",
+    body: "Complete missions, earn XP, unlock rewards, and regulate your time! Play games, track streaks, connect with family, and thrive offline.",
+    confirm: closeModal
+  });
+});
+
+// --- Parallax (already included above) ---
+
+// --- Render All Cards ---
+function renderAll() {
+  renderStats();
+  renderXPChart();
+  renderMissions();
+  renderOrganizer();
+  renderStarter();
+}
+
+// --- DOMContentLoaded ---
+document.addEventListener("DOMContentLoaded", function() {
+  renderAll();
+  $("newMissionBtn") && ($("newMissionBtn").onclick = () => addMission("Do homework", 200));
+  $("orgAdd") && ($("orgAdd").onclick = addOrganizerItem);
+  $("askAdvice") && ($("askAdvice").onclick = () => getAdvice($("adviceIn")?.value));
+});
