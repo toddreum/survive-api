@@ -18,7 +18,7 @@ function addXRP(amt, reason) {
 }
 updateXPDisplay();
 
-// Missions (including equipped/battle/WWJD)
+// Missions
 const missions = [
   {name: "Morning Prayer", cat: "Faith", desc: "Begin your day with prayer", xp: 10},
   {name: "Bible Study", cat: "Study", desc: "Read today's scripture and journal", xp: 20},
@@ -40,14 +40,15 @@ renderMissions();
 
 // Bible in a Year Tracker
 const bibleYearPlan = [
-  "Genesis 1-3", "Exodus 12-14", "Psalms 1-5", "Matthew 1-2", // etc, expand for full year
+  "Genesis 1-3", "Exodus 12-14", "Psalms 1-5", "Matthew 1-2"
+  // ... add more as desired
 ];
 function renderBibleYearList() {
   document.getElementById('bibleYearList').innerHTML = bibleYearPlan.map((p,i) =>
     `<li>${p} <span>${localStorage.getItem('bibleYear-'+i) ? '✅' : ''}</span></li>`).join('');
 }
 document.getElementById('markBibleReadBtn').onclick = function() {
-  let day = new Date().getDay(); // simplistic: real logic should track actual day count
+  let day = new Date().getDay();
   localStorage.setItem('bibleYear-'+day, '1');
   renderBibleYearList();
   addXRP(5, "Bible in a Year reading");
