@@ -1,1 +1,92 @@
-
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Survive.com — Regulate, Survive, Thrive Offline!</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://js.stripe.com/v3/"></script>
+</head>
+<body>
+  <header>
+    <h1>Survive.com</h1>
+    <p>Christian, pro-family, pro-life, pro-freedom platform to thrive offline.</p>
+    <a href="mailto:support@survive.com">Contact support@survive.com</a>
+  </header>
+  <main>
+    <!-- Premium Subscription Card -->
+    <section id="subscriptionSection">
+      <h2>Premium Subscription</h2>
+      <div id="subscriptionStatus"></div>
+      <button id="subscribeBtn">Subscribe Monthly</button>
+      <small>Only $7.99/month. Cancel anytime.</small>
+    </section>
+    <!-- Youth Group Area -->
+    <section>
+      <h2>Youth Group</h2>
+      <button id="attendYouthGroupBtn">I Attended Youth Group</button>
+      <div id="youthGroupXPStatus"></div>
+      <ul id="youthGroupEvents">
+        <li>Wednesday 7PM: Bible Study & Games</li>
+        <li>Friday 6PM: Worship Night</li>
+        <li>Next Retreat: Nov 15-17</li>
+      </ul>
+    </section>
+    <!-- Church/Sunday School Attendance -->
+    <section>
+      <h2>Faith Actions</h2>
+      <button id="churchBtn">I went to Church</button>
+      <button id="sundaySchoolBtn">I went to Sunday School</button>
+      <div id="faithActionsStatus"></div>
+      <ul id="churchEvents">
+        <li>Sunday 10AM: Service & Worship</li>
+        <li>Saturday 4PM: Youth Service</li>
+      </ul>
+    </section>
+    <!-- Acts of Service / Family Help -->
+    <section>
+      <h2>Acts of Service</h2>
+      <button id="droveSiblingBtn">I drove my brother/sister to an activity</button>
+      <button id="helpedSomeoneBtn">I helped someone today</button>
+      <input id="serviceDesc" placeholder="Describe what you did..." />
+      <button id="logServiceBtn">Log Service</button>
+      <div id="serviceStatus"></div>
+      <div id="serviceLog"></div>
+    </section>
+    <!-- Extracurriculars -->
+    <section>
+      <h2>Extracurriculars</h2>
+      <button id="extracurricularBtn">I attended an extracurricular activity</button>
+      <div id="extracurricularStatus"></div>
+    </section>
+    <!-- Youth Leaders Area -->
+    <section id="youthLeaderArea" style="display:none;">
+      <h2>Youth Leaders Dashboard</h2>
+      <button id="addYouthEventBtn">Add Youth Group Event</button>
+      <input id="newYouthEventText" placeholder="Event Description" />
+      <ul id="youthLeaderEvents"></ul>
+      <button id="sendEncouragementBtn">Send Encouragement to Youth</button>
+      <input id="encouragementText" placeholder="Encouragement or reminder..." />
+      <div id="leaderMessages"></div>
+    </section>
+    <!-- Advice API Card -->
+    <section>
+      <h2>Ask for Advice (Pro-Christian, Pro-Conservative, Pro-Family)</h2>
+      <input id="adviceIn" placeholder="Ask about faith, life, family, culture..." />
+      <button id="askAdvice">Ask</button>
+      <div id="adviceOut"></div>
+    </section>
+  </main>
+  <footer>
+    <div>
+      © Survive.com — Regulate yourself, survive and thrive offline!
+      <br>
+      <a href="mailto:support@survive.com">Contact support@survive.com</a>
+      <br>
+      Pro-family • Pro-life • Pro-Jesus Christ • Conservative • Freedom
+    </div>
+  </footer>
+  <script src="app.js"></script>
+</body>
+</html>
