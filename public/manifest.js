@@ -5,7 +5,7 @@
   "display": "standalone",
   "background_color": "#15003a",
   "theme_color": "#00bcd4",
-  "description": "Survive.com gamifies real life: missions, XP, family mode, encrypted vault, memories, goals, games, and more.",
+  "description": "Survive.com: Conservative Christian family app with missions, XP, faith, and AI advice.",
   "icons": [
     { "src": "/icon.svg", "sizes": "512x512", "type": "image/svg+xml" }
   ]
