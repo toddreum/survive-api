@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: survive-frontend
+    env: node
+    plan: free
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    startCommand: npm run preview -- --port $PORT --host 0.0.0.0
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+  - type: web
+    name: survive-api
+    env: node
+    plan: free
+    rootDir: .
+    buildCommand: npm ci
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: HEALTH_BOOST
+        sync: false
+      - key: PRICE_ID
+        value: price_1SKx5OFDHekJoy7r5qaffevP
+      - key: FRONTEND_URL
+        value: https://survive-frontend.onrender.com
