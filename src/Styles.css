@@ -1,0 +1,108 @@
+.arcade-bg {
+  background: linear-gradient(135deg, #020024 0%, #090979 35%, #00d4ff 100%);
+  min-height: 100vh;
+  font-family: 'Orbitron', 'Arial', sans-serif;
+  color: #fff;
+  padding: 0;
+  margin: 0;
+  text-align: center;
+}
+.logo {
+  width: 180px;
+  margin-top: 30px;
+}
+.menu, .gameboard, .animal-selector, .timer, .stripe-modal {
+  margin: 20px auto;
+  max-width: 600px;
+  padding: 30px;
+  background: rgba(0,0,0,0.7);
+  border-radius: 18px;
+  box-shadow: 0 0 40px #00d4ff99;
+}
+.input {
+  padding: 10px;
+  margin: 10px;
+  border-radius: 8px;
+  border: none;
+  font-size: 1.2em;
+}
+.button {
+  background: #00d4ff;
+  color: #090979;
+  border: none;
+  padding: 12px 24px;
+  font-size: 1.2em;
+  border-radius: 12px;
+  margin: 10px;
+  cursor: pointer;
+  font-weight: bold;
+  box-shadow: 0 0 10px #00d4ff99;
+  transition: background 0.2s;
+}
+.button:hover {
+  background: #090979;
+  color: #00d4ff;
+}
+.circle {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 30px;
+  margin: 30px 0;
+}
+.player {
+  width: 80px;
+  height: 80px;
+  background: #282c34;
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  font-size: 1.1em;
+  box-shadow: 0 0 18px #00d4ff88;
+  position: relative;
+}
+.center {
+  background: #00d4ff;
+  color: #282c34;
+  font-weight: bold;
+  border: 3px solid #fff;
+}
+.called {
+  box-shadow: 0 0 22px #ffd70088;
+}
+.animal {
+  font-size: 1.2em;
+}
+.hidden {
+  color: #090979;
+  background: #222;
+}
+.boost-btn {
+  background: #ffd700;
+  color: #090979;
+  border: none;
+  padding: 14px 32px;
+  border-radius: 12px;
+  font-size: 1.1em;
+  margin-top: 20px;
+  cursor: pointer;
+  box-shadow: 0 0 10px #ffd70099;
+}
+.timer {
+  font-size: 1.4em;
+  margin-bottom: 15px;
+}
+.stripe-modal {
+  position: fixed;
+  top: 20%;
+  left: 50%;
+  transform: translate(-50%, 0);
+  background: #222;
+  color: #ffd700;
+  border-radius: 16px;
+  box-shadow: 0 0 30px #ffd70066;
+  padding: 30px;
+  z-index: 999;
+}
