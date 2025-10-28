@@ -1,14 +1,16 @@
 {
-  "name": "survive-ui",
+  "name": "survive-api",
   "version": "1.0.0",
-  "private": true,
-  "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "socket.io-client": "^4.7.2"
-  },
+  "main": "src/server.js",
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build"
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "http": "^0.0.1-security",
+    "socket.io": "^4.7.2",
+    "stripe": "^12.0.0",
+    "uuid": "^9.0.0",
+    "cors": "^2.8.5"
   }
 }
