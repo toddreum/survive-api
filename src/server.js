@@ -57,4 +57,4 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {});
 });
 
-server.listen(4000, () => console.log('Backend running on
+server.listen(4000, () => console.log('Backend running on http://localhost:4000'));
