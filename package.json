@@ -1,7 +1,7 @@
 {
   "name": "survive-api",
   "version": "1.0.0",
-  "description": "Survive.com backend with Stripe integration",
+  "description": "Survive.com backend and frontend with Stripe integration, mobile-first UI, XP vault, reward system, Bible features, and more.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -9,5 +9,8 @@
   "dependencies": {
     "express": "^4.18.2",
     "stripe": "^12.14.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
   }
 }
