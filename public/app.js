@@ -144,3 +144,21 @@ document.getElementById("markYearDone").onclick = () => {
   }
 };
 renderBibleYear();
+
+// --- Premium Unlock Flow ---
+// Confirm/unlock button only enabled after payment
+const unlockBtn = document.getElementById('unlockPremiumBtn');
+function checkStripeUnlock() {
+  if (window.location.search.includes('success=true')) {
+    unlockBtn.style.display = '';
+    unlockBtn.disabled = false;
+    document.getElementById('subscriptionStatus').textContent = "Premium unlocked! Thank you for subscribing.";
+  }
+}
+unlockBtn.onclick = function() {
+  localStorage.setItem('survive_premium', 'true');
+  document.getElementById('subscriptionStatus').textContent = "Premium features are unlocked!";
+  unlockBtn.disabled = true;
+  unlockBtn.textContent = "Premium Unlocked";
+};
+checkStripeUnlock();
