@@ -49,42 +49,38 @@
 </header>
 <main>
   <div class="grid">
-    <!-- CHARLIE KIRK VIDEO -->
+    <!-- XP/Child Dashboard -->
+    <div class="card">
+      <h2 class="title">🎯 My Dashboard</h2>
+      <div id="childXPDisplay"></div>
+      <div id="childPendingRewards"></div>
+    </div>
+    <!-- Charlie Kirk Video -->
     <div class="card">
       <h2 class="title">🎥 Charlie Kirk Daily Video</h2>
       <div class="yt-responsive" id="charlieKirkVideo"></div>
     </div>
-    <!-- JACK HIBBS VIDEO -->
+    <!-- Jack Hibbs Video -->
     <div class="card">
       <h2 class="title">🎥 Jack Hibbs Daily Video</h2>
       <div class="yt-responsive" id="jackHibbsVideo"></div>
     </div>
-    <!-- XP FAMILY ACTIVITIES -->
+    <!-- Earn XP -->
     <div class="card">
       <h2 class="title">🏡 Earn XP for Family Activities</h2>
-      <button onclick="earnXP(20, 'Family Dinner Attended')" class="btn2">Earn XP for Family Dinner</button>
-      <button onclick="earnXP(25, 'Family Night Attended')" class="btn2">Earn XP for Family Night</button>
-      <button onclick="earnXP(15, 'Family Game Night Attended')" class="btn2">Earn XP for Game Night</button>
-      <div id="childXPDisplay"></div>
+      <button onclick="earnXP(20, 'Family Dinner')" class="btn2">Family Dinner</button>
+      <button onclick="earnXP(25, 'Family Night')" class="btn2">Family Night</button>
+      <button onclick="earnXP(15, 'Game Night')" class="btn2">Game Night</button>
     </div>
-    <!-- XP Approvals for Parent/Leader -->
-    <div class="card" id="parentXPCard" style="display:none;">
-      <h2 class="title">✅ XP Requests To Approve</h2>
-      <div id="parentXPVault"></div>
-    </div>
-    <!-- XP Rewards System -->
+    <!-- Weekly Rewards -->
     <div class="card">
       <h2 class="title">🏅 Weekly XP Rewards</h2>
       <div id="rewardList"></div>
-      <div id="childRewardActions"></div>
-      <div id="parentRewardEdit" style="display:none;"></div>
-      <div id="parentRewardRequests" style="display:none;"></div>
     </div>
     <!-- Bible Verse -->
     <div class="card">
       <h2 class="title">📖 Daily Bible Verse</h2>
       <div id="dailyVerse" style="color:#fff;font-size:1.1em;"></div>
-      <audio id="verseAudio" controls></audio>
       <button id="refreshVerse" class="btn2">New Verse</button>
     </div>
     <!-- Guided Study -->
@@ -92,14 +88,12 @@
       <h2 class="title">📚 Guided Bible Study (Today)</h2>
       <div id="bibleYearDay"></div>
       <div id="bibleYearReading"></div>
-      <audio id="bibleYearAudio" controls></audio>
       <button id="markYearDone" class="btn2">Mark Today Done</button>
       <div id="bibleYearStatus"></div>
     </div>
     <!-- Stripe Payment Link -->
     <div class="card">
       <h2 class="title">⭐ Premium Subscription</h2>
-      <div id="subscriptionStatus" class="item"></div>
       <a href="https://buy.stripe.com/7sY14nelU728cg1cB0ffy09" class="btn2" id="subscribeBtn" target="_blank">Subscribe with Stripe</a>
     </div>
   </div>
