@@ -1,11 +1,11 @@
 self.addEventListener('install', event => {
   self.skipWaiting();
-  event.waitUntil(caches.open('survive-static-v3').then(cache => cache.addAll([
+  event.waitUntil(caches.open('survive-static-v5').then(cache => cache.addAll([
     '/',
     '/index.html',
     '/app.js',
     '/manifest.json',
-    '/icon.svg'
+    '/icon.png'
   ])));
 });
 self.addEventListener('fetch', event => {
