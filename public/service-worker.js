@@ -1,6 +1,6 @@
 self.addEventListener('install', event => {
   self.skipWaiting();
-  event.waitUntil(caches.open('survive-static-v2').then(cache => cache.addAll([
+  event.waitUntil(caches.open('survive-static-v3').then(cache => cache.addAll([
     '/',
     '/index.html',
     '/app.js',
