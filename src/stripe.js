@@ -1,20 +1,13 @@
 const express = require('express');
 const router = express.Router();
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const stripe = require('stripe')(process.env.STRIPE_UNLOCK);
 
 router.post('/create-checkout-session', async (req, res) => {
   const { playerName, gameId } = req.body;
   const session = await stripe.checkout.sessions.create({
     payment_method_types: ['card'],
     line_items: [{
-      price_data: {
-        currency: 'usd',
-        product_data: {
-          name: 'Survive.com Health Boost',
-          description: 'Buy 5 points for 99 cents (one per game)',
-        },
-        unit_amount: 99,
-      },
+      price: 'price_1SMlCvFDHekJoy7rmlw6R6nK', // Your Stripe Price ID
       quantity: 1,
     }],
     mode: 'payment',
