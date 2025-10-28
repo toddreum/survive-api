@@ -1,4 +1,4 @@
-// Survive.com — Dynamic, Dazzling, Feature-Rich Frontend
+// Survive.com — Dynamic, Balanced, Feature-Rich Frontend
 
 const $ = id => document.getElementById(id);
 
@@ -19,19 +19,18 @@ function toggleTheme() {
 
 $("themeToggle").onclick = toggleTheme;
 
-// --- XP Pop Animation ---
 function showXP(amount) {
   let xp = document.createElement('div');
   xp.className = 'xp-pop';
   xp.textContent = `+${amount} XP!`;
   document.body.appendChild(xp);
-  setTimeout(()=>xp.remove(), 1000);
+  setTimeout(()=>xp.remove(), 800);
 }
 
-// --- Chart.js XP Doughnut ---
 function renderXPChart() {
   const ctx = $("xpChart").getContext("2d");
-  new Chart(ctx, {
+  if(window.xpChartInst) window.xpChartInst.destroy();
+  window.xpChartInst = new Chart(ctx, {
     type: "doughnut",
     data: {
       labels: ["XP"],
@@ -41,7 +40,6 @@ function renderXPChart() {
   });
 }
 
-// --- Stats Row ---
 function renderStats() {
   $("level").textContent = state.level;
   $("xp").textContent = state.xp;
@@ -50,7 +48,6 @@ function renderStats() {
   $("xpBar").style.width = Math.min(100, Math.round((state.xp/next)*100)) + "%";
 }
 
-// --- Missions (add, complete, list) ---
 function addMission(title = "Test mission", xp = 150) {
   state.missions.push({id: Date.now(), title, xp});
   renderMissions();
@@ -80,7 +77,6 @@ function renderMissions() {
   });
 }
 
-// --- Organizer (add, list) ---
 function addOrganizerItem() {
   const title = $("orgTitle").value || "Untitled";
   const details = $("orgDetails").value || "";
@@ -100,12 +96,10 @@ function renderOrganizer() {
   });
 }
 
-// --- Advice (OpenAI API or mock) ---
 async function getAdvice(question) {
   $("adviceOut").textContent = "Advice: " + (question || "Ask about friends, money, faith...");
 }
 
-// --- Main UI Logic ---
 document.addEventListener("DOMContentLoaded", function() {
   renderStats();
   renderXPChart();
