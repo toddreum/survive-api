@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "description": "Backend for Survive.com - Stripe checkout + health boost",
   "scripts": {
     "start": "node server.js"
   },
