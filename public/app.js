@@ -1,4 +1,4 @@
-// Survive.com — Rebuilt app.js based on your previous cPanel version
+// Survive.com — Modernized app.js for new visual design
 
 const $ = id => document.getElementById(id);
 function escapeHTML(str) { return (str || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;', '"':'&quot;', "'":'&#039;'}[m])); }
@@ -26,19 +26,18 @@ const oneYearPlan = [
   "Day 3: Genesis 8-11",
   "Day 4: Matthew 1-2",
   "Day 5: Matthew 3-4"
-  // ... Add the rest of the plan as needed
 ];
 
 let state = {
-  xp: 0, missions: [], chores: [], bibleNotes: [],
+  xp: 0, level: 1, streak: 0, missions: [], chores: [], bibleNotes: [],
   parentMode: false, subscription: false
 };
 
 function save() {
-  localStorage.setItem("survive_v18", JSON.stringify(state));
+  localStorage.setItem("survive_v19", JSON.stringify(state));
 }
 function load() {
-  const d = localStorage.getItem("survive_v18");
+  const d = localStorage.getItem("survive_v19");
   if(d) state = Object.assign(state, JSON.parse(d));
 }
 window.onload = () => {
@@ -47,6 +46,7 @@ window.onload = () => {
 };
 
 function renderAll() {
+  renderStats();
   renderBibleVerse();
   renderBibleStudy();
   renderOneYearPlan();
@@ -56,11 +56,22 @@ function renderAll() {
   renderAdvice();
   renderParentDashboard();
   renderSubscription();
+  renderVideos();
+}
+
+function renderStats() {
+  $("level").textContent = state.level;
+  $("xp").textContent = state.xp;
+  $("streak").textContent = state.streak + " 🔥";
+  let next = 500 + (state.level-1)*150;
+  $("xpBar").style.width = Math.min(100, Math.round((state.xp/next)*100)) + "%";
 }
 
 function renderBibleVerse() {
   $("verseBox").textContent = verses[Math.floor(Math.random() * verses.length)];
 }
+$("refreshVerse").onclick = renderBibleVerse;
+
 function renderBibleStudy() {
   $("bibleStudyGuide").innerHTML = studyGuide.map(s=>`<li>${escapeHTML(s)}</li>`).join("");
 }
@@ -71,6 +82,8 @@ function renderOneYearPlan() {
 $("completeBibleStudy").onclick = () => {
   state.xp += 50;
   save();
+  state.streak++;
+  renderStats();
   alert("Bible study complete! +50 XP");
 };
 
@@ -98,7 +111,7 @@ $("menuNewMission").onclick = () => {
 };
 function renderMissions() {
   $("missionList").innerHTML = state.missions.slice(-8).map(m=>
-    `<div style="margin-bottom:8px;">
+    `<div class="mission">
       <b>${escapeHTML(m.title)}</b> <span class="muted">${m.xp} XP</span>
       <button class="btn success" onclick="completeMission('${m.id}')">Done</button>
     </div>`
@@ -111,6 +124,7 @@ window.completeMission = function(id) {
     state.missions = state.missions.filter(x=>x.id!=id);
     save();
     renderMissions();
+    renderStats();
     alert(`Mission completed! +${m.xp} XP`);
   }
 };
@@ -126,7 +140,7 @@ $("addChore").onclick = () => {
 };
 function renderChores() {
   $("choresList").innerHTML = state.chores.slice(-10).map(c=>
-    `<div style="margin-bottom:7px;">
+    `<div class="mission">
       <input type="checkbox" onclick="completeChore('${c.id}')" ${c.done ? 'checked' : ''}> 
       <b>${escapeHTML(c.title)}</b>
     </div>`
@@ -134,11 +148,12 @@ function renderChores() {
 }
 window.completeChore = function(id) {
   const c = state.chores.find(x=>x.id==id);
-  if(c) {
+  if(c && !c.done) {
     c.done = true;
     state.xp += 20;
     save();
     renderChores();
+    renderStats();
     alert("Chore completed! +20 XP");
   }
 };
@@ -154,7 +169,7 @@ function renderParentDashboard() {
   $("parentStats").innerHTML = `<div class="muted">Total XP: <b>${state.xp}</b></div>`;
   $("xpRedemptions").innerHTML = "<li>Family Movie Night</li><li>Dessert Pass</li><li>Extra Screen Time</li><li>Charity Donation</li>";
   $("missionApprovals").innerHTML = state.missions.map(m=>
-    `<div style="margin-bottom:7px;">
+    `<div class="mission">
       <b>${escapeHTML(m.title)}</b> <span class="muted">${m.xp} XP</span>
       <button class="btn success" onclick="completeMission('${m.id}')">Approve & Complete</button>
     </div>`
@@ -184,7 +199,6 @@ $("askAdvice").onclick = async () => {
   $("adviceOut").textContent = "Thinking...";
   const question = $("adviceIn").value.trim();
   if(!question) { $("adviceOut").textContent = ""; return;}
-  // Simulate API or replace with real fetch
   setTimeout(()=>{
     $("adviceOut").textContent = "Pray about it, read relevant Bible verses, and seek counsel from family or church. Conservative Christian values recommend faith, family, and wisdom.";
   }, 1200);
@@ -214,7 +228,24 @@ $("howItWorksBtn").onclick = () => {
   alert("Survive.com helps families regulate, thrive offline, and grow in faith. Complete missions, chores, Bible study, and more to earn XP and rewards.");
 };
 
-// Offline Break (dummy)
-$("startBreak").onclick = () => {
-  alert("Take a healthy offline break! Go outside, read, play, or spend time with family.");
-};
+// Videos
+function renderVideos() {
+  var kirk = $("charlieKirkEmbed");
+  if(kirk) {
+    const kirkVideos = [
+      "nkWzEUrHj9A","1YQ4yYxKkfo","VxvG6kKkP7Y","xVx8k4FhGg0","p1qZyKsXvZ8"
+    ];
+    const idx = (new Date().getDate() + new Date().getMonth()) % kirkVideos.length;
+    kirk.innerHTML = `<iframe width="100%" height="215" src="https://www.youtube.com/embed/${kirkVideos[idx]}"
+      title="Charlie Kirk Show" frameborder="0" allowfullscreen></iframe>`;
+  }
+  var hibbs = $("jackHibbsEmbed");
+  if(hibbs) {
+    const hibbsVideos = [
+      "S6jE5x0wDMU","8kFhJz1CXCQ","iS7U0xvWRIY","i6zM0ZyR9Jg","kJfJ9L5Gm2Y"
+    ];
+    const idx = (new Date().getDate() + new Date().getMonth()) % hibbsVideos.length;
+    hibbs.innerHTML = `<iframe width="100%" height="215" src="https://www.youtube.com/embed/${hibbsVideos[idx]}"
+      title="Jack Hibbs Sermon" frameborder="0" allowfullscreen></iframe>`;
+  }
+}
