@@ -11,10 +11,10 @@ app.post("/api/create-checkout-session", async (req, res) => {
       payment_method_types: ["card"],
       mode: "subscription",
       line_items: [{
-        price: process.env.STRIPE_UNLOCK,
+        price: process.env.STRIPE_UNLOCK, // Must be an active price ID from Stripe dashboard
         quantity: 1
       }],
-      success_url: req.headers.origin + "/?success=true",
+      success_url: req.headers.origin + "/?success=true&session_id={CHECKOUT_SESSION_ID}",
       cancel_url: req.headers.origin + "/?canceled=true"
     });
     res.json({ checkoutUrl: session.url });
