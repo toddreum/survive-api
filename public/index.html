@@ -4,34 +4,23 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Survive.com — Regulate, Play, Thrive!</title>
-  <meta name="description" content="Survive.com helps families and kids thrive: Bible, family, XP, missions, faith, videos, parent mode, advice.">
+  <meta name="description" content="Survive.com helps families, kids, and friends thrive: Bible, faith, family, XP, missions, chat, chores, parent mode, games, vault, advice, videos, goals, friends, sharing, subscription, everything.">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/svg+xml" href="icon.svg">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
-    :root {
-      --bg: linear-gradient(120deg,#232b4d 0%, #00bcd4 100%);
-      --card: rgba(31,35,70,0.93);
-      --card2: #232b4d;
-      --accent: #ffd600;
-      --brand: #e91e63;
-      --muted: #c1c7df;
-      --radius: 26px;
-      --shadow: 0 8px 32px #00bcd4aa;
-      --btn: linear-gradient(90deg,#e91e63 60%,#ffd600 100%);
-      --btn2: linear-gradient(90deg,#00bcd4 60%,#ffd600 100%);
-      --xp: linear-gradient(90deg,#ffd600,#00bcd4,#e91e63);
-      --border: 2px solid #ffd60044;
-      --glass: rgba(255,255,255,0.08);
-    }
+    :root { --bg: linear-gradient(120deg,#232b4d 0%, #00bcd4 100%); --card: rgba(31,35,70,0.93); --card2: #232b4d;
+      --accent: #ffd600; --brand: #e91e63; --muted: #c1c7df; --radius: 26px; --shadow: 0 8px 32px #00bcd4aa;
+      --btn: linear-gradient(90deg,#e91e63 60%,#ffd600 100%); --btn2: linear-gradient(90deg,#00bcd4 60%,#ffd600 100%);
+      --xp: linear-gradient(90deg,#ffd600,#00bcd4,#e91e63); --border: 2px solid #ffd60044; --glass: rgba(255,255,255,0.08); }
     html,body{margin:0;min-height:100vh;background:var(--bg);color:#fff;font-family:'Inter',system-ui,sans-serif;}
     header{background:linear-gradient(90deg,#232b4d 60%,#00bcd4 100%);padding:1rem 0 0.7rem 0;box-shadow:0 4px 20px #00bcd444;}
     .nav{max-width:1200px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;}
-    .logo-hero{font-size:40px;font-weight:900;background:var(--xp);-webkit-background-clip:text;-webkit-text-fill-color:transparent;text-shadow:0 2px 16px #e91e6333;}
+    .logo-hero{font-size:44px;font-weight:900;background:var(--xp);-webkit-background-clip:text;-webkit-text-fill-color:transparent;text-shadow:0 2px 16px #e91e6333;}
     .stats-row{display:flex;gap:22px;justify-content:center;margin:24px 0 18px 0;}
-    .stat{background:var(--card);border-radius:20px;padding:18px 26px;min-width:110px;box-shadow:0 2px 8px #00bcd488;font-size:20px;font-weight:700;text-align:center;}
-    .stat-xp{background:var(--glass);border-radius:20px;padding:18px 26px;min-width:140px;box-shadow:0 2px 12px #ffd60088;font-size:20px;font-weight:700;text-align:center;}
+    .stat{background:var(--card);border-radius:22px;padding:18px 26px;min-width:110px;box-shadow:0 2px 8px #00bcd488;font-size:20px;font-weight:700;text-align:center;position:relative;}
+    .stat-xp{background:var(--glass);border-radius:22px;padding:18px 26px;min-width:140px;box-shadow:0 2px 12px #ffd60088;font-size:20px;font-weight:700;text-align:center;position:relative;}
     .xpBar{width:90%;height:10px;background:var(--glass);border-radius:8px;margin-top:10px;overflow:hidden;}
     .xpBar-fill{height:100%;background:var(--xp);transition:width .2s;}
     .avatar-area{text-align:center;margin:18px 0 8px 0;}
@@ -41,19 +30,22 @@
     @media(max-width:600px){.nav{flex-direction:column;align-items:start;}.grid{grid-template-columns:repeat(1,1fr);padding:0 6px;}}
     .card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:24px 20px 20px 20px;margin:0 0 18px 0;position:relative;}
     .title{font-size:22px;font-weight:900;color:var(--accent);margin-bottom:12px;}
+    .category-icon{font-size:28px;margin-right:6px;}
     .btn{cursor:pointer;user-select:none;border-radius:13px;background:var(--btn);color:#fff;padding:11px 18px;font-weight:900;font-size:16px;margin:7px 0 9px 0;box-shadow:0 2px 8px #ffd60044;border:none;}
     .btn:active{transform:scale(.97);}
     .btn2{background:var(--btn2);}
     .btn.ghost{background:transparent;color:var(--accent);border:2px solid #ffd60088;}
     .muted{color:var(--muted);font-size:15px;}
     input,textarea{width:100%;border-radius:10px;border:2px solid #ffd60044;padding:8px;font-size:16px;margin-bottom:8px;}
-    .mission{background:var(--glass);border-radius:12px;padding:7px 10px;margin-bottom:7px;box-shadow:0 1px 6px #ffd60022;}
+    .mission,.chore,.memory,.goal,.note,.chatmsg{background:var(--glass);border-radius:12px;padding:7px 10px;margin-bottom:7px;box-shadow:0 1px 6px #ffd60022;}
     .modal{position:fixed;inset:0;background:rgba(26,35,126,.7);display:none;align-items:center;justify-content:center;z-index:100;}
     .modal.show{display:flex;}
-    .modal-content{max-width:400px;width:98vw;background:var(--card2);border-radius:18px;padding:34px 24px;box-shadow:0 8px 40px #232b4d77;position:relative;}
+    .modal-content{max-width:460px;width:98vw;background:var(--card2);border-radius:18px;padding:34px 24px;box-shadow:0 8px 40px #232b4d77;position:relative;}
     .close{position:absolute;top:12px;right:10px;font-size:22px;cursor:pointer;color:var(--brand);}
-    footer{background:linear-gradient(90deg,#232b4d 60%,#00bcd4 100%);border-top:2px solid #ffd60044;padding:24px 0;box-shadow:0 -4px 18px #00bcd422;text-align:center;font-size:18px;color:#fff;}
+    .game-list{background:var(--glass);border-radius:18px;padding:14px 18px;margin-bottom:14px;box-shadow:0 2px 8px #ffd60022;}
     .footer-meta{color:#ffd600;font-weight:900;font-size:15px;}
+    footer{background:linear-gradient(90deg,#232b4d 60%,#00bcd4 100%);border-top:2px solid #ffd60044;padding:24px 0;box-shadow:0 -4px 18px #00bcd422;text-align:center;font-size:18px;color:#fff;}
+    .share-vault{background:var(--glass);padding:10px 8px;border-radius:10px;margin:8px 0;}
   </style>
 </head>
 <body>
@@ -70,7 +62,7 @@
   <div class="stats-row">
     <span class="stat">Level <span id="level">1</span></span>
     <span class="stat-xp">
-      <span style="font-weight:700;">XP</span>
+      <span style="font-weight:700;">XP <span id="xpExplainBtn" style="cursor:pointer;" title="What is XP?">❓</span></span>
       <span id="xp" style="font-size:1.4em;"></span>
       <div class="xpBar"><div id="xpBar" class="xpBar-fill" style="width:0%"></div></div>
     </span>
@@ -94,78 +86,29 @@
         </defs>
       </svg>
     </span>
+    <div class="muted">Welcome, <span id="userName">Child</span>!</div>
+  </div>
+  <div class="game-list">
+    <b>Family Games:</b> Mission Race, Offline Challenge, Photo Hunt, Vaulted Stories, XP Board, Invite Friends.
   </div>
   <div class="grid">
-    <div class="card">
-      <h2 class="title">Today's Bible Verse</h2>
-      <div id="verseBox" class="muted" style="font-size:1.2em; margin:10px 0;"></div>
-      <button id="refreshVerse" class="btn btn2">Refresh Verse</button>
+    <!-- Cards for all categories/features, each with icon -->
+    <div class="card"><h2 class="title"><span class="category-icon">📖</span>Bible Verse</h2><div id="verseBox" class="muted"></div><button id="refreshVerse" class="btn btn2">Refresh</button></div>
+    <div class="card"><h2 class="title"><span class="category-icon">📚</span>Bible Study Guide</h2><ul id="bibleStudyGuide"></ul><details><summary>One-Year Plan</summary><ul id="oneYearPlan"></ul></details><button id="completeBibleStudy" class="btn success">✔ Done (XP)</button></div>
+    <div class="card"><h2 class="title"><span class="category-icon">📝</span>Notes & Journaling</h2><textarea id="bibleNoteText" rows="3" placeholder="Journal..."></textarea><button id="saveBibleNote" class="btn success">💾 Save</button><div id="bibleNotesList"></div></div>
+    <div class="card"><h2 class="title"><span class="category-icon">🎯</span>Missions</h2><button id="menuNewMission" class="btn primary">➕ New Mission</button><div id="missionList"></div></div>
+    <div class="card"><h2 class="title"><span class="category-icon">🧹</span>Chores</h2><input id="choreTitle" placeholder="Task..." /><button id="addChore" class="btn success">Add Chore</button><div id="choresList"></div></div>
+    <div class="card"><h2 class="title"><span class="category-icon">🔒</span>Vaulted Memories</h2><input id="memTitle" placeholder="Memory Title" /><textarea id="memText" placeholder="Memory..."></textarea><button id="memAdd" class="btn">Add</button><div id="memList"></div>
+      <div class="share-vault"><b>Share Vaulted:</b> <input id="vaultShareCode" placeholder="Friend/Family Code"><button id="shareVaultBtn" class="btn btn2">Share</button><div id="vaultShareStatus" class="muted"></div></div>
     </div>
-    <div class="card">
-      <h2 class="title">Bible Study & Guide</h2>
-      <ul id="bibleStudyGuide"></ul>
-      <details><summary>One-Year Plan</summary><ul id="oneYearPlan"></ul></details>
-      <button id="completeBibleStudy" class="btn success">✔ Done (Earn XP)</button>
-    </div>
-    <div class="card">
-      <h2 class="title">Bible Notes & Journaling</h2>
-      <textarea id="bibleNoteText" rows="3" placeholder="Today's verse thoughts, prayer, or discussion notes..."></textarea>
-      <button id="saveBibleNote" class="btn success">💾 Save Note</button>
-      <div id="bibleNotesList"></div>
-    </div>
-    <div class="card">
-      <h2 class="title">Today's Missions</h2>
-      <button id="menuNewMission" class="btn primary">➕ New Mission</button>
-      <div id="missionList"></div>
-    </div>
-    <div class="card">
-      <h2 class="title">Work & Chores</h2>
-      <input id="choreTitle" placeholder="Task (e.g. Dishes, Laundry, Lawn)" />
-      <button id="addChore" class="btn success">Add Chore</button>
-      <div id="choresList"></div>
-    </div>
-    <div class="card">
-      <h2 class="title">Family Mode Dashboard</h2>
-      <button id="toggleParent" class="btn ghost">👨‍👩‍👧 Family Mode</button>
-      <div id="parentStats"></div>
-      <div id="missionApprovals"></div>
-      <ul id="xpRedemptions"></ul>
-      <input id="parentMissionTitle" placeholder="Mission Title" />
-      <input id="parentMissionXP" type="number" min="50" max="1000" step="10" value="200" />
-      <button class="btn primary" id="parentAddMission">Add Mission</button>
-      <input id="parentVaultPass" type="password" placeholder="Vault Password" />
-      <button class="btn ghost" id="parentVaultLogin">Login Vault</button>
-      <div id="parentVaultArea"></div>
-    </div>
-    <div class="card">
-      <h2 class="title">Ask for Advice</h2>
-      <input id="adviceIn" placeholder="Ask about faith, family, culture..." />
-      <button class="btn btn2" id="askAdvice">💬 Ask</button>
-      <div id="adviceOut" class="muted"></div>
-    </div>
-    <div class="card">
-      <h2 class="title">Daily Charlie Kirk Video</h2>
-      <div id="charlieKirkEmbed"></div>
-      <div class="muted"><small><a href="https://www.youtube.com/@thecharliekirkshow" target="_blank" rel="noopener">More Charlie Kirk</a></small></div>
-    </div>
-    <div class="card">
-      <h2 class="title">Daily Jack Hibbs Video</h2>
-      <div id="jackHibbsEmbed"></div>
-      <div class="muted"><small><a href="https://www.youtube.com/@RealLifeJackHibbs" target="_blank" rel="noopener">More Jack Hibbs</a></small></div>
-    </div>
-    <div class="card">
-      <h2 class="title">Premium Subscription</h2>
-      <div id="subscriptionStatus" class="muted"></div>
-      <ul>
-        <li>Unlock Family Sync & Parent Dashboard</li>
-        <li>Access all Bible games</li>
-        <li>Bonus XP (10% more)</li>
-        <li>Premium vault & cloud backup</li>
-        <li>Early access to new features</li>
-      </ul>
-      <button class="btn primary" id="subscribeBtn">Subscribe Monthly</button>
-      <small>Only $4.99/month. Cancel anytime.</small>
-    </div>
+    <div class="card"><h2 class="title"><span class="category-icon">🏆</span>Goals & Achievements</h2><input id="goalTitle" placeholder="Goal Title" /><input id="goalDue" type="date" /><button id="goalAdd" class="btn">Add Goal</button><div id="goalList"></div></div>
+    <div class="card"><h2 class="title"><span class="category-icon">💬</span>Vaulted Chat</h2><input id="chatTo" placeholder="To..." /><textarea id="chatMsg" placeholder="Message..."></textarea><button id="sendChat" class="btn btn2">Send</button><div id="chatList"></div></div>
+    <div class="card"><h2 class="title"><span class="category-icon">👨‍👩‍👧</span>Parent/Family Mode</h2><button id="toggleParent" class="btn ghost">Family Mode</button><div id="parentStats"></div><div id="missionApprovals"></div><ul id="xpRedemptions"></ul><input id="parentMissionTitle" placeholder="Mission Title" /><input id="parentMissionXP" type="number" min="50" max="1000" step="10" value="200" /><button class="btn primary" id="parentAddMission">Add Mission</button><input id="parentVaultPass" type="password" placeholder="Vault Password" /><button class="btn ghost" id="parentVaultLogin">Login Vault</button><div id="parentVaultArea"></div></div>
+    <div class="card"><h2 class="title"><span class="category-icon">🧑‍🤝‍🧑</span>Friends & Family</h2><input id="friendName" placeholder="Friend/Family Name" /><button id="addFriendBtn" class="btn btn2">Add</button><div id="friendsList"></div></div>
+    <div class="card"><h2 class="title"><span class="category-icon">💡</span>Advice</h2><input id="adviceIn" placeholder="Ask about faith, family, culture..." /><button class="btn btn2" id="askAdvice">Ask</button><div id="adviceOut" class="muted"></div></div>
+    <div class="card"><h2 class="title"><span class="category-icon">🎥</span>Charlie Kirk</h2><div id="charlieKirkEmbed"></div></div>
+    <div class="card"><h2 class="title"><span class="category-icon">🎥</span>Jack Hibbs</h2><div id="jackHibbsEmbed"></div></div>
+    <div class="card"><h2 class="title"><span class="category-icon">⭐</span>Subscription</h2><div id="subscriptionStatus" class="muted"></div><ul><li>Unlock Family Sync</li><li>Bonus XP</li><li>Vault/cloud backup</li></ul><button class="btn primary" id="subscribeBtn">Subscribe</button><small>$4.99/month</small></div>
   </div>
   <div id="modal" class="modal">
     <div class="modal-content">
