@@ -39,6 +39,7 @@
     .item {background:#204080;color:#ffd600;padding:7px 12px;border-radius:9px;margin-bottom:6px;font-size:16px;}
     .reward-item {background:#fff;color:#17305d;padding:8px 10px;border-radius:9px;margin-bottom:6px;font-size:16px;}
     .footer-meta {color:var(--accent);font-weight:900;font-size:15px;padding-top:10px;padding-bottom:10px;text-align:center;}
+    #unlockPremiumBtn:disabled {background:#aaa;color:#eee;cursor:not-allowed;}
     @media(max-width:700px) {.logo-title{font-size:1.35em;}.grid{max-width:98vw;padding:0 1vw;}.card{padding:12px 2vw 12px 2vw;}input,textarea{font-size:15px;}.item,.reward-item{font-size:15px;}.title{font-size:1em;}}
   </style>
 </head>
@@ -54,7 +55,6 @@
       <h2 class="title">🎯 My Dashboard</h2>
       <div id="childXPDisplay"></div>
       <div id="childPendingRewards"></div>
-      <div id="premiumStatus"></div>
     </div>
     <!-- Charlie Kirk Video -->
     <div class="card">
@@ -92,11 +92,12 @@
       <button id="markYearDone" class="btn2">Mark Today Done</button>
       <div id="bibleYearStatus"></div>
     </div>
-    <!-- Stripe Payment Link -->
+    <!-- Stripe Payment/Unlock -->
     <div class="card">
       <h2 class="title">⭐ Premium Subscription</h2>
-      <a href="https://buy.stripe.com/7sY14nelU728cg1cB0ffy09?success=true" class="btn2" id="subscribeBtn" target="_blank">Subscribe with Stripe</a>
-      <button id="confirmUnlock" class="btn2" style="display:none;" disabled>Confirm Premium Unlock</button>
+      <div id="subscriptionStatus"></div>
+      <a href="https://buy.stripe.com/7sY14nelU728cg1cB0ffy09" class="btn2" id="subscribeBtn" target="_blank">Subscribe with Stripe</a>
+      <button id="unlockPremiumBtn" class="btn2" disabled style="display:none;margin-top:10px;">Unlock Premium Features</button>
     </div>
   </div>
 </main>
