@@ -6,7 +6,7 @@
   <title>Survive.com — Earn, Thrive and Survive Offline!</title>
   <meta name="description" content="Survive.com: Christian youth, family, prophecy, WWJD, XP rewards, Bible quiz, stories, rapture ready, testimonials, reviews, notes, images, video, social media, Stripe, offline/PWA!">
   <link rel="manifest" href="manifest.json">
-  <link rel="icon" type="image/png" href="icon.png">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap">
   <script src="https://js.stripe.com/v3/"></script>
   <style>
@@ -102,14 +102,44 @@
     .prophecy-sign{background:var(--glass);border-radius:14px;padding:10px 13px;margin:6px 0;}
     .family-mode-active{background:linear-gradient(90deg,#ffd600 30%,#00bcd4 100%);color:#232b4d;font-weight:900;box-shadow:0 2px 22px #ffd60033;}
     audio,video{width:100%;margin:10px 0;}
+    /* EMBEDDED LOGO SVG STYLES */
+    .logo-svg-embedded {
+      width:56px; height:56px;
+      display:inline-block;
+      vertical-align:middle;
+      margin-right:12px;
+      border-radius: 50%;
+      box-shadow: 0 4px 12px #232b4d77;
+      background: #232b4d;
+    }
   </style>
 </head>
 <body>
 <header>
   <div class="nav">
     <span class="logo-area">
-      <span class="logo-svg">
-        <img src="icon.png" alt="Survive.com" width="56" height="56">
+      <span class="logo-svg logo-svg-embedded">
+        <!-- EMBEDDED SVG LOGO -->
+        <svg xmlns="http://www.w3.org/2000/svg" width="56" height="56" viewBox="0 0 512 512">
+          <defs>
+            <radialGradient id="bg" cx="50%" cy="50%" r="80%">
+              <stop offset="0%" stop-color="#ffd600"/>
+              <stop offset="60%" stop-color="#00bcd4"/>
+              <stop offset="100%" stop-color="#e91e63"/>
+            </radialGradient>
+          </defs>
+          <circle cx="256" cy="256" r="250" fill="url(#bg)" />
+          <rect x="156" y="200" width="200" height="100" rx="26" fill="#fff" stroke="#ffd600" stroke-width="10"/>
+          <rect x="196" y="200" width="40" height="100" fill="#ffd600" opacity="0.2"/>
+          <rect x="276" y="200" width="40" height="100" fill="#ffd600" opacity="0.2"/>
+          <rect x="242" y="235" width="28" height="10" fill="#e91e63"/>
+          <rect x="252" y="225" width="8" height="30" fill="#e91e63"/>
+          <circle cx="256" cy="150" r="30" fill="#ffd600" stroke="#fff" stroke-width="7"/>
+          <ellipse cx="206" cy="160" rx="18" ry="22" fill="#ffd600" stroke="#fff" stroke-width="6"/>
+          <ellipse cx="306" cy="160" rx="18" ry="22" fill="#ffd600" stroke="#fff" stroke-width="6"/>
+          <text x="50%" y="410" font-family="Inter,Arial,sans-serif" font-size="160" font-weight="900"
+                fill="#fff" text-anchor="middle" dominant-baseline="middle" opacity="0.85">S</text>
+        </svg>
       </span>
       <span class="logo-title">Survive.com</span>
     </span>
@@ -121,52 +151,7 @@
   </div>
 </header>
 <main>
-  <!-- ...all cards above... -->
-  <div class="card">
-    <h2 class="title"><span class="category-icon">⭐</span>Survive.com Premium Membership</h2>
-    <div id="subscriptionStatus" class="muted"></div>
-    <div class="muted" style="margin-bottom:8px;">
-      <b>Price:</b> <span style="color:#ffd600;font-weight:900;">$7.99/month</span>
-    </div>
-    <div style="margin-bottom:7px;">
-      <b>Unlocks:</b>
-      <ul>
-        <li>Family Sync</li>
-        <li>Parent Dashboard</li>
-        <li>Exclusive Bible games</li>
-        <li>Bonus XP rewards</li>
-        <li>Premium vault & cloud backup</li>
-        <li>Early access to new features</li>
-        <li>Leader content (Charlie Kirk, Jack Hibbs, Way of the Master)</li>
-        <li>Faith-based missions, journaling, and more</li>
-        <li>Cancel anytime. All features unlocked after payment.</li>
-      </ul>
-    </div>
-    <button class="btn primary" id="subscribeBtn">Subscribe & Unlock</button>
-    <div id="premiumUnlockedFeatures"></div>
-  </div>
-  <!-- Contact Us Form -->
-  <div class="card">
-    <h2 class="title"><span class="category-icon">📧</span>Contact Us</h2>
-    <form id="contactForm">
-      <input id="contactEmail" type="email" placeholder="Your email" required>
-      <textarea id="contactMessage" placeholder="Your message" required></textarea>
-      <button type="submit" class="btn btn2">Send Message</button>
-    </form>
-    <div id="contactStatus" class="muted"></div>
-  </div>
-  <!-- ...rest of cards... -->
-  <div id="modal" class="modal">
-    <div class="modal-content">
-      <span id="modalClose" class="close">&times;</span>
-      <h2 id="modalTitle"></h2>
-      <div id="modalBody" class="muted"></div>
-      <div style="text-align:center;margin:12px 0;">
-        <button id="modalConfirm" class="btn success">Confirm</button>
-        <button id="modalCancel" class="btn ghost">Cancel</button>
-      </div>
-    </div>
-  </div>
+  <!-- ...rest of your main content/cards... -->
 </main>
 <footer>
   Survive.com &mdash; Thrive and survive offline — Vaulted for family, friends, youth leaders, pastors, teachers, and employers!<br>
