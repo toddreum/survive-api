@@ -10,7 +10,7 @@ document.getElementById('themeToggle').onclick = () => {
   setTheme(current === 'dark' ? 'light' : 'dark');
 };
 
-// --- Infinite Bible verses (API, no repeats for user) ---
+// Infinite unique Bible verses (via API)
 const shownVerses = JSON.parse(localStorage.getItem('survive_shownVerses') || '[]');
 async function getUniqueBibleVerse() {
   let tries = 0, verse = null, ref = "";
@@ -40,12 +40,11 @@ async function getUniqueBibleVerse() {
 document.getElementById("refreshVerse").onclick = getUniqueBibleVerse;
 getUniqueBibleVerse();
 
-// --- Bible in a Year guided study (expandable plan!) ---
+// Bible in a Year guided study (sample, expand for full plan!)
 const bibleYearPlan = [
   { day: 1, reading: "Genesis 1, John 1:1-5", audio: "https://www.biblegateway.com/audio/mclean/esv/Gen.1" },
   { day: 2, reading: "Genesis 2, John 1:6-14", audio: "https://www.biblegateway.com/audio/mclean/esv/Gen.2" },
   { day: 3, reading: "Genesis 3, Proverbs 1:1-7", audio: "https://www.biblegateway.com/audio/mclean/esv/Gen.3" }
-  // Add more days for a full year!
 ];
 let bibleYearDone = JSON.parse(localStorage.getItem("survive_bibleYearDone") || "[]");
 function renderBibleYear() {
