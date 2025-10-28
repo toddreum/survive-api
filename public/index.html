@@ -48,70 +48,43 @@
       .logo-title{font-size:1.5em;}
       .slogan{font-size:1em;}
       .stats-row{flex-direction:column;gap:12px;}
-      .grid{grid-template-columns:1fr;gap:12px;padding:0 7vw;}
-      .card{padding:18px 6vw 13px 6vw;}
+      .grid{grid-template-columns:1fr;gap:14px;padding:0 8vw;}
+      .card{padding:22px 6vw 18px 6vw;}
+      input, textarea, .btn, .btn2 { font-size: 20px !important; }
     }
     .card{
       background:var(--card);
       border-radius:var(--radius);
       box-shadow:var(--shadow);
-      padding:26px 32px 21px 32px;
-      margin:0 0 18px 0;
+      padding:32px 36px 24px 36px;
+      margin:0 0 22px 0;
       position:relative;
     }
-    .title{font-size:22px;font-weight:900;color:var(--accent);margin-bottom:12px;}
-    .category-icon{font-size:27px;margin-right:7px;}
+    .title{font-size:25px;font-weight:900;color:var(--accent);margin-bottom:14px;}
+    .category-icon{font-size:29px;margin-right:9px;}
     .btn, .btn2 {
       width: auto;
-      min-width: 120px;
-      padding: 11px 22px;
-      margin-left: 5px;
-      margin-right: 5px;
+      min-width: 140px;
+      padding: 16px 26px;
+      margin-left: 6px;
+      margin-right: 6px;
+      font-size: 18px;
     }
-    .btn{cursor:pointer;user-select:none;border-radius:15px;background:var(--btn);color:#fff;font-weight:900;font-size:17px;margin:7px 0 9px 0;box-shadow:0 2px 8px #ffd60044;border:none;}
-    .btn:active{transform:scale(.97);}
-    .btn2{background:var(--btn2);}
-    .btn.ghost{background:transparent;color:var(--accent);border:2px solid #ffd60088;}
-    .muted{color:var(--muted);font-size:15px;}
     input, textarea {
-      width: calc(100% - 10px);
-      margin-left: 5px;
-      margin-right: 5px;
-      padding: 10px 14px;
-      border-radius: 10px;
+      width: calc(100% - 12px);
+      margin-left: 6px;
+      margin-right: 6px;
+      padding: 14px 18px;
+      border-radius: 12px;
       border: 2px solid #ffd60044;
-      font-size: 16px;
-      margin-bottom: 8px;
+      font-size: 18px;
+      margin-bottom: 10px;
       box-sizing: border-box;
       background: #fff;
       color: #232b4d;
     }
-    .item{background:var(--glass);border-radius:12px;padding:7px 10px;margin-bottom:7px;box-shadow:0 1px 6px #ffd60022;}
-    .photo-thumb{max-width:80px;max-height:80px;border-radius:10px;margin:5px;}
-    .modal{position:fixed;inset:0;background:rgba(26,35,126,.7);display:none;align-items:center;justify-content:center;z-index:100;}
-    .modal.show{display:flex;}
-    .modal-content{max-width:460px;width:98vw;background:var(--card);border-radius:18px;padding:34px 24px;box-shadow:0 8px 40px #232b4d77;position:relative;}
-    .close{position:absolute;top:12px;right:10px;font-size:22px;cursor:pointer;color:var(--brand);}
-    .footer-meta{color:#ffd600;font-weight:900;font-size:15px;}
-    .social-links{margin:18px 0 10px 0;text-align:center;}
-    .social-links a{color:var(--accent);margin:0 10px;font-size:2em;}
-    .testimonial,.review{background:var(--glass);border-radius:14px;padding:12px 15px;margin:7px 0;}
-    .quiz-option{margin:7px 0;}
-    .quiz-correct{background:var(--accent);color:#232b4d;border-radius:7px;padding:3px 8px;}
-    .quiz-wrong{background:#e91e63;color:#fff;border-radius:7px;padding:3px 8px;}
-    .prophecy-sign{background:var(--glass);border-radius:14px;padding:10px 13px;margin:6px 0;}
-    .family-mode-active{background:linear-gradient(90deg,#ffd600 30%,#00bcd4 100%);color:#232b4d;font-weight:900;box-shadow:0 2px 22px #ffd60033;}
-    audio,video{width:100%;margin:10px 0;}
-    /* EMBEDDED LOGO SVG STYLES */
-    .logo-svg-embedded {
-      width:56px; height:56px;
-      display:inline-block;
-      vertical-align:middle;
-      margin-right:12px;
-      border-radius: 50%;
-      box-shadow: 0 4px 12px #232b4d77;
-      background: #232b4d;
-    }
+    .vault-unlocked { background: #ffd60022; padding: 10px 16px; border-radius: 10px; margin-bottom: 10px; }
+    .vault-locked { background: #e91e6355; padding: 10px 16px; border-radius: 10px; margin-bottom: 10px; }
   </style>
 </head>
 <body>
@@ -151,12 +124,180 @@
   </div>
 </header>
 <main>
-  <!-- ...rest of your main content/cards... -->
+  <div class="grid">
+    <!-- Vaulted Chat Box -->
+    <div class="card">
+      <h2 class="title"><span class="category-icon">💬</span>Vaulted Chat</h2>
+      <div id="chatVaultLock"></div>
+      <div id="chatVaultBox" style="display:none;">
+        <input id="chatTo" placeholder="To: family, friend, parent, etc">
+        <textarea id="chatMsg" placeholder="Message..."></textarea>
+        <button id="sendChat" class="btn btn2">Send</button>
+        <div id="chatList"></div>
+      </div>
+    </div>
+    <!-- Vaulted Notes -->
+    <div class="card">
+      <h2 class="title"><span class="category-icon">🔒</span>Vaulted Notes</h2>
+      <div id="notesVaultLock"></div>
+      <div id="notesVaultBox" style="display:none;">
+        <textarea id="vaultNote" placeholder="Your private notes..."></textarea>
+        <button id="saveVaultNote" class="btn btn2">Save Note</button>
+        <div id="vaultNotesList"></div>
+      </div>
+    </div>
+    <!-- Vaulted Photos -->
+    <div class="card">
+      <h2 class="title"><span class="category-icon">📷</span>Vaulted Photo Memories</h2>
+      <div id="photosVaultLock"></div>
+      <div id="photosVaultBox" style="display:none;">
+        <input id="photoTitle" placeholder="Photo Title">
+        <input id="photoDate" type="date">
+        <input id="photoUpload" type="file" accept="image/*">
+        <button id="addPhotoBtn" class="btn btn2">Add Photo</button>
+        <div id="photoVaultList"></div>
+      </div>
+    </div>
+    <!-- Stripe Premium Membership Card -->
+    <div class="card">
+      <h2 class="title"><span class="category-icon">⭐</span>Survive.com Premium Membership</h2>
+      <div id="subscriptionStatus" class="muted"></div>
+      <div class="muted" style="margin-bottom:8px;">
+        <b>Price:</b> <span style="color:#ffd600;font-weight:900;">$7.99/month</span>
+      </div>
+      <div style="margin-bottom:7px;">
+        <b>Unlocks:</b>
+        <ul>
+          <li>Family Sync</li>
+          <li>Parent Dashboard</li>
+          <li>Exclusive Bible games</li>
+          <li>Bonus XP rewards</li>
+          <li>Premium vault & cloud backup</li>
+          <li>Early access to new features</li>
+          <li>Leader content (Charlie Kirk, Jack Hibbs, Way of the Master)</li>
+          <li>Faith-based missions, journaling, and more</li>
+          <li>Cancel anytime. All features unlocked after payment.</li>
+        </ul>
+      </div>
+      <button class="btn primary" id="subscribeBtn">Subscribe & Unlock</button>
+      <div id="premiumUnlockedFeatures"></div>
+    </div>
+  </div>
 </main>
 <footer>
   Survive.com &mdash; Thrive and survive offline — Vaulted for family, friends, youth leaders, pastors, teachers, and employers!<br>
   <span class="footer-meta">© Survive.com &bull; Pro-family • Pro-life • Pro-Jesus Christ • Conservative • Freedom</span>
 </footer>
-<script defer src="app.js"></script>
+<script>
+  // Vault logic: password-protect all vaulted content
+  let vaultPass = localStorage.getItem('survive_vault_pass') || '';
+  function unlockVault(section, pass) {
+    if(pass === vaultPass && pass) {
+      document.getElementById(section+'Lock').innerHTML = '<div class="vault-unlocked">Vault Unlocked</div>';
+      document.getElementById(section+'Box').style.display = '';
+    } else {
+      document.getElementById(section+'Lock').innerHTML =
+        `<div class="vault-locked">
+          Enter Vault Password:
+          <input type="password" id="${section}Pwd" placeholder="Vault Password">
+          <button onclick="checkVault('${section}')">Unlock</button>
+        </div>`;
+      document.getElementById(section+'Box').style.display = 'none';
+    }
+  }
+  window.checkVault = function(section) {
+    const pass = document.getElementById(section+'Pwd').value;
+    unlockVault(section, pass);
+  }
+  // Set vault password on first use
+  if(!vaultPass) {
+    vaultPass = prompt('Set your Vault password (private, do not share):');
+    localStorage.setItem('survive_vault_pass', vaultPass);
+  }
+  unlockVault('chatVault', vaultPass);
+  unlockVault('notesVault', vaultPass);
+  unlockVault('photosVault', vaultPass);
+
+  // Vaulted Chat storage
+  let chatVault = JSON.parse(localStorage.getItem('survive_chatVault')||'[]');
+  document.getElementById('sendChat').onclick = () => {
+    let to = document.getElementById('chatTo').value.trim();
+    let msg = document.getElementById('chatMsg').value.trim();
+    if(to && msg) {
+      chatVault.push({to,msg,time:new Date().toISOString()});
+      localStorage.setItem('survive_chatVault',JSON.stringify(chatVault));
+      renderChatVault();
+      document.getElementById('chatTo').value = '';
+      document.getElementById('chatMsg').value = '';
+    }
+  };
+  function renderChatVault() {
+    document.getElementById('chatList').innerHTML =
+      chatVault.slice(-10).map(c=>`<div class="item"><b>${c.to}</b> <span style="color:#ffd600">${new Date(c.time).toLocaleTimeString()}</span><div>${c.msg}</div></div>`).join('');
+  }
+  renderChatVault();
+
+  // Vaulted Notes storage
+  let notesVault = JSON.parse(localStorage.getItem('survive_notesVault')||'[]');
+  document.getElementById('saveVaultNote').onclick = () => {
+    let note = document.getElementById('vaultNote').value.trim();
+    if(note) {
+      notesVault.push({note,time:new Date().toISOString()});
+      localStorage.setItem('survive_notesVault',JSON.stringify(notesVault));
+      renderNotesVault();
+      document.getElementById('vaultNote').value = '';
+    }
+  };
+  function renderNotesVault() {
+    document.getElementById('vaultNotesList').innerHTML =
+      notesVault.slice(-10).map(n=>`<div class="item"><span style="color:#ffd600">${new Date(n.time).toLocaleDateString()}</span>: ${n.note}</div>`).join('');
+  }
+  renderNotesVault();
+
+  // Vaulted Photos storage
+  let photoVault = JSON.parse(localStorage.getItem('survive_photoVault')||'[]');
+  document.getElementById('addPhotoBtn').onclick = () => {
+    const file = document.getElementById('photoUpload').files[0];
+    if(file) {
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        photoVault.push({
+          title: document.getElementById('photoTitle').value,
+          date: document.getElementById('photoDate').value,
+          src: e.target.result
+        });
+        localStorage.setItem('survive_photoVault',JSON.stringify(photoVault));
+        renderPhotoVault();
+        document.getElementById('photoTitle').value='';
+        document.getElementById('photoDate').value='';
+        document.getElementById('photoUpload').value='';
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+  function renderPhotoVault() {
+    document.getElementById('photoVaultList').innerHTML =
+      photoVault.slice(-8).map(p=>
+        `<div class="item"><b>${p.title}</b> <span style="color:#ffd600">${p.date}</span><br>
+         <img class="photo-thumb" src="${p.src}" alt="photo"></div>`
+      ).join('');
+  }
+  renderPhotoVault();
+
+  // Stripe Premium Membership Checkout - FIXED
+  document.getElementById("subscribeBtn").onclick = async () => {
+    try {
+      const res = await fetch('/api/create-checkout-session', { method: 'POST' });
+      const data = await res.json();
+      if (data.checkoutUrl) {
+        window.location.href = data.checkoutUrl;
+      } else {
+        alert("Stripe checkout error: " + (data.error || "No checkout URL returned."));
+      }
+    } catch (err) {
+      alert("Stripe checkout failed: " + err.message);
+    }
+  };
+</script>
 </body>
 </html>
