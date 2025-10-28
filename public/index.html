@@ -36,13 +36,9 @@
     .container { max-width:1200px; margin:0 auto; padding:22px; }
     .nav, .row { display:flex; align-items:center; justify-content:space-between; gap:20px; flex-wrap:wrap; }
     .logo-hero {
-      font-size:44px;
-      font-weight:900;
-      letter-spacing:2.5px;
+      font-size:44px; font-weight:900; letter-spacing:2.5px;
       background: linear-gradient(90deg,#ffd600,#00bcd4,#e91e63);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip:text;
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip:text;
       text-shadow: 0 4px 22px #00bcd4, 0 1px 0 #ffd600, 0 0 18px #e91e63;
       animation:logoPop 2.2s cubic-bezier(.5,.3,.2,1) infinite alternate;
       display:inline-block;
@@ -188,6 +184,55 @@
         <div id="parentList"></div>
       </div>
       <div id="parentModeNotice" class="muted"></div>
+    </div>
+    <div class="card card--third">
+      <h2 class="title">Vaulted Chat</h2>
+      <input id="chatTo" placeholder="Chat with (Parent/Child name or code)" />
+      <textarea id="chatMsg" placeholder="Type your message..."></textarea>
+      <button id="sendChat" class="btn success">Send Message</button>
+      <div id="chatList"></div>
+    </div>
+    <div class="card card--third">
+      <h2 class="title">Sleep Habit</h2>
+      <input id="sleepTime" type="time" />
+      <button id="sleepSet" class="btn">Set Sleep Goal</button>
+      <button id="sleepImInBed" class="btn success">I'm in bed!</button>
+      <div id="sleepStatus"></div>
+    </div>
+    <div class="card card--third">
+      <h2 class="title">Memories</h2>
+      <input id="memTitle" placeholder="Memory Title" />
+      <textarea id="memText" placeholder="Memory Note"></textarea>
+      <button id="memAdd" class="btn">Add Memory</button>
+      <div id="memList"></div>
+    </div>
+    <div class="card card--third">
+      <h2 class="title">Journal</h2>
+      <textarea id="jtext" placeholder="Write your thoughts..."></textarea>
+      <button id="saveJ" class="btn">Save Entry</button>
+      <div id="journal"></div>
+    </div>
+    <div class="card card--third">
+      <h2 class="title">Guest/Share</h2>
+      <button id="genGuest" class="btn">Generate Share Code</button>
+      <input id="guestCode" readonly style="margin:4px 0;" />
+      <input id="guestPIN" readonly />
+      <div id="guestLink" class="muted"></div>
+      <button id="copyLink" class="btn ghost">Copy Link</button>
+    </div>
+    <div class="card card--third">
+      <h2 class="title">Inbox</h2>
+      <div id="inbox"></div>
+    </div>
+    <div class="card card--third">
+      <h2 class="title">Vault</h2>
+      <div id="vaultStatus"></div>
+      <input id="vaultCode" type="password" placeholder="Vault Password" />
+      <button id="vaultSet" class="btn">Set Password</button>
+      <button id="vaultUnlock" class="btn success">Unlock Vault</button>
+      <button id="vaultLock" class="btn danger">Lock Vault</button>
+      <button id="vaultSyncNow" class="btn">Sync Now</button>
+      <button id="vaultFetch" class="btn ghost">Fetch</button>
     </div>
   </div>
   <div id="modal" class="modal">
