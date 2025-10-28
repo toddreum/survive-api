@@ -1,4 +1,4 @@
-// Survive.com — 100x better, all categories, graphics, sharing, family/friends logic
+// Survive.com — ALL features/cards, Bible study, parent sync, Stripe subscription, vaulted notes/photos, dreams, etc.
 
 const $ = id => document.getElementById(id);
 function escapeHTML(str) { return (str || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;', '"':'&quot;', "'":'&#039;'}[m])); }
@@ -13,31 +13,38 @@ const verses = [
   "Proverbs 3:5 — Trust in the Lord with all your heart.",
   "Romans 8:28 — All things work together for good to those who love God."
 ];
-const studyGuide = [
-  "Read a daily passage from the Gospels.",
-  "Discuss a lesson from Proverbs.",
-  "Pray as a family about something important.",
-  "Serve others this week.",
-  "Write a Bible note or journal reflection."
+
+// Bible Study Plan
+const biblePlan = [
+  { step: "Read: Matthew 5:1-12", type: "read" },
+  { step: "Reflect: What does 'Blessed' mean?", type: "reflect" },
+  { step: "Journal: Write your thoughts.", type: "journal" },
+  { step: "Pray: Ask God for wisdom today.", type: "pray" }
 ];
-const oneYearPlan = [
-  "Day 1: Genesis 1-3","Day 2: Genesis 4-7","Day 3: Genesis 8-11","Day 4: Matthew 1-2","Day 5: Matthew 3-4"
-];
+let todayStudy = { steps: biblePlan.map(s=>({ ...s, done: false, note: "" })), submitted: false, parentConfirmed: false };
 
 let state = {
-  user: "Child", friends: [], family: [],
+  user: "Child",
   xp: 0, level: 1, streak: 0,
   missions: [], chores: [], bibleNotes: [],
-  memories: [], goals: [], chat: [],
-  parentMode: false, subscription: false
+  journal: [], dreams: [], memories: [], goals: [], chat: [],
+  church: [], youth: [], sunday: [],
+  pets: [], dinner: [], crafts: [], cleaning: [], dishes: [],
+  jobs: [], school: [],
+  reminders: [],
+  friends: [], family: [], employers: [],
+  vaultedNotes: [],
+  vaultedPhotos: [],
+  parentPendingStudies: [],
+  subscription: false
 };
 
-function save() { localStorage.setItem("survive_vault_full", JSON.stringify(state)); }
-function load() { const d = localStorage.getItem("survive_vault_full"); if(d) state = Object.assign(state, JSON.parse(d)); }
+function save() { localStorage.setItem("survive_allfeatures", JSON.stringify(state)); }
+function load() { const d = localStorage.getItem("survive_allfeatures"); if(d) state = Object.assign(state, JSON.parse(d)); }
 window.onload = () => { load(); renderAll(); };
 
 function renderStats() {
-  $("userName").textContent = state.user;
+  $("userName").textContent = state.user || "Child";
   $("level").textContent = state.level;
   $("xp").textContent = state.xp;
   $("streak").textContent = state.streak + " 🔥";
@@ -45,170 +52,355 @@ function renderStats() {
   $("xpBar").style.width = Math.min(100, Math.round((state.xp/next)*100)) + "%";
 }
 
+function addXP(amount) {
+  state.xp += amount;
+  let next = 500 + (state.level-1)*150;
+  if(state.xp >= next) {
+    state.level++;
+    state.xp = state.xp-next;
+    alert("Level up! 🎉");
+  }
+  save();
+  renderStats();
+}
+
+// Bible verse
 function renderBibleVerse() { $("verseBox").textContent = verses[Math.floor(Math.random() * verses.length)]; }
 $("refreshVerse").onclick = renderBibleVerse;
 
-function renderBibleStudy() { $("bibleStudyGuide").innerHTML = studyGuide.map(s=>`<li>${escapeHTML(s)}</li>`).join(""); }
-function renderOneYearPlan() { $("oneYearPlan").innerHTML = oneYearPlan.map(p=>`<li>${escapeHTML(p)}</li>`).join(""); }
-$("completeBibleStudy").onclick = () => { state.xp += 50; save(); state.streak++; renderStats(); alert("Bible study complete! +50 XP"); };
-
-$("saveBibleNote").onclick = () => {
-  const txt = $("bibleNoteText").value.trim();
-  if(!txt) return;
-  state.bibleNotes.push({id: cid(), text: txt, date: now()});
-  $("bibleNoteText").value = "";
-  save();
-  renderBibleNotes();
-};
-function renderBibleNotes() { $("bibleNotesList").innerHTML = state.bibleNotes.slice(-8).map(n=>`<div class="note"><b>${new Date(n.date).toLocaleDateString()}</b>: ${escapeHTML(n.text)}</div>`).join(''); }
-
-$("menuNewMission").onclick = () => {
-  const title = prompt("Enter new mission title:");
-  if(!title) return;
-  state.missions.push({id: cid(), title, xp: 100});
-  save();
-  renderMissions();
-};
-function renderMissions() {
-  $("missionList").innerHTML = state.missions.slice(-8).map(m=>`<div class="mission"><b>${escapeHTML(m.title)}</b> <span class="muted">${m.xp} XP</span><button class="btn success" onclick="completeMission('${m.id}')">Done</button></div>`).join('');
+// Guided Bible Study
+function renderBibleStudySteps() {
+  $("bibleStudySteps").innerHTML = todayStudy.steps.map((s,i) => {
+    if(s.type === "journal") {
+      return `<div><label>${escapeHTML(s.step)}</label>
+        <textarea data-step="${i}" class="studyNote" ${s.done?'readonly':''}>${escapeHTML(s.note||'')}</textarea>
+        <button class="btn btn2" onclick="markStudyStep(${i})" ${s.done?'disabled':''}>Save Note</button></div>`;
+    } else {
+      return `<div><label><input type="checkbox" data-step="${i}" ${s.done?'checked':''} onclick="markStudyStep(${i})"> ${escapeHTML(s.step)}</label></div>`;
+    }
+  }).join('');
+  $("submitStudyBtn").disabled = !todayStudy.steps.every(s=>s.done) || todayStudy.submitted;
+  $("studyStatus").textContent = todayStudy.parentConfirmed ? "Parent confirmed! +50 XP awarded." : todayStudy.submitted ? "Waiting for parent review..." : "";
 }
-window.completeMission = function(id) {
-  const m = state.missions.find(x=>x.id==id);
-  if(m) {
-    state.xp += m.xp;
-    state.missions = state.missions.filter(x=>x.id!=id);
-    save();
-    renderMissions();
-    renderStats();
-    alert(`Mission completed! +${m.xp} XP`);
+window.markStudyStep = function(i) {
+  const s = todayStudy.steps[i];
+  if(s.type === "journal") {
+    s.note = document.querySelector(`textarea[data-step="${i}"]`).value;
+    s.done = !!s.note.trim();
+  } else {
+    s.done = true;
   }
+  renderBibleStudySteps();
 };
-
-$("addChore").onclick = () => {
-  const title = $("choreTitle").value.trim();
-  if(!title) return;
-  state.chores.push({id: cid(), title, done: false});
-  $("choreTitle").value = "";
+$("submitStudyBtn").onclick = () => {
+  todayStudy.submitted = true;
+  state.parentPendingStudies.push({...todayStudy});
   save();
-  renderChores();
+  renderBibleStudySteps();
+  renderParentPendingStudies();
+  alert("Submitted for parent review.");
 };
-function renderChores() { $("choresList").innerHTML = state.chores.slice(-10).map(c=>`<div class="chore"><input type="checkbox" onclick="completeChore('${c.id}')" ${c.done ? 'checked' : ''}> <b>${escapeHTML(c.title)}</b></div>`).join(''); }
-window.completeChore = function(id) {
-  const c = state.chores.find(x=>x.id==id);
-  if(c && !c.done) {
-    c.done = true;
-    state.xp += 20;
-    save();
-    renderChores();
-    renderStats();
-    alert("Chore completed! +20 XP");
-  }
+function renderParentPendingStudies() {
+  $("parentPendingStudies").innerHTML = state.parentPendingStudies.map((study, idx) =>
+    `<div>
+      <b>Child Study for Today</b>: ${study.steps.filter(s=>s.done).length}/${study.steps.length} steps done
+      <button class="btn success" onclick="confirmStudy(${idx})" ${study.parentConfirmed?'disabled':''}>Confirm</button>
+    </div>`
+  ).join('');
+}
+window.confirmStudy = function(idx) {
+  state.parentPendingStudies[idx].parentConfirmed = true;
+  todayStudy.parentConfirmed = true;
+  addXP(50); // award XP for study
+  save();
+  renderBibleStudySteps();
+  renderParentPendingStudies();
 };
 
-$("memAdd").onclick = () => {
-  const title = $("memTitle").value.trim();
-  const note = $("memText").value.trim();
-  if(!title && !note) return;
-  state.memories.push({id: cid(), title, note, time: now()});
-  $("memTitle").value = ""; $("memText").value = "";
-  save(); renderMemories();
+// Faith/Church
+$("addChurchXP").onclick = () => { state.church.push({id:cid(),time:now()}); addXP(100); };
+$("addYouthXP").onclick = () => { state.youth.push({id:cid(),time:now()}); addXP(70); };
+$("addSundaySchoolXP").onclick = () => { state.sunday.push({id:cid(),time:now()}); addXP(80); };
+
+// Journal
+$("saveJournal").onclick = () => {
+  const txt = $("journalText").value.trim();
+  if(!txt) return;
+  state.journal.push({id:cid(),text:txt,time:now()});
+  $("journalText").value = "";
+  addXP(10);
+  renderJournal();
 };
-function renderMemories() {
-  $("memList").innerHTML = state.memories.slice(-8).map(m=>
-    `<div class="memory"><b>${escapeHTML(m.title)}</b> <span class="muted">${new Date(m.time).toLocaleDateString()}</span><div>${escapeHTML(m.note)}</div></div>`
+function renderJournal() { $("journalList").innerHTML = state.journal.slice(-8).map(n=>`<div class="item"><b>${new Date(n.time).toLocaleDateString()}</b>: ${escapeHTML(n.text)}</div>`).join(''); }
+
+// Dreams Vault
+$("saveDream").onclick = () => {
+  const txt = $("dreamText").value.trim();
+  if(!txt) return;
+  state.dreams.push({id:cid(),text:txt,time:now()});
+  $("dreamText").value = "";
+  addXP(15);
+  renderDreams();
+};
+function renderDreams() { $("dreamList").innerHTML = state.dreams.slice(-8).map(n=>`<div class="item"><b>${new Date(n.time).toLocaleDateString()}</b>: ${escapeHTML(n.text)}</div>`).join(''); }
+
+// Vaulted Notes
+$("sendVaultedNote").onclick = () => {
+  const sender = $("vaultedNoteSender").value.trim();
+  const txt = $("vaultedNoteText").value.trim();
+  if(!txt || !sender) return;
+  state.vaultedNotes.push({id:cid(),sender,text:txt,time:now()});
+  $("vaultedNoteSender").value = "";
+  $("vaultedNoteText").value = "";
+  renderVaultedNotes();
+  save();
+};
+function renderVaultedNotes() {
+  $("vaultedNotesList").innerHTML = state.vaultedNotes.slice(-8).map(n=>
+    `<div class="item"><b>${escapeHTML(n.sender)}</b>: ${escapeHTML(n.text)} <span class="muted">${new Date(n.time).toLocaleDateString()}</span></div>`
   ).join('');
 }
 
-$("vaultShareBtn").onclick = () => {
-  const code = $("vaultShareCode").value.trim();
-  if(!code) { $("vaultShareStatus").textContent = "Enter a code to share with family/friend."; return;}
-  $("vaultShareStatus").textContent = "Vaulted memory shared with " + code + "!";
+// Vaulted Photos
+$("sendPhoto").onclick = () => {
+  const sender = $("photoSender").value.trim();
+  const file = $("photoUpload").files[0];
+  if(!file || !sender) return;
+  const reader = new FileReader();
+  reader.onload = function (e) {
+    state.vaultedPhotos.push({id:cid(),sender,src:e.target.result,time:now()});
+    $("photoSender").value = "";
+    $("photoUpload").value = "";
+    renderVaultedPhotos();
+    save();
+  };
+  reader.readAsDataURL(file);
 };
+function renderVaultedPhotos() {
+  $("vaultedPhotosList").innerHTML = state.vaultedPhotos.slice(-8).map(p=>
+    `<div class="item"><b>${escapeHTML(p.sender)}</b><img class="photo-thumb" src="${p.src}" alt="photo"><span class="muted">${new Date(p.time).toLocaleDateString()}</span></div>`
+  ).join('');
+}
 
-$("goalAdd").onclick = () => {
-  const title = $("goalTitle").value.trim();
-  const due = $("goalDue").value;
+// Missions
+$("addMission").onclick = () => {
+  const title = $("missionTitle").value.trim();
+  const xp = parseInt($("missionXP").value,10)||100;
   if(!title) return;
-  state.goals.push({id: cid(), title, due});
-  $("goalTitle").value = ""; $("goalDue").value = "";
-  save(); renderGoals();
-};
-function renderGoals() { $("goalList").innerHTML = state.goals.slice(-8).map(g=>`<div class="goal"><b>${escapeHTML(g.title)}</b> <span class="muted">Due: ${escapeHTML(g.due)}</span></div>`).join(''); }
-
-$("sendChat").onclick = () => {
-  const to = $("chatTo").value.trim()||"family";
-  const msg = $("chatMsg").value.trim();
-  if(!msg) return;
-  state.chat.push({id: cid(), to, msg, time: now()});
-  $("chatMsg").value = "";
-  save(); renderChat();
-};
-function renderChat() { $("chatList").innerHTML = state.chat.slice(-10).map(c=>`<div class="chatmsg"><b>${escapeHTML(c.to)}</b> <span class="muted">${new Date(c.time).toLocaleTimeString()}</span><div>${escapeHTML(c.msg)}</div></div>`).join(''); }
-
-$("toggleParent").onclick = () => {
-  state.parentMode = !state.parentMode;
-  save();
-  $("parentStats").innerHTML = state.parentMode ? `<div class="muted">Total XP: <b>${state.xp}</b></div>` : "";
-  $("missionApprovals").innerHTML = state.parentMode ? state.missions.map(m=>
-    `<div class="mission"><b>${escapeHTML(m.title)}</b> <span class="muted">${m.xp} XP</span><button class="btn success" onclick="completeMission('${m.id}')">Approve & Complete</button></div>`
-  ).join('') : "";
-  $("xpRedemptions").innerHTML = state.parentMode ? "<li>Family Movie Night</li><li>Dessert Pass</li><li>Extra Screen Time</li><li>Charity Donation</li>" : "";
-};
-$("parentAddMission").onclick = () => {
-  const title = $("parentMissionTitle").value.trim();
-  const xp = parseInt($("parentMissionXP").value,10)||100;
-  if(!title) return;
-  state.missions.push({id: cid(), title, xp});
-  save();
+  state.missions.push({id:cid(),title,xp,done:false});
+  $("missionTitle").value = "";
+  $("missionXP").value = "100";
   renderMissions();
-  $("toggleParent").click();
+  save();
 };
-$("parentVaultLogin").onclick = () => {
-  if($("parentVaultPass").value === "family123") {
-    $("parentVaultArea").innerHTML = "<div class='muted'>Vault unlocked: All kids' XP and notes are viewable.</div>";
-  } else {
-    $("parentVaultArea").innerHTML = "<div class='muted'>Incorrect password.</div>";
+function renderMissions() { $("missionList").innerHTML = state.missions.slice(-8).map(m=>`<div class="item"><b>${escapeHTML(m.title)}</b> <span class="muted">${m.xp} XP</span><button class="btn success" onclick="markMissionReady('${m.id}')" ${m.done?'disabled':''}>Ready to review</button></div>`).join(''); }
+window.markMissionReady = function(id) {
+  const m = state.missions.find(x=>x.id==id);
+  if(m) {
+    m.done = true;
+    renderMissions();
+    save();
   }
 };
-$("addFriendBtn").onclick = () => {
+
+// Chores
+$("addChore").onclick = () => {
+  const title = $("choreTitle").value.trim();
+  if(!title) return;
+  state.chores.push({id:cid(),title,done:false});
+  $("choreTitle").value = "";
+  renderChores();
+  save();
+};
+function renderChores() { $("choresList").innerHTML = state.chores.slice(-10).map(c=>`<div class="item"><input type="checkbox" onclick="markChoreReady('${c.id}')" ${c.done ? 'checked':''}> <b>${escapeHTML(c.title)}</b></div>`).join(''); }
+window.markChoreReady = function(id) {
+  const c = state.chores.find(x=>x.id==id);
+  if(c && !c.done) {
+    c.done = true;
+    renderChores();
+    save();
+  }
+};
+
+// Pets
+$("addPetXP").onclick = () => {
+  const desc = $("petAction").value.trim();
+  if(!desc) return;
+  state.pets.push({id:cid(),desc,time:now()});
+  $("petAction").value = "";
+  addXP(15);
+  renderPets();
+};
+function renderPets() { $("petList").innerHTML = state.pets.slice(-8).map(p=>`<div class="item"><b>${new Date(p.time).toLocaleDateString()}</b>: ${escapeHTML(p.desc)}</div>`).join(''); }
+
+// Dinner
+$("addDinnerXP").onclick = () => {
+  const desc = $("dinnerDesc").value.trim();
+  if(!desc) return;
+  state.dinner.push({id:cid(),desc,time:now()});
+  $("dinnerDesc").value = "";
+  addXP(20);
+  renderDinner();
+};
+function renderDinner() { $("dinnerList").innerHTML = state.dinner.slice(-8).map(d=>`<div class="item"><b>${new Date(d.time).toLocaleDateString()}</b>: ${escapeHTML(d.desc)}</div>`).join(''); }
+
+// Crafts
+$("addCraftXP").onclick = () => {
+  const desc = $("craftDesc").value.trim();
+  if(!desc) return;
+  state.crafts.push({id:cid(),desc,time:now()});
+  $("craftDesc").value = "";
+  addXP(20);
+  renderCrafts();
+};
+function renderCrafts() { $("craftList").innerHTML = state.crafts.slice(-8).map(c=>`<div class="item"><b>${new Date(c.time).toLocaleDateString()}</b>: ${escapeHTML(c.desc)}</div>`).join(''); }
+
+// Cleaning
+$("addCleanXP").onclick = () => {
+  const desc = $("cleanDesc").value.trim();
+  if(!desc) return;
+  state.cleaning.push({id:cid(),desc,time:now()});
+  $("cleanDesc").value = "";
+  addXP(20);
+  renderCleaning();
+};
+function renderCleaning() { $("cleanList").innerHTML = state.cleaning.slice(-8).map(c=>`<div class="item"><b>${new Date(c.time).toLocaleDateString()}</b>: ${escapeHTML(c.desc)}</div>`).join(''); }
+
+// Dishes
+$("addDishesXP").onclick = () => {
+  const desc = $("dishesDesc").value.trim();
+  if(!desc) return;
+  state.dishes.push({id:cid(),desc,time:now()});
+  $("dishesDesc").value = "";
+  addXP(20);
+  renderDishes();
+};
+function renderDishes() { $("dishesList").innerHTML = state.dishes.slice(-8).map(d=>`<div class="item"><b>${new Date(d.time).toLocaleDateString()}</b>: ${escapeHTML(d.desc)}</div>`).join(''); }
+
+// Jobs
+$("addJobXP").onclick = () => {
+  const title = $("jobTitle").value.trim();
+  const xp = parseInt($("jobXP").value,10)||100;
+  if(!title) return;
+  state.jobs.push({id:cid(),title,xp,time:now()});
+  $("jobTitle").value = "";
+  $("jobXP").value = "100";
+  addXP(xp);
+  renderJobs();
+};
+function renderJobs() { $("jobList").innerHTML = state.jobs.slice(-8).map(j=>`<div class="item"><b>${escapeHTML(j.title)}</b> <span class="muted">${j.xp} XP</span> <span class="muted">${new Date(j.time).toLocaleDateString()}</span></div>`).join(''); }
+
+// School
+$("addSchoolXP").onclick = () => {
+  const desc = $("schoolDesc").value.trim();
+  if(!desc) return;
+  state.school.push({id:cid(),desc,time:now()});
+  $("schoolDesc").value = "";
+  addXP(30);
+  renderSchool();
+};
+function renderSchool() { $("schoolList").innerHTML = state.school.slice(-8).map(s=>`<div class="item"><b>${new Date(s.time).toLocaleDateString()}</b>: ${escapeHTML(s.desc)}</div>`).join(''); }
+
+// Reminders
+$("addReminder").onclick = () => {
+  const txt = $("reminderText").value.trim();
+  if(!txt) return;
+  state.reminders.push({id:cid(),txt,time:now()});
+  $("reminderText").value = "";
+  renderReminders();
+  save();
+};
+function renderReminders() { $("reminderList").innerHTML = state.reminders.slice(-8).map(r=>`<div class="item"><b>${new Date(r.time).toLocaleDateString()}</b>: ${escapeHTML(r.txt)}</div>`).join(''); }
+
+// Friends
+$("addFriend").onclick = () => {
   const name = $("friendName").value.trim();
   if(!name) return;
   state.friends.push({id:cid(),name});
   $("friendName").value = "";
-  save(); renderFriends();
+  renderFriends();
+  save();
 };
-function renderFriends() { $("friendsList").innerHTML = state.friends.map(f=>`<div class="muted"><b>${escapeHTML(f.name)}</b></div>`).join(''); }
+function renderFriends() { $("friendsList").innerHTML = state.friends.slice(-8).map(f=>`<div class="item"><b>${escapeHTML(f.name)}</b></div>`).join(''); }
 
+// Family
+$("addFamily").onclick = () => {
+  const name = $("familyName").value.trim();
+  if(!name) return;
+  state.family.push({id:cid(),name});
+  $("familyName").value = "";
+  renderFamily();
+  save();
+};
+function renderFamily() { $("familyList").innerHTML = state.family.slice(-8).map(f=>`<div class="item"><b>${escapeHTML(f.name)}</b></div>`).join(''); }
+
+// Employers
+$("addEmployer").onclick = () => {
+  const name = $("employerName").value.trim();
+  if(!name) return;
+  state.employers.push({id:cid(),name});
+  $("employerName").value = "";
+  renderEmployers();
+  save();
+};
+function renderEmployers() { $("employersList").innerHTML = state.employers.slice(-8).map(e=>`<div class="item"><b>${escapeHTML(e.name)}</b></div>`).join(''); }
+
+// Goals
+$("addGoal").onclick = () => {
+  const title = $("goalTitle").value.trim();
+  const due = $("goalDue").value;
+  if(!title) return;
+  state.goals.push({id:cid(),title,due});
+  $("goalTitle").value = ""; $("goalDue").value = "";
+  renderGoals();
+  save();
+};
+function renderGoals() { $("goalList").innerHTML = state.goals.slice(-8).map(g=>`<div class="item"><b>${escapeHTML(g.title)}</b> <span class="muted">Due: ${escapeHTML(g.due)}</span></div>`).join(''); }
+
+// Chat
+$("sendChat").onclick = () => {
+  const to = $("chatTo").value.trim()||"family";
+  const msg = $("chatMsg").value.trim();
+  if(!msg) return;
+  state.chat.push({id:cid(),to,msg,time:now()});
+  $("chatMsg").value = "";
+  renderChat();
+  save();
+};
+function renderChat() { $("chatList").innerHTML = state.chat.slice(-10).map(c=>`<div class="item"><b>${escapeHTML(c.to)}</b> <span class="muted">${new Date(c.time).toLocaleTimeString()}</span><div>${escapeHTML(c.msg)}</div></div>`).join(''); }
+
+// Advice
 $("askAdvice").onclick = async () => {
   $("adviceOut").textContent = "Thinking...";
   const question = $("adviceIn").value.trim();
   if(!question) { $("adviceOut").textContent = ""; return;}
   setTimeout(()=>{ $("adviceOut").textContent = "Pray, read relevant Bible verses, and seek counsel from family/church. Conservative Christian values recommend faith, family, and wisdom."; }, 1200);
 };
-$("subscribeBtn").onclick = () => {
-  state.subscription = true;
-  save();
-  $("subscriptionStatus").textContent = "Subscribed! Thank you for supporting Survive.com.";
+
+// XP Explain
+$("xpExplainBtn").onclick = () => {
+  openModal({
+    title: "What is XP?",
+    body: "XP (Experience Points) are earned for missions, chores, faith, jobs, school, friends, and all positive actions. Level up, unlock achievements, and see progress as you thrive in real life!",
+    confirm: closeModal
+  });
 };
-function renderSubscription() { $("subscriptionStatus").textContent = state.subscription ? "You are a premium subscriber!" : ""; }
+
+// Theme
 $("themeToggle").onclick = () => {
   document.documentElement.setAttribute('data-theme',document.documentElement.getAttribute('data-theme') === "dark" ? "light" : "dark");
   save();
 };
+
+// How It Works
 $("howItWorksBtn").onclick = () => {
   openModal({
     title: "How Survive.com Works",
-    body: "<b>XP:</b> Earn Experience Points for healthy, positive actions—missions, chores, Bible study, and more.<br><br><b>Vaulted Sharing:</b> Share memories, notes, and chat with family/friends using share codes.<br><br><b>Parent Mode:</b> Parents approve missions, set rewards, and see stats.<br><br><b>Friends & Family:</b> Invite, connect, and play together.<br><br><b>Games:</b> Family games encourage offline connection.<br><br><b>Subscription:</b> Unlock premium with extra XP, backup, and dashboard.<br><br><b>All features are private and family-friendly!",
+    body: "<b>XP:</b> Earn for healthy actions—missions, chores, faith, school, jobs, crafts, pets, and more.<br><b>Cards:</b> Everything is a card—click, add, complete, and earn XP.<br><b>Vault:</b> All notes, dreams, chats, memories, photos are private and can be shared by family, friends, and employers.<br><b>Progress:</b> Level up, keep streaks, unlock achievements.<br><b>Fun:</b> Play, connect, thrive offline & online!",
     confirm: closeModal
   });
 };
-$("xpExplainBtn").onclick = () => {
-  openModal({
-    title: "What is XP?",
-    body: "XP (Experience Points) are earned for completing missions, chores, Bible study, and positive actions. Level up as you earn more XP, unlock rewards and compete with family/friends. XP is your score for thriving in real life!",
-    confirm: closeModal
-  });
-};
+
 function openModal({title, body, confirm}) {
   $("modalTitle").textContent = title;
   $("modalBody").innerHTML = body;
@@ -219,6 +411,7 @@ function openModal({title, body, confirm}) {
 }
 function closeModal() { $("modal").classList.remove("show"); }
 
+// Videos
 function renderVideos() {
   var kirk = $("charlieKirkEmbed");
   if(kirk) {
@@ -240,8 +433,28 @@ function renderVideos() {
   }
 }
 
+// Stripe Subscription Demo
+$("subscribeBtn").onclick = async () => {
+  openModal({
+    title: "Stripe Subscription",
+    body: "Subscribe to Survive.com Premium for $4.99/month. This will open Stripe checkout.<br><br><button class='btn primary' id='stripeGoBtn'>Go to Stripe</button>",
+    confirm: closeModal
+  });
+  setTimeout(()=>{
+    document.getElementById('stripeGoBtn').onclick = ()=>{
+      window.open("https://buy.stripe.com/test_8wMbJp4xD4gU3yQeUU","_blank");
+      state.subscription = true;
+      $("subscriptionStatus").textContent = "Subscribed! Thank you for supporting Survive.com.";
+      save(); closeModal();
+    };
+  },100);
+};
+
 function renderAll() {
-  renderStats(); renderBibleVerse(); renderBibleStudy(); renderOneYearPlan(); renderBibleNotes();
-  renderMissions(); renderChores(); renderMemories(); renderGoals(); renderChat(); renderFriends();
-  $("toggleParent").click(); renderSubscription(); renderVideos();
+  renderStats(); renderBibleVerse(); renderBibleStudySteps(); renderJournal(); renderDreams();
+  renderVaultedNotes(); renderVaultedPhotos(); renderMissions(); renderChores();
+  renderPets(); renderDinner(); renderCrafts(); renderCleaning(); renderDishes();
+  renderJobs(); renderSchool(); renderReminders(); renderFriends(); renderFamily();
+  renderEmployers(); renderGoals(); renderChat(); renderVideos(); renderParentPendingStudies();
+  $("subscriptionStatus").textContent = state.subscription ? "You are a premium subscriber!" : "";
 }
