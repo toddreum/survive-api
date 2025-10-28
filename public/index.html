@@ -74,6 +74,11 @@
     .footer-meta{color:var(--accent);font-weight:900;font-size:15px;}
     [data-theme="light"] .footer-meta{color:var(--brand);}
     .theme-switch{margin-left:10px;}
+    .tooltip {
+      display:none;position:absolute;background:rgba(50,64,128,0.95);
+      color:#ffd600;font-size:15px;padding:12px;border-radius:14px;z-index:99;max-width:320px;top:58px;left:0;right:0;
+    }
+    .card-subscription:hover .tooltip, .card-subscription:focus-within .tooltip {display:block;}
     @media(max-width:510px){
       .logo-title{font-size:1.1em;}
       .nav{max-width:100vw;}
@@ -96,8 +101,8 @@
           <circle cx="256" cy="150" r="30" fill="#ffd600" stroke="#fff" stroke-width="7"/>
           <ellipse cx="206" cy="160" rx="18" ry="22" fill="#ffd600" stroke="#fff" stroke-width="6"/>
           <ellipse cx="306" cy="160" rx="18" ry="22" fill="#ffd600" stroke="#fff" stroke-width="6"/>
-          <text x="50%" y="410" font-family="Inter,Arial,sans-serif" font-size="160" font-weight="900"
-                fill="#fff" text-anchor="middle" dominant-baseline="middle" opacity="0.85">S</text>
+          <text x="256" y="375" font-family="Arial, Helvetica, sans-serif" font-size="160" font-weight="bold"
+                fill="#fff" text-anchor="middle" dominant-baseline="middle">S</text>
         </svg>
       </span>
       <span class="logo-title">Survive.com</span>
@@ -123,6 +128,18 @@
       <audio id="bibleYearAudio" controls></audio>
       <button id="markYearDone" class="btn btn2">Mark Today Done</button>
       <div id="bibleYearStatus"></div>
+    </div>
+    <!-- STRIPE PREMIUM MEMBERSHIP -->
+    <div class="card card-subscription" style="position:relative;">
+      <h2 class="title">⭐ Survive.com Premium Membership</h2>
+      <div id="subscriptionStatus" class="muted"></div>
+      <div class="muted"><b>Price:</b> <span style="color:#ffd600;font-weight:900;">$7.99/month</span></div>
+      <button class="btn primary" id="subscribeBtn" tabindex="0">Subscribe & Unlock</button>
+      <div class="tooltip">
+        <b>Premium Unlocks:</b><br>
+        Family Sync, Parent Dashboard, exclusive Bible games, bonus XP rewards, premium vault & cloud backup, early access to new features, leader content, faith-based missions, journaling, and more.<br>
+        <span style="color:#fff;">Cancel anytime. All features unlocked after payment.</span>
+      </div>
     </div>
   </div>
 </main>
