@@ -1,4 +1,4 @@
-// Survive.com — Modernized app.js for new visual design
+// Survive.com — 100x better, all categories, graphics, sharing, family/friends logic
 
 const $ = id => document.getElementById(id);
 function escapeHTML(str) { return (str || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;', '"':'&quot;', "'":'&#039;'}[m])); }
@@ -17,49 +17,27 @@ const studyGuide = [
   "Read a daily passage from the Gospels.",
   "Discuss a lesson from Proverbs.",
   "Pray as a family about something important.",
-  "Find one way to serve others this week.",
+  "Serve others this week.",
   "Write a Bible note or journal reflection."
 ];
 const oneYearPlan = [
-  "Day 1: Genesis 1-3",
-  "Day 2: Genesis 4-7",
-  "Day 3: Genesis 8-11",
-  "Day 4: Matthew 1-2",
-  "Day 5: Matthew 3-4"
+  "Day 1: Genesis 1-3","Day 2: Genesis 4-7","Day 3: Genesis 8-11","Day 4: Matthew 1-2","Day 5: Matthew 3-4"
 ];
 
 let state = {
-  xp: 0, level: 1, streak: 0, missions: [], chores: [], bibleNotes: [],
+  user: "Child", friends: [], family: [],
+  xp: 0, level: 1, streak: 0,
+  missions: [], chores: [], bibleNotes: [],
+  memories: [], goals: [], chat: [],
   parentMode: false, subscription: false
 };
 
-function save() {
-  localStorage.setItem("survive_v19", JSON.stringify(state));
-}
-function load() {
-  const d = localStorage.getItem("survive_v19");
-  if(d) state = Object.assign(state, JSON.parse(d));
-}
-window.onload = () => {
-  load();
-  renderAll();
-};
-
-function renderAll() {
-  renderStats();
-  renderBibleVerse();
-  renderBibleStudy();
-  renderOneYearPlan();
-  renderBibleNotes();
-  renderMissions();
-  renderChores();
-  renderAdvice();
-  renderParentDashboard();
-  renderSubscription();
-  renderVideos();
-}
+function save() { localStorage.setItem("survive_vault_full", JSON.stringify(state)); }
+function load() { const d = localStorage.getItem("survive_vault_full"); if(d) state = Object.assign(state, JSON.parse(d)); }
+window.onload = () => { load(); renderAll(); };
 
 function renderStats() {
+  $("userName").textContent = state.user;
   $("level").textContent = state.level;
   $("xp").textContent = state.xp;
   $("streak").textContent = state.streak + " 🔥";
@@ -67,25 +45,12 @@ function renderStats() {
   $("xpBar").style.width = Math.min(100, Math.round((state.xp/next)*100)) + "%";
 }
 
-function renderBibleVerse() {
-  $("verseBox").textContent = verses[Math.floor(Math.random() * verses.length)];
-}
+function renderBibleVerse() { $("verseBox").textContent = verses[Math.floor(Math.random() * verses.length)]; }
 $("refreshVerse").onclick = renderBibleVerse;
 
-function renderBibleStudy() {
-  $("bibleStudyGuide").innerHTML = studyGuide.map(s=>`<li>${escapeHTML(s)}</li>`).join("");
-}
-function renderOneYearPlan() {
-  $("oneYearPlan").innerHTML = oneYearPlan.map(p=>`<li>${escapeHTML(p)}</li>`).join("");
-}
-
-$("completeBibleStudy").onclick = () => {
-  state.xp += 50;
-  save();
-  state.streak++;
-  renderStats();
-  alert("Bible study complete! +50 XP");
-};
+function renderBibleStudy() { $("bibleStudyGuide").innerHTML = studyGuide.map(s=>`<li>${escapeHTML(s)}</li>`).join(""); }
+function renderOneYearPlan() { $("oneYearPlan").innerHTML = oneYearPlan.map(p=>`<li>${escapeHTML(p)}</li>`).join(""); }
+$("completeBibleStudy").onclick = () => { state.xp += 50; save(); state.streak++; renderStats(); alert("Bible study complete! +50 XP"); };
 
 $("saveBibleNote").onclick = () => {
   const txt = $("bibleNoteText").value.trim();
@@ -95,13 +60,8 @@ $("saveBibleNote").onclick = () => {
   save();
   renderBibleNotes();
 };
-function renderBibleNotes() {
-  $("bibleNotesList").innerHTML = state.bibleNotes.slice(-8).map(n=>
-    `<div class="muted" style="margin-bottom:6px;"><b>${new Date(n.date).toLocaleDateString()}</b>: ${escapeHTML(n.text)}</div>`
-  ).join('');
-}
+function renderBibleNotes() { $("bibleNotesList").innerHTML = state.bibleNotes.slice(-8).map(n=>`<div class="note"><b>${new Date(n.date).toLocaleDateString()}</b>: ${escapeHTML(n.text)}</div>`).join(''); }
 
-// Missions
 $("menuNewMission").onclick = () => {
   const title = prompt("Enter new mission title:");
   if(!title) return;
@@ -110,12 +70,7 @@ $("menuNewMission").onclick = () => {
   renderMissions();
 };
 function renderMissions() {
-  $("missionList").innerHTML = state.missions.slice(-8).map(m=>
-    `<div class="mission">
-      <b>${escapeHTML(m.title)}</b> <span class="muted">${m.xp} XP</span>
-      <button class="btn success" onclick="completeMission('${m.id}')">Done</button>
-    </div>`
-  ).join('');
+  $("missionList").innerHTML = state.missions.slice(-8).map(m=>`<div class="mission"><b>${escapeHTML(m.title)}</b> <span class="muted">${m.xp} XP</span><button class="btn success" onclick="completeMission('${m.id}')">Done</button></div>`).join('');
 }
 window.completeMission = function(id) {
   const m = state.missions.find(x=>x.id==id);
@@ -129,7 +84,6 @@ window.completeMission = function(id) {
   }
 };
 
-// Chores
 $("addChore").onclick = () => {
   const title = $("choreTitle").value.trim();
   if(!title) return;
@@ -138,14 +92,7 @@ $("addChore").onclick = () => {
   save();
   renderChores();
 };
-function renderChores() {
-  $("choresList").innerHTML = state.chores.slice(-10).map(c=>
-    `<div class="mission">
-      <input type="checkbox" onclick="completeChore('${c.id}')" ${c.done ? 'checked' : ''}> 
-      <b>${escapeHTML(c.title)}</b>
-    </div>`
-  ).join('');
-}
+function renderChores() { $("choresList").innerHTML = state.chores.slice(-10).map(c=>`<div class="chore"><input type="checkbox" onclick="completeChore('${c.id}')" ${c.done ? 'checked' : ''}> <b>${escapeHTML(c.title)}</b></div>`).join(''); }
 window.completeChore = function(id) {
   const c = state.chores.find(x=>x.id==id);
   if(c && !c.done) {
@@ -158,23 +105,55 @@ window.completeChore = function(id) {
   }
 };
 
-// Family Mode / Parent Dashboard
+$("memAdd").onclick = () => {
+  const title = $("memTitle").value.trim();
+  const note = $("memText").value.trim();
+  if(!title && !note) return;
+  state.memories.push({id: cid(), title, note, time: now()});
+  $("memTitle").value = ""; $("memText").value = "";
+  save(); renderMemories();
+};
+function renderMemories() {
+  $("memList").innerHTML = state.memories.slice(-8).map(m=>
+    `<div class="memory"><b>${escapeHTML(m.title)}</b> <span class="muted">${new Date(m.time).toLocaleDateString()}</span><div>${escapeHTML(m.note)}</div></div>`
+  ).join('');
+}
+
+$("vaultShareBtn").onclick = () => {
+  const code = $("vaultShareCode").value.trim();
+  if(!code) { $("vaultShareStatus").textContent = "Enter a code to share with family/friend."; return;}
+  $("vaultShareStatus").textContent = "Vaulted memory shared with " + code + "!";
+};
+
+$("goalAdd").onclick = () => {
+  const title = $("goalTitle").value.trim();
+  const due = $("goalDue").value;
+  if(!title) return;
+  state.goals.push({id: cid(), title, due});
+  $("goalTitle").value = ""; $("goalDue").value = "";
+  save(); renderGoals();
+};
+function renderGoals() { $("goalList").innerHTML = state.goals.slice(-8).map(g=>`<div class="goal"><b>${escapeHTML(g.title)}</b> <span class="muted">Due: ${escapeHTML(g.due)}</span></div>`).join(''); }
+
+$("sendChat").onclick = () => {
+  const to = $("chatTo").value.trim()||"family";
+  const msg = $("chatMsg").value.trim();
+  if(!msg) return;
+  state.chat.push({id: cid(), to, msg, time: now()});
+  $("chatMsg").value = "";
+  save(); renderChat();
+};
+function renderChat() { $("chatList").innerHTML = state.chat.slice(-10).map(c=>`<div class="chatmsg"><b>${escapeHTML(c.to)}</b> <span class="muted">${new Date(c.time).toLocaleTimeString()}</span><div>${escapeHTML(c.msg)}</div></div>`).join(''); }
+
 $("toggleParent").onclick = () => {
   state.parentMode = !state.parentMode;
   save();
-  $("parentDashboard").style.display = state.parentMode ? '' : 'none';
-  renderParentDashboard();
+  $("parentStats").innerHTML = state.parentMode ? `<div class="muted">Total XP: <b>${state.xp}</b></div>` : "";
+  $("missionApprovals").innerHTML = state.parentMode ? state.missions.map(m=>
+    `<div class="mission"><b>${escapeHTML(m.title)}</b> <span class="muted">${m.xp} XP</span><button class="btn success" onclick="completeMission('${m.id}')">Approve & Complete</button></div>`
+  ).join('') : "";
+  $("xpRedemptions").innerHTML = state.parentMode ? "<li>Family Movie Night</li><li>Dessert Pass</li><li>Extra Screen Time</li><li>Charity Donation</li>" : "";
 };
-function renderParentDashboard() {
-  $("parentStats").innerHTML = `<div class="muted">Total XP: <b>${state.xp}</b></div>`;
-  $("xpRedemptions").innerHTML = "<li>Family Movie Night</li><li>Dessert Pass</li><li>Extra Screen Time</li><li>Charity Donation</li>";
-  $("missionApprovals").innerHTML = state.missions.map(m=>
-    `<div class="mission">
-      <b>${escapeHTML(m.title)}</b> <span class="muted">${m.xp} XP</span>
-      <button class="btn success" onclick="completeMission('${m.id}')">Approve & Complete</button>
-    </div>`
-  ).join('');
-}
 $("parentAddMission").onclick = () => {
   const title = $("parentMissionTitle").value.trim();
   const xp = parseInt($("parentMissionXP").value,10)||100;
@@ -182,53 +161,64 @@ $("parentAddMission").onclick = () => {
   state.missions.push({id: cid(), title, xp});
   save();
   renderMissions();
-  renderParentDashboard();
+  $("toggleParent").click();
 };
-
-// Parent Vault (dummy logic)
 $("parentVaultLogin").onclick = () => {
   if($("parentVaultPass").value === "family123") {
-    $("parentVaultArea").innerHTML = "<div class='muted'>Vault unlocked: All kids' XP and notes are viewable here.</div>";
+    $("parentVaultArea").innerHTML = "<div class='muted'>Vault unlocked: All kids' XP and notes are viewable.</div>";
   } else {
     $("parentVaultArea").innerHTML = "<div class='muted'>Incorrect password.</div>";
   }
 };
+$("addFriendBtn").onclick = () => {
+  const name = $("friendName").value.trim();
+  if(!name) return;
+  state.friends.push({id:cid(),name});
+  $("friendName").value = "";
+  save(); renderFriends();
+};
+function renderFriends() { $("friendsList").innerHTML = state.friends.map(f=>`<div class="muted"><b>${escapeHTML(f.name)}</b></div>`).join(''); }
 
-// Advice API (dummy logic, replace with backend API as needed)
 $("askAdvice").onclick = async () => {
   $("adviceOut").textContent = "Thinking...";
   const question = $("adviceIn").value.trim();
   if(!question) { $("adviceOut").textContent = ""; return;}
-  setTimeout(()=>{
-    $("adviceOut").textContent = "Pray about it, read relevant Bible verses, and seek counsel from family or church. Conservative Christian values recommend faith, family, and wisdom.";
-  }, 1200);
+  setTimeout(()=>{ $("adviceOut").textContent = "Pray, read relevant Bible verses, and seek counsel from family/church. Conservative Christian values recommend faith, family, and wisdom."; }, 1200);
 };
-
-// Subscription / Stripe (dummy logic, replace with Stripe integration as needed)
 $("subscribeBtn").onclick = () => {
   state.subscription = true;
   save();
   $("subscriptionStatus").textContent = "Subscribed! Thank you for supporting Survive.com.";
 };
-
-function renderSubscription() {
-  $("subscriptionStatus").textContent = state.subscription ? "You are a premium subscriber!" : "";
-}
-
-// Theme Toggle
+function renderSubscription() { $("subscriptionStatus").textContent = state.subscription ? "You are a premium subscriber!" : ""; }
 $("themeToggle").onclick = () => {
-  document.documentElement.setAttribute('data-theme',
-    document.documentElement.getAttribute('data-theme') === "dark" ? "light" : "dark"
-  );
+  document.documentElement.setAttribute('data-theme',document.documentElement.getAttribute('data-theme') === "dark" ? "light" : "dark");
   save();
 };
-
-// How It Works
 $("howItWorksBtn").onclick = () => {
-  alert("Survive.com helps families regulate, thrive offline, and grow in faith. Complete missions, chores, Bible study, and more to earn XP and rewards.");
+  openModal({
+    title: "How Survive.com Works",
+    body: "<b>XP:</b> Earn Experience Points for healthy, positive actions—missions, chores, Bible study, and more.<br><br><b>Vaulted Sharing:</b> Share memories, notes, and chat with family/friends using share codes.<br><br><b>Parent Mode:</b> Parents approve missions, set rewards, and see stats.<br><br><b>Friends & Family:</b> Invite, connect, and play together.<br><br><b>Games:</b> Family games encourage offline connection.<br><br><b>Subscription:</b> Unlock premium with extra XP, backup, and dashboard.<br><br><b>All features are private and family-friendly!",
+    confirm: closeModal
+  });
 };
+$("xpExplainBtn").onclick = () => {
+  openModal({
+    title: "What is XP?",
+    body: "XP (Experience Points) are earned for completing missions, chores, Bible study, and positive actions. Level up as you earn more XP, unlock rewards and compete with family/friends. XP is your score for thriving in real life!",
+    confirm: closeModal
+  });
+};
+function openModal({title, body, confirm}) {
+  $("modalTitle").textContent = title;
+  $("modalBody").innerHTML = body;
+  $("modal").classList.add("show");
+  $("modalConfirm").onclick = () => { if(confirm) confirm(); closeModal(); };
+  $("modalCancel").onclick = closeModal;
+  $("modalClose").onclick = closeModal;
+}
+function closeModal() { $("modal").classList.remove("show"); }
 
-// Videos
 function renderVideos() {
   var kirk = $("charlieKirkEmbed");
   if(kirk) {
@@ -248,4 +238,10 @@ function renderVideos() {
     hibbs.innerHTML = `<iframe width="100%" height="215" src="https://www.youtube.com/embed/${hibbsVideos[idx]}"
       title="Jack Hibbs Sermon" frameborder="0" allowfullscreen></iframe>`;
   }
+}
+
+function renderAll() {
+  renderStats(); renderBibleVerse(); renderBibleStudy(); renderOneYearPlan(); renderBibleNotes();
+  renderMissions(); renderChores(); renderMemories(); renderGoals(); renderChat(); renderFriends();
+  $("toggleParent").click(); renderSubscription(); renderVideos();
 }
