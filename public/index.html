@@ -6,9 +6,9 @@
   <title>Survive.com — Regulate, Play, Thrive!</title>
   <meta name="description" content="Survive.com gamifies real life: missions, XP, family mode, encrypted vault, memories, goals, games, and more.">
   <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/svg+xml" href="/icon.svg">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
   <style>
     :root {
       --bg: linear-gradient(120deg, #15003a 0%, #00bcd4 100%);
@@ -30,25 +30,6 @@
       --xp: linear-gradient(90deg,#ffd600,#00bcd4,#e91e63);
       --glass-gradient: linear-gradient(120deg, #232b4d90 60%, #ffd60020 120%);
       --glass-border: 1.5px solid #ffd60077;
-    }
-    [data-theme="light"] {
-      --bg: linear-gradient(120deg, #f0f4ff 0%, #fffde7 100%);
-      --glass: rgba(220, 233, 255, 0.95);
-      --glass-blur: blur(12px);
-      --panel: #fff;
-      --card: #fff;
-      --card2: #f7f8fa;
-      --text: #1a237e;
-      --muted: #607d8b;
-      --brand: #e91e63;
-      --accent: #ffd600;
-      --ring: #00bcd4;
-      --border: #c3d5f7;
-      --shadow: 0 12px 24px rgba(0,0,0,.07);
-      --btn: #e91e63;
-      --btn2: #ffd600;
-      --glass-gradient: linear-gradient(120deg, #f7f8fa90 60%, #ffd60020 120%);
-      --glass-border: 1.5px solid #ffd60055;
     }
     html, body { margin:0; min-height:100%; background:var(--bg); color:var(--text); font-family:'Inter',system-ui,sans-serif; }
     header { position:sticky; top:0; z-index:40; background:linear-gradient(180deg,rgba(26,35,126,.98),rgba(26,35,126,.7) 70%,transparent); border-bottom:1px solid var(--border); }
@@ -331,7 +312,27 @@
     </ul>
     <div style="font-size:18px;margin-top:10px;text-align:center;">Play these games with your family or friends, online or offline, and build deeper connections!</div>
   </div>
-  <!-- Add your grid/cards for Missions, Chat, etc. here, as in previous code -->
+  <div class="container grid">
+    <!-- Add your grid/cards for Missions, Organizer, Advice, etc. as needed -->
+    <div class="card card--half">
+      <h2 class="title">Your Missions</h2>
+      <button id="newMissionBtn" class="btn primary">+ Add Mission</button>
+      <div id="missionList"></div>
+    </div>
+    <div class="card card--third">
+      <h2 class="title">Organizer</h2>
+      <input id="orgTitle" placeholder="Title" />
+      <input id="orgDetails" placeholder="Details" />
+      <button id="orgAdd" class="btn">Add Item</button>
+      <div id="orgList"></div>
+    </div>
+    <div class="card card--third">
+      <h2 class="title">Ask for Advice</h2>
+      <input id="adviceIn" placeholder="Ask about friends, money, faith..." />
+      <button id="askAdvice" class="btn">Ask</button>
+      <div class="muted" id="adviceOut"></div>
+    </div>
+  </div>
 </main>
 <footer>
   <div class="footer-content">
@@ -370,19 +371,6 @@
       data: { labels: ['XP'], datasets: [{ data: [0, 500], backgroundColor: ['#ffd600','#e91e63'], borderWidth: 2 }] },
       options: { cutout: '80%', plugins: { legend: {display: false} }, animation: {animateScale: true} }
     });
-  });
-  // PWA install prompt
-  let deferredPrompt;
-  window.addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault();
-    deferredPrompt = e;
-    document.getElementById('installAppBtn').style.display = '';
-  });
-  document.getElementById('installAppBtn').addEventListener('click', () => {
-    if(deferredPrompt){
-      deferredPrompt.prompt();
-      deferredPrompt = null;
-    }
   });
   // Parallax
   window.addEventListener('scroll', () => {
