@@ -1,28 +1,41 @@
-// Survive.com — Feature-Rich, Dynamic, Balanced Frontend
+// Survive.com — Fully Feature-Rich, Balanced, Dynamic Frontend
 
 const $ = id => document.getElementById(id);
 function escapeHTML(str) { return (str || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;', '"':'&quot;', "'":'&#039;'}[m])); }
 function now() { return new Date().toISOString(); }
 function cid() { return Math.random().toString(36).substr(2,9); }
 
+const STORAGE_KEY = "survive_data_vaulted_v4";
+const THEME_KEY = "survive_theme";
+
 // --- State ---
 const defaults = {
   xp:0, level:1, streak:0, lastDay:null,
   missions:[], organizer:[], advice:[], parentMode:false,
-  sleep: { target:"21:30", lastCredit:null }, theme: localStorage.getItem("survive_theme") || "dark"
+  sleep: { target:"21:30", lastCredit:null },
+  games: [], starters: [], theme: localStorage.getItem(THEME_KEY) || "dark",
+  modal: { open: false, title:"", body:"", confirm:null }
 };
-let state = Object.assign({}, defaults, JSON.parse(localStorage.getItem('survive_data_vaulted_v3')||'{}'));
+let state = Object.assign({}, defaults, JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}'));
 if(!state.missions) state.missions = [];
 if(!state.organizer) state.organizer = [];
 if(!state.advice) state.advice = [];
+if(!state.games) state.games = [];
+if(!state.starters) state.starters = [];
 
 // --- Theme ---
 document.documentElement.setAttribute('data-theme', state.theme);
 $("themeToggle").onclick = () => {
   state.theme = state.theme === "dark" ? "light" : "dark";
   document.documentElement.setAttribute('data-theme', state.theme);
-  localStorage.setItem("survive_theme", state.theme);
+  localStorage.setItem(THEME_KEY, state.theme);
+  renderAll();
 };
+
+// --- Parallax ---
+window.addEventListener('scroll', () => {
+  document.querySelector('.hero').style.backgroundPositionY = -(window.scrollY/2)+'px';
+});
 
 // --- XP Pop Animation ---
 function showXP(amount) {
@@ -87,10 +100,35 @@ function renderMissions() {
     div.innerHTML = `<div style="font-weight:700">${escapeHTML(m.title)}</div>
       <div class="muted">Reward: ${m.xp} XP</div>
       <button class="btn primary">Complete</button>`;
-    div.querySelector("button").onclick = () => completeMission(m.id);
+    div.querySelector("button").onclick = () => openCompleteModal(m);
     el.appendChild(div);
   });
 }
+
+// --- Modal System ---
+function openCompleteModal(m) {
+  openModal({
+    title: "Complete Mission",
+    body: `${escapeHTML(m.title)} — Reward: ${m.xp} XP`,
+    confirm: () => completeMission(m.id)
+  });
+}
+function openModal({title, body, confirm}) {
+  state.modal = {open:true, title, body, confirm};
+  $("modalTitle").textContent = title;
+  $("modalBody").textContent = body;
+  $("modal").classList.add("show");
+}
+function closeModal() {
+  state.modal = {open:false, title:"", body:"", confirm:null};
+  $("modal").classList.remove("show");
+}
+$("modalClose") && ($("modalClose").onclick = closeModal);
+$("modalConfirm") && ($("modalConfirm").onclick = () => {
+  if(state.modal.confirm) state.modal.confirm();
+  closeModal();
+});
+$("modalCancel") && ($("modalCancel").onclick = closeModal);
 
 // --- Organizer Logic ---
 function addOrganizerItem() {
@@ -152,7 +190,7 @@ $("toggleParent").onclick = () => {
 
 // --- Local Storage ---
 function save() {
-  localStorage.setItem("survive_data_vaulted_v3", JSON.stringify(state));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
 // --- App Install Button ---
@@ -169,20 +207,30 @@ $("installAppBtn").onclick = () => {
   }
 };
 
-// --- Parallax ---
-window.addEventListener('scroll', () => {
-  document.querySelector('.hero').style.backgroundPositionY = -(window.scrollY/2)+'px';
+// --- "How It Works" Button ---
+$("howItWorksBtn") && ($("howItWorksBtn").onclick = () => {
+  openModal({
+    title: "How Survive.com Works",
+    body: "Complete missions, earn XP, unlock rewards, and regulate your time! Play games, track streaks, connect with family, and thrive offline.",
+    confirm: closeModal
+  });
 });
 
-// --- Main UI Init ---
-document.addEventListener("DOMContentLoaded", function() {
+// --- Parallax (already included above) ---
+
+// --- Render All Cards ---
+function renderAll() {
   renderStats();
   renderXPChart();
   renderMissions();
   renderOrganizer();
   renderStarter();
+}
+
+// --- DOMContentLoaded ---
+document.addEventListener("DOMContentLoaded", function() {
+  renderAll();
   $("newMissionBtn") && ($("newMissionBtn").onclick = () => addMission("Do homework", 200));
   $("orgAdd") && ($("orgAdd").onclick = addOrganizerItem);
   $("askAdvice") && ($("askAdvice").onclick = () => getAdvice($("adviceIn")?.value));
-  $("howItWorksBtn") && ($("howItWorksBtn").onclick = () => alert("Complete missions, earn XP, unlock rewards, and regulate your time!"));
 });
