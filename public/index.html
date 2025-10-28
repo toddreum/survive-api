@@ -4,9 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Survive.com — Thrive and Survive Offline!</title>
-  <meta name="description" content="Survive.com: Christian youth, family, prophecy, XP rewards, Bible quiz, stories, rapture ready, testimonials, reviews, notes, images, video, social media, Stripe, offline/PWA!">
+  <meta name="description" content="Survive.com: Christian youth, family, prophecy, WWJD, XP rewards, Bible quiz, stories, rapture ready, testimonials, reviews, notes, images, video, social media, Stripe, offline/PWA!">
   <link rel="manifest" href="manifest.json">
-  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <link rel="icon" type="image/png" href="icon.png">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap">
   <script src="https://js.stripe.com/v3/"></script>
   <style>
@@ -74,15 +74,7 @@
   <div class="nav">
     <span class="logo-area">
       <span class="logo-svg">
-        <svg width="56" height="56" viewBox="0 0 56 56">
-          <circle cx="28" cy="28" r="25" fill="url(#g1)" stroke="#e91e63" stroke-width="5"/>
-          <text x="50%" y="59%" text-anchor="middle" font-family="Inter,Arial,sans-serif" font-size="32" font-weight="900" fill="#fff">S</text>
-          <defs>
-            <radialGradient id="g1" cx="50%" cy="50%" r="80%">
-              <stop offset="0%" stop-color="#ffd600"/><stop offset="100%" stop-color="#00bcd4"/>
-            </radialGradient>
-          </defs>
-        </svg>
+        <img src="icon.png" alt="Survive.com" width="56" height="56">
       </span>
       <span class="logo-title">Survive.com</span>
     </span>
@@ -94,69 +86,41 @@
   </div>
 </header>
 <main>
-  <div class="stats-row">
-    <span class="stat">Level <span id="level">1</span></span>
-    <span class="stat-xp" tabindex="0">
-      <span style="font-weight:700;">XP <span id="xpExplainBtn" style="cursor:pointer;" title="What is XP?">❓</span></span>
-      <span id="xp" style="font-size:1.4em;"></span>
-      <div class="xpBar"><div id="xpBar" class="xpBar-fill" style="width:0%"></div></div>
-      <div class="xp-tooltip" id="xpTooltip">
-        <b>XP (Experience Points):</b> Earn XP for every positive offline activity—missions, chores, faith, crafts, family, kindness, jobs, school, church, youth, and more.<br>
-        <br>
-        <b>Milestones:</b>
-        <div class="xp-milestones">
-          <div class="xp-milestone-item">500 XP: Small reward (e.g., dessert, extra screen time)</div>
-          <div class="xp-milestone-item">1,000 XP: Gift card, game, family outing</div>
-          <div class="xp-milestone-item">2,000 XP: Money, big gift, charity donation</div>
-          <div class="xp-milestone-item">5,000 XP: Custom family reward, trip, major achievement</div>
-        </div>
-        <div class="reward-suggestions"><b>Parents & kids discuss fair rewards:</b>
-          <div class="reward-item">Money or gift cards</div>
-          <div class="reward-item">Online time earned</div>
-          <div class="reward-item">Family night or outing</div>
-          <div class="reward-item">Dessert or treat pass</div>
-          <div class="reward-item">Charity donation</div>
-          <div class="reward-item">Custom reward (suggestions encouraged!)</div>
-        </div>
-        <br>
-        <i>All rewards should be moderate, fair, and discussed together.</i>
-      </div>
-    </span>
-    <span class="stat">Streak <span id="streak">0 🔥</span></span>
+  <!-- ...all cards above... -->
+  <div class="card">
+    <h2 class="title"><span class="category-icon">⭐</span>Survive.com Premium Membership</h2>
+    <div id="subscriptionStatus" class="muted"></div>
+    <div class="muted" style="margin-bottom:8px;">
+      <b>Price:</b> <span style="color:#ffd600;font-weight:900;">$7.99/month</span>
+    </div>
+    <div style="margin-bottom:7px;">
+      <b>Unlocks:</b>
+      <ul>
+        <li>Family Sync</li>
+        <li>Parent Dashboard</li>
+        <li>Exclusive Bible games</li>
+        <li>Bonus XP rewards</li>
+        <li>Premium vault & cloud backup</li>
+        <li>Early access to new features</li>
+        <li>Leader content (Charlie Kirk, Jack Hibbs, Way of the Master)</li>
+        <li>Faith-based missions, journaling, and more</li>
+        <li>Cancel anytime. All features unlocked after payment.</li>
+      </ul>
+    </div>
+    <button class="btn primary" id="subscribeBtn">Subscribe & Unlock</button>
+    <div id="premiumUnlockedFeatures"></div>
   </div>
-  <div class="avatar-area">
-    <span class="avatar-svg">
-      <svg width="80" height="80" viewBox="0 0 80 80">
-        <circle cx="40" cy="40" r="36" fill="url(#avatarBg)" />
-        <ellipse cx="40" cy="56" rx="22" ry="11" fill="#fff" opacity="0.12"/>
-        <circle cx="40" cy="36" r="16" fill="#ffe600"/>
-        <ellipse cx="40" cy="46" rx="8" ry="4" fill="#00bcd4"/>
-        <circle cx="34" cy="32" r="2.2" fill="#232b4d"/>
-        <circle cx="46" cy="32" r="2.2" fill="#232b4d"/>
-        <ellipse cx="40" cy="42" rx="6" ry="3" fill="#e91e63"/>
-        <defs>
-          <radialGradient id="avatarBg" cx="0.5" cy="0.5" r="0.5">
-            <stop offset="0%" stop-color="#ffd600"/>
-            <stop offset="100%" stop-color="#00bcd4"/>
-          </radialGradient>
-        </defs>
-      </svg>
-    </span>
-    <div class="muted">Welcome, <span id="userName">Child</span>!</div>
+  <!-- Contact Us Form -->
+  <div class="card">
+    <h2 class="title"><span class="category-icon">📧</span>Contact Us</h2>
+    <form id="contactForm">
+      <input id="contactEmail" type="email" placeholder="Your email" required>
+      <textarea id="contactMessage" placeholder="Your message" required></textarea>
+      <button type="submit" class="btn btn2">Send Message</button>
+    </form>
+    <div id="contactStatus" class="muted"></div>
   </div>
-  <div class="social-links">
-    <a href="https://instagram.com/survivefamily" target="_blank" title="Instagram"><span>📸</span></a>
-    <a href="https://facebook.com/survivefamily" target="_blank" title="Facebook"><span>📘</span></a>
-    <a href="https://twitter.com/survivefamily" target="_blank" title="Twitter"><span>🐦</span></a>
-    <a href="https://gab.com/" target="_blank" title="Gab"><span>🦅</span></a>
-    <a href="https://truthsocial.com/" target="_blank" title="TruthSocial"><span>🗣️</span></a>
-    <a href="https://www.christianforums.com/" target="_blank" title="Christian Forums"><span>✝️</span></a>
-    <a href="mailto:support@survive.com" title="Email"><span>📧</span></a>
-  </div>
-  <div class="grid">
-    <!-- All cards as above (Bible, prophecy, chat, vault, XP, Stripe, etc) -->
-    <!-- ... see previous messages for all categories -->
-  </div>
+  <!-- ...rest of cards... -->
   <div id="modal" class="modal">
     <div class="modal-content">
       <span id="modalClose" class="close">&times;</span>
