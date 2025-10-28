@@ -1,14 +1,12 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
   <title>Survive.com — Earn, Thrive and Survive Offline!</title>
-  <meta name="description" content="Survive.com: Christian youth, family, prophecy, WWJD, XP rewards, Bible quiz, stories, rapture ready, testimonials, reviews, notes, images, video, social media, Stripe, offline/PWA!">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/svg+xml" href="icon.svg">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap">
-  <script src="https://js.stripe.com/v3/"></script>
   <style>
     :root {
       --bg: linear-gradient(120deg,#232b4d 0%, #00bcd4 100%);
@@ -16,91 +14,65 @@
       --accent: #ffd600;
       --brand: #e91e63;
       --muted: #c1c7df;
-      --radius: 28px;
-      --shadow: 0 8px 32px #00bcd4aa;
+      --radius: 24px;
+      --shadow: 0 6px 22px #00bcd4aa;
       --btn: linear-gradient(90deg,#e91e63 60%,#ffd600 100%);
       --btn2: linear-gradient(90deg,#00bcd4 60%,#ffd600 100%);
-      --xp: linear-gradient(90deg,#ffd600,#00bcd4,#e91e63);
-      --border: 2px solid #ffd60044;
-      --glass: rgba(255,255,255,0.16);
     }
-    html,body{margin:0;min-height:100vh;background:var(--bg);color:#fff;font-family:'Inter',system-ui,sans-serif;}
-    header{background:linear-gradient(90deg,#232b4d 60%,#00bcd4 100%);padding:1rem 0 0.7rem 0;box-shadow:0 4px 20px #00bcd444;}
-    .nav{max-width:1200px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;}
-    .logo-area{display:flex;align-items:center;gap:18px;}
-    .logo-svg{display:inline-block;width:56px;height:56px;}
-    .logo-title{font-size:2.2em;font-weight:900;background:var(--xp);-webkit-background-clip:text;-webkit-text-fill-color:transparent;text-shadow:0 2px 16px #e91e6333;}
-    .slogan{font-size:1.3em;color:var(--accent);font-weight:900;margin-left:18px;}
-    .stats-row{display:flex;gap:22px;justify-content:center;margin:24px 0 18px 0;}
-    .stat{background:var(--card);border-radius:22px;padding:18px 26px;min-width:110px;box-shadow:0 2px 8px #00bcd488;font-size:20px;font-weight:700;text-align:center;}
-    .stat-xp{background:var(--glass);border-radius:22px;padding:18px 26px;min-width:140px;box-shadow:0 2px 12px #ffd60088;font-size:20px;font-weight:700;text-align:center;position:relative;}
-    .xpBar{width:90%;height:10px;background:var(--glass);border-radius:8px;margin-top:10px;overflow:hidden;}
-    .xpBar-fill{height:100%;background:var(--xp);transition:width .2s;}
-    .xp-tooltip{display:none;position:absolute;top:44px;left:10px;width:270px;background:var(--card);color:#fff;z-index:10;border-radius:14px;padding:14px;box-shadow:0 4px 24px #232b4d77;font-size:15px;}
-    .stat-xp:hover .xp-tooltip,.stat-xp:focus .xp-tooltip{display:block;}
-    .avatar-area{text-align:center;margin:18px 0 8px 0;}
-    .avatar-svg{display:inline-block;}
-    .grid{max-width:1200px;margin:0 auto;display:grid;grid-template-columns:repeat(3,1fr);gap:22px;padding-left:16px;padding-right:16px;}
-    @media(max-width:1100px){.grid{grid-template-columns:repeat(2,1fr);}}
-    @media(max-width:700px){
-      .nav{flex-direction:column;align-items:flex-start;gap:6px;}
-      .logo-area{gap:9px;}
-      .logo-title{font-size:1.5em;}
-      .slogan{font-size:1em;}
-      .stats-row{flex-direction:column;gap:12px;}
-      .grid{grid-template-columns:1fr;gap:14px;padding:0 8vw;}
-      .card{padding:22px 6vw 18px 6vw;}
-      input, textarea, .btn, .btn2 { font-size: 20px !important; }
+    html,body{
+      margin:0;min-height:100vh;background:var(--bg);color:#fff;
+      font-family:'Inter',system-ui,sans-serif;font-size:18px;
+      -webkit-tap-highlight-color: transparent;
+    }
+    header{background:linear-gradient(90deg,#232b4d 60%,#00bcd4 100%);
+      padding:1rem 0 .7rem 0;box-shadow:0 4px 20px #00bcd444;}
+    .nav{max-width:600px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;}
+    .logo-area{display:flex;align-items:center;gap:14px;}
+    .logo-svg{display:inline-block;width:44px;height:44px;}
+    .logo-title{font-size:2em;font-weight:900;background:var(--btn2);-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+    .slogan{font-size:1.1em;color:var(--accent);font-weight:900;margin-left:10px;}
+    .grid{
+      max-width:600px;margin:0 auto;display:flex;flex-direction:column;gap:14px;padding:0 4vw;
     }
     .card{
-      background:var(--card);
-      border-radius:var(--radius);
-      box-shadow:var(--shadow);
-      padding:32px 36px 24px 36px;
-      margin:0 0 22px 0;
-      position:relative;
+      background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);
+      padding:22px 5vw 18px 5vw;margin:0;position:relative;max-width:100vw;box-sizing:border-box;
     }
-    .title{font-size:25px;font-weight:900;color:var(--accent);margin-bottom:14px;}
-    .category-icon{font-size:29px;margin-right:9px;}
+    .title{font-size:1.2em;font-weight:900;color:var(--accent);margin-bottom:10px;}
     .btn, .btn2 {
-      width: auto;
-      min-width: 140px;
-      padding: 16px 26px;
-      margin-left: 6px;
-      margin-right: 6px;
-      font-size: 18px;
+      width: auto;min-width:120px;padding:15px 18px;margin:8px 4px 8px 0;
+      font-size:18px;border-radius:13px;font-weight:700;box-shadow:0 2px 8px #ffd60044;border:none;
+      cursor:pointer;user-select:none;
     }
+    .btn{background:var(--btn);color:#fff;}
+    .btn2{background:var(--btn2);color:#fff;}
     input, textarea {
-      width: calc(100% - 12px);
-      margin-left: 6px;
-      margin-right: 6px;
-      padding: 14px 18px;
-      border-radius: 12px;
-      border: 2px solid #ffd60044;
-      font-size: 18px;
-      margin-bottom: 10px;
-      box-sizing: border-box;
-      background: #fff;
-      color: #232b4d;
+      width: 100%;padding:13px 18px;border-radius:11px;border:2px solid #ffd60044;
+      font-size:18px;margin-bottom:9px;box-sizing:border-box;background:#fff;color:#232b4d;
+      outline:none;max-width:98vw;
     }
-    .vault-unlocked { background: #ffd60022; padding: 10px 16px; border-radius: 10px; margin-bottom: 10px; }
-    .vault-locked { background: #e91e6355; padding: 10px 16px; border-radius: 10px; margin-bottom: 10px; }
+    audio,video{width:100%;margin:10px 0;}
+    .bible-verse-box{font-size:1.17em;font-weight:700;color:#ffd600;margin-bottom:8px;}
+    .item{background:var(--muted);color:#232b4d;padding:7px 12px;border-radius:9px;margin-bottom:6px;}
+    .footer-meta{color:#ffd600;font-weight:900;font-size:15px;}
+    @media(max-width:510px){
+      .logo-title{font-size:1.1em;}
+      .nav{max-width:100vw;}
+      .card{padding:16px 2vw 14px 2vw;}
+      .grid{padding:0 1vw;}
+      input, textarea{font-size:16px;}
+    }
   </style>
 </head>
 <body>
 <header>
   <div class="nav">
-    <span class="logo-area">
-      <span class="logo-svg logo-svg-embedded">
-        <!-- EMBEDDED SVG LOGO -->
-        <svg xmlns="http://www.w3.org/2000/svg" width="56" height="56" viewBox="0 0 512 512">
-          <defs>
-            <radialGradient id="bg" cx="50%" cy="50%" r="80%">
-              <stop offset="0%" stop-color="#ffd600"/>
-              <stop offset="60%" stop-color="#00bcd4"/>
-              <stop offset="100%" stop-color="#e91e63"/>
-            </radialGradient>
-          </defs>
+    <div class="logo-area">
+      <span class="logo-svg">
+        <svg xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 512 512">
+          <defs><radialGradient id="bg" cx="50%" cy="50%" r="80%">
+            <stop offset="0%" stop-color="#ffd600"/><stop offset="60%" stop-color="#00bcd4"/><stop offset="100%" stop-color="#e91e63"/>
+          </radialGradient></defs>
           <circle cx="256" cy="256" r="250" fill="url(#bg)" />
           <rect x="156" y="200" width="200" height="100" rx="26" fill="#fff" stroke="#ffd600" stroke-width="10"/>
           <rect x="196" y="200" width="40" height="100" fill="#ffd600" opacity="0.2"/>
@@ -115,72 +87,27 @@
         </svg>
       </span>
       <span class="logo-title">Survive.com</span>
-    </span>
-    <span class="slogan">Thrive and survive offline!</span>
-    <div>
-      <button id="themeToggle" class="btn ghost">🌓 Theme</button>
-      <button id="howItWorksBtn" class="btn ghost">❓ How It Works</button>
     </div>
+    <span class="slogan">Thrive and survive offline!</span>
   </div>
 </header>
 <main>
   <div class="grid">
-    <!-- Vaulted Chat Box -->
+    <!-- DAILY BIBLE VERSE -->
     <div class="card">
-      <h2 class="title"><span class="category-icon">💬</span>Vaulted Chat</h2>
-      <div id="chatVaultLock"></div>
-      <div id="chatVaultBox" style="display:none;">
-        <input id="chatTo" placeholder="To: family, friend, parent, etc">
-        <textarea id="chatMsg" placeholder="Message..."></textarea>
-        <button id="sendChat" class="btn btn2">Send</button>
-        <div id="chatList"></div>
-      </div>
+      <h2 class="title">📖 Daily Bible Verse</h2>
+      <div id="dailyVerse" class="bible-verse-box"></div>
+      <audio id="verseAudio" controls></audio>
+      <button id="refreshVerse" class="btn btn2">New Verse</button>
     </div>
-    <!-- Vaulted Notes -->
+    <!-- BIBLE IN A YEAR GUIDED STUDY -->
     <div class="card">
-      <h2 class="title"><span class="category-icon">🔒</span>Vaulted Notes</h2>
-      <div id="notesVaultLock"></div>
-      <div id="notesVaultBox" style="display:none;">
-        <textarea id="vaultNote" placeholder="Your private notes..."></textarea>
-        <button id="saveVaultNote" class="btn btn2">Save Note</button>
-        <div id="vaultNotesList"></div>
-      </div>
-    </div>
-    <!-- Vaulted Photos -->
-    <div class="card">
-      <h2 class="title"><span class="category-icon">📷</span>Vaulted Photo Memories</h2>
-      <div id="photosVaultLock"></div>
-      <div id="photosVaultBox" style="display:none;">
-        <input id="photoTitle" placeholder="Photo Title">
-        <input id="photoDate" type="date">
-        <input id="photoUpload" type="file" accept="image/*">
-        <button id="addPhotoBtn" class="btn btn2">Add Photo</button>
-        <div id="photoVaultList"></div>
-      </div>
-    </div>
-    <!-- Stripe Premium Membership Card -->
-    <div class="card">
-      <h2 class="title"><span class="category-icon">⭐</span>Survive.com Premium Membership</h2>
-      <div id="subscriptionStatus" class="muted"></div>
-      <div class="muted" style="margin-bottom:8px;">
-        <b>Price:</b> <span style="color:#ffd600;font-weight:900;">$7.99/month</span>
-      </div>
-      <div style="margin-bottom:7px;">
-        <b>Unlocks:</b>
-        <ul>
-          <li>Family Sync</li>
-          <li>Parent Dashboard</li>
-          <li>Exclusive Bible games</li>
-          <li>Bonus XP rewards</li>
-          <li>Premium vault & cloud backup</li>
-          <li>Early access to new features</li>
-          <li>Leader content (Charlie Kirk, Jack Hibbs, Way of the Master)</li>
-          <li>Faith-based missions, journaling, and more</li>
-          <li>Cancel anytime. All features unlocked after payment.</li>
-        </ul>
-      </div>
-      <button class="btn primary" id="subscribeBtn">Subscribe & Unlock</button>
-      <div id="premiumUnlockedFeatures"></div>
+      <h2 class="title">📅 Bible in a Year</h2>
+      <div id="bibleYearDay" class="bible-verse-box"></div>
+      <div id="bibleYearReading"></div>
+      <audio id="bibleYearAudio" controls></audio>
+      <button id="markYearDone" class="btn btn2">Mark Today Done</button>
+      <div id="bibleYearStatus"></div>
     </div>
   </div>
 </main>
@@ -189,115 +116,61 @@
   <span class="footer-meta">© Survive.com &bull; Pro-family • Pro-life • Pro-Jesus Christ • Conservative • Freedom</span>
 </footer>
 <script>
-  // Vault logic: password-protect all vaulted content
-  let vaultPass = localStorage.getItem('survive_vault_pass') || '';
-  function unlockVault(section, pass) {
-    if(pass === vaultPass && pass) {
-      document.getElementById(section+'Lock').innerHTML = '<div class="vault-unlocked">Vault Unlocked</div>';
-      document.getElementById(section+'Box').style.display = '';
-    } else {
-      document.getElementById(section+'Lock').innerHTML =
-        `<div class="vault-locked">
-          Enter Vault Password:
-          <input type="password" id="${section}Pwd" placeholder="Vault Password">
-          <button onclick="checkVault('${section}')">Unlock</button>
-        </div>`;
-      document.getElementById(section+'Box').style.display = 'none';
-    }
+// Infinite unique Bible verses (via API)
+const shownVerses = JSON.parse(localStorage.getItem('survive_shownVerses') || '[]');
+async function getUniqueBibleVerse() {
+  let tries = 0, verse = null, ref = "";
+  while (tries < 12) {
+    // Random book/chapter/verse
+    const books = ["Genesis","Exodus","John","Matthew","Psalms","Proverbs","Romans","Philippians","Isaiah","James"];
+    const b = books[Math.floor(Math.random()*books.length)];
+    const chapter = Math.ceil(Math.random()*50);
+    const verseNum = Math.ceil(Math.random()*30);
+    ref = `${b}+${chapter}:${verseNum}`;
+    const resp = await fetch(`https://bible-api.com/${ref}`);
+    const data = await resp.json();
+    verse = data.text ? `${data.reference} – ${data.text.trim()}` : null;
+    if (verse && !shownVerses.includes(verse)) break;
+    tries++;
   }
-  window.checkVault = function(section) {
-    const pass = document.getElementById(section+'Pwd').value;
-    unlockVault(section, pass);
+  if (verse) {
+    shownVerses.push(verse);
+    localStorage.setItem('survive_shownVerses', JSON.stringify(shownVerses));
+    document.getElementById("dailyVerse").textContent = verse;
+    document.getElementById("verseAudio").src = ""; // (audio not provided by API, can link to BibleGateway if needed)
+  } else {
+    document.getElementById("dailyVerse").textContent = "No unique verses found!";
   }
-  // Set vault password on first use
-  if(!vaultPass) {
-    vaultPass = prompt('Set your Vault password (private, do not share):');
-    localStorage.setItem('survive_vault_pass', vaultPass);
-  }
-  unlockVault('chatVault', vaultPass);
-  unlockVault('notesVault', vaultPass);
-  unlockVault('photosVault', vaultPass);
+}
+document.getElementById("refreshVerse").onclick = getUniqueBibleVerse;
+getUniqueBibleVerse();
 
-  // Vaulted Chat storage
-  let chatVault = JSON.parse(localStorage.getItem('survive_chatVault')||'[]');
-  document.getElementById('sendChat').onclick = () => {
-    let to = document.getElementById('chatTo').value.trim();
-    let msg = document.getElementById('chatMsg').value.trim();
-    if(to && msg) {
-      chatVault.push({to,msg,time:new Date().toISOString()});
-      localStorage.setItem('survive_chatVault',JSON.stringify(chatVault));
-      renderChatVault();
-      document.getElementById('chatTo').value = '';
-      document.getElementById('chatMsg').value = '';
-    }
-  };
-  function renderChatVault() {
-    document.getElementById('chatList').innerHTML =
-      chatVault.slice(-10).map(c=>`<div class="item"><b>${c.to}</b> <span style="color:#ffd600">${new Date(c.time).toLocaleTimeString()}</span><div>${c.msg}</div></div>`).join('');
+// Bible in a Year guided study (simple sample, expand for full plan!)
+const bibleYearPlan = [
+  { day: 1, reading: "Genesis 1, John 1:1-5", audio: "https://www.biblegateway.com/audio/mclean/esv/Gen.1" },
+  { day: 2, reading: "Genesis 2, John 1:6-14", audio: "https://www.biblegateway.com/audio/mclean/esv/Gen.2" },
+  { day: 3, reading: "Genesis 3, Proverbs 1:1-7", audio: "https://www.biblegateway.com/audio/mclean/esv/Gen.3" }
+];
+let bibleYearDone = JSON.parse(localStorage.getItem("survive_bibleYearDone") || "[]");
+function renderBibleYear() {
+  let day = ((new Date().getMonth()*31) + new Date().getDate()) % bibleYearPlan.length;
+  let plan = bibleYearPlan[day];
+  document.getElementById("bibleYearDay").textContent = "Day " + (day+1);
+  document.getElementById("bibleYearReading").textContent = plan.reading;
+  document.getElementById("bibleYearAudio").src = plan.audio;
+  document.getElementById("bibleYearStatus").textContent = bibleYearDone.includes(day) ? "Done ✅" : "";
+  document.getElementById("markYearDone").disabled = bibleYearDone.includes(day);
+}
+document.getElementById("markYearDone").onclick = () => {
+  let day = ((new Date().getMonth()*31) + new Date().getDate()) % bibleYearPlan.length;
+  if (!bibleYearDone.includes(day)) {
+    bibleYearDone.push(day);
+    localStorage.setItem("survive_bibleYearDone", JSON.stringify(bibleYearDone));
+    renderBibleYear();
+    alert("Bible in a Year marked done!");
   }
-  renderChatVault();
-
-  // Vaulted Notes storage
-  let notesVault = JSON.parse(localStorage.getItem('survive_notesVault')||'[]');
-  document.getElementById('saveVaultNote').onclick = () => {
-    let note = document.getElementById('vaultNote').value.trim();
-    if(note) {
-      notesVault.push({note,time:new Date().toISOString()});
-      localStorage.setItem('survive_notesVault',JSON.stringify(notesVault));
-      renderNotesVault();
-      document.getElementById('vaultNote').value = '';
-    }
-  };
-  function renderNotesVault() {
-    document.getElementById('vaultNotesList').innerHTML =
-      notesVault.slice(-10).map(n=>`<div class="item"><span style="color:#ffd600">${new Date(n.time).toLocaleDateString()}</span>: ${n.note}</div>`).join('');
-  }
-  renderNotesVault();
-
-  // Vaulted Photos storage
-  let photoVault = JSON.parse(localStorage.getItem('survive_photoVault')||'[]');
-  document.getElementById('addPhotoBtn').onclick = () => {
-    const file = document.getElementById('photoUpload').files[0];
-    if(file) {
-      const reader = new FileReader();
-      reader.onload = function(e) {
-        photoVault.push({
-          title: document.getElementById('photoTitle').value,
-          date: document.getElementById('photoDate').value,
-          src: e.target.result
-        });
-        localStorage.setItem('survive_photoVault',JSON.stringify(photoVault));
-        renderPhotoVault();
-        document.getElementById('photoTitle').value='';
-        document.getElementById('photoDate').value='';
-        document.getElementById('photoUpload').value='';
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-  function renderPhotoVault() {
-    document.getElementById('photoVaultList').innerHTML =
-      photoVault.slice(-8).map(p=>
-        `<div class="item"><b>${p.title}</b> <span style="color:#ffd600">${p.date}</span><br>
-         <img class="photo-thumb" src="${p.src}" alt="photo"></div>`
-      ).join('');
-  }
-  renderPhotoVault();
-
-  // Stripe Premium Membership Checkout - FIXED
-  document.getElementById("subscribeBtn").onclick = async () => {
-    try {
-      const res = await fetch('/api/create-checkout-session', { method: 'POST' });
-      const data = await res.json();
-      if (data.checkoutUrl) {
-        window.location.href = data.checkoutUrl;
-      } else {
-        alert("Stripe checkout error: " + (data.error || "No checkout URL returned."));
-      }
-    } catch (err) {
-      alert("Stripe checkout failed: " + err.message);
-    }
-  };
+};
+renderBibleYear();
 </script>
 </body>
 </html>
