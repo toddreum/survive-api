@@ -1,13 +1,13 @@
 {
-  "name": "animal-tag-game",
+  "name": "survive-api",
   "version": "1.0.0",
-  "description": "Online animal-name tagging game",
+  "description": "Survive.com word game (Node + Socket.io).",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "express": "^4.19.2",
+    "express": "^4.19.0",
     "socket.io": "^4.7.5"
   }
 }
