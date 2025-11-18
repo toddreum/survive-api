@@ -1,13 +1,13 @@
 {
   "name": "survive-api",
   "version": "1.0.0",
-  "description": "Backend for the Survive.com word game (Node + Socket.io).",
+  "description": "Backend for the Survive word game (Node + Socket.io).",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "express": "^4.19.0",
-    "socket.io": "^4.7.5"
+    "express": "^4.18.2",
+    "socket.io": "^4.7.2"
   }
 }
