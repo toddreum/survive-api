@@ -1,295 +1,199 @@
+const path = require("path");
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
-const path = require("path");
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
-
-app.use(express.static(path.join(__dirname, "public")));
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
 
 const PORT = process.env.PORT || 3000;
 
-// Room state: roomCode -> room object
-const rooms = {};
+// Serve static frontend from /public
+app.use(express.static(path.join(__dirname, "public")));
 
-function createRoomIfNeeded(roomCode) {
-  if (!rooms[roomCode]) {
-    rooms[roomCode] = {
-      players: {}, // socketId -> { name, animal, score }
-      hostId: null,
-      middleId: null,
-      phase: "lobby", // "lobby" | "guessing" | "playing"
-      secretNumber: null, // 1–20
-      guesses: {}, // socketId -> number
-      duel: null // { middleId, targetId, status: "pending" | "resolved" }
-    };
-  }
+const rooms = {}; // roomCode -> { players: [], hostId, currentTurnIndex, inProgress, timeoutId }
+
+function createRoom(roomCode, hostId, hostName) {
+  rooms[roomCode] = {
+    hostId,
+    inProgress: false,
+    currentTurnIndex: 0,
+    timeoutId: null,
+    players: [
+      {
+        id: hostId,
+        name: hostName || "Host",
+        alive: true
+      }
+    ]
+  };
 }
 
-function emitRoomState(roomCode) {
-  const room = rooms[roomCode];
+function getRoom(roomCode) {
+  return rooms[roomCode];
+}
+
+function broadcastRoomUpdate(roomCode) {
+  const room = getRoom(roomCode);
   if (!room) return;
 
-  const playersArray = Object.entries(room.players).map(([id, p]) => ({
-    id,
-    name: p.name,
-    animal: p.animal,
-    score: p.score,
-    isMiddle: id === room.middleId
-  }));
-
-  io.to(roomCode).emit("roomState", {
+  io.to(roomCode).emit("roomUpdate", {
     roomCode,
-    phase: room.phase,
     hostId: room.hostId,
-    middleId: room.middleId,
-    players: playersArray,
-    duel: room.duel ? {
-      middleId: room.duel.middleId,
-      targetId: room.duel.targetId,
-      status: room.duel.status
-    } : null
+    inProgress: room.inProgress,
+    players: room.players.map((p) => ({
+      id: p.id,
+      name: p.name,
+      alive: p.alive
+    })),
+    currentTurnIndex: room.currentTurnIndex
   });
 }
 
-function chooseMiddleFromGuesses(roomCode) {
-  const room = rooms[roomCode];
+function startGame(roomCode) {
+  const room = getRoom(roomCode);
+  if (!room || room.inProgress || room.players.length === 0) return;
+
+  room.inProgress = true;
+  room.currentTurnIndex = 0;
+  room.players.forEach((p) => (p.alive = true));
+
+  io.to(roomCode).emit("gameStarted");
+  startTurn(roomCode);
+}
+
+function getAlivePlayers(room) {
+  return room.players.filter((p) => p.alive);
+}
+
+function startTurn(roomCode) {
+  const room = getRoom(roomCode);
   if (!room) return;
-  if (!room.secretNumber) return;
 
-  const secret = room.secretNumber;
-  let bestId = null;
-  let bestDiff = Infinity;
+  const alivePlayers = getAlivePlayers(room);
+  if (alivePlayers.length <= 1) {
+    endGame(roomCode);
+    return;
+  }
 
-  for (const [id, guess] of Object.entries(room.guesses)) {
-    const diff = Math.abs(guess - secret);
-    if (diff < bestDiff) {
-      bestDiff = diff;
-      bestId = id;
+  if (
+    !room.players[room.currentTurnIndex] ||
+    !room.players[room.currentTurnIndex].alive
+  ) {
+    room.currentTurnIndex = room.players.findIndex((p) => p.alive);
+  }
+
+  const currentPlayer = room.players[room.currentTurnIndex];
+  if (!currentPlayer || !currentPlayer.alive) {
+    endGame(roomCode);
+    return;
+  }
+
+  if (room.timeoutId) {
+    clearTimeout(room.timeoutId);
+    room.timeoutId = null;
+  }
+
+  const TURN_DURATION_MS = 15000; // 15 seconds
+
+  io.to(roomCode).emit("turnChanged", {
+    activePlayerId: currentPlayer.id,
+    activePlayerName: currentPlayer.name,
+    durationMs: TURN_DURATION_MS
+  });
+
+  room.timeoutId = setTimeout(() => {
+    currentPlayer.alive = false;
+    io.to(roomCode).emit("playerEliminated", {
+      playerId: currentPlayer.id,
+      name: currentPlayer.name,
+      reason: "timeout"
+    });
+    advanceTurn(roomCode);
+  }, TURN_DURATION_MS);
+}
+
+function advanceTurn(roomCode) {
+  const room = getRoom(roomCode);
+  if (!room) return;
+
+  const alivePlayers = getAlivePlayers(room);
+  if (alivePlayers.length <= 1) {
+    endGame(roomCode);
+    return;
+  }
+
+  let nextIndex = room.currentTurnIndex;
+  const total = room.players.length;
+  for (let i = 0; i < total; i++) {
+    nextIndex = (nextIndex + 1) % total;
+    if (room.players[nextIndex].alive) {
+      room.currentTurnIndex = nextIndex;
+      startTurn(roomCode);
+      return;
     }
   }
 
-  if (bestId) {
-    room.middleId = bestId;
-    room.phase = "playing";
+  endGame(roomCode);
+}
+
+function endGame(roomCode) {
+  const room = getRoom(roomCode);
+  if (!room) return;
+
+  if (room.timeoutId) {
+    clearTimeout(room.timeoutId);
+    room.timeoutId = null;
   }
-  room.secretNumber = null;
-  room.guesses = {};
-  emitRoomState(roomCode);
+
+  const alivePlayers = getAlivePlayers(room);
+  let winner = null;
+  if (alivePlayers.length === 1) {
+    winner = alivePlayers[0];
+  }
+
+  io.to(roomCode).emit("gameOver", {
+    winner: winner
+      ? { id: winner.id, name: winner.name }
+      : null
+  });
+
+  room.inProgress = false;
 }
 
 io.on("connection", (socket) => {
-  // Keep track of which room this socket is in
-  let currentRoom = null;
-
-  socket.on("joinRoom", ({ roomCode, playerName, animalName }, callback) => {
-    if (!roomCode || !playerName || !animalName) {
-      if (callback) callback({ ok: false, error: "Missing data" });
+  socket.on("createRoom", ({ roomCode, playerName }) => {
+    roomCode = (roomCode || "").trim().toUpperCase();
+    if (!roomCode) {
+      socket.emit("errorMessage", "Room code is required.");
       return;
     }
-
-    roomCode = roomCode.toUpperCase().trim();
-    createRoomIfNeeded(roomCode);
-    const room = rooms[roomCode];
-
-    // Host is first player
-    if (!room.hostId) {
-      room.hostId = socket.id;
+    if (rooms[roomCode]) {
+      socket.emit("errorMessage", "Room code already exists. Choose another.");
+      return;
     }
-
-    room.players[socket.id] = {
-      name: playerName.trim(),
-      animal: animalName.trim(),
-      score: 0
-    };
-
+    createRoom(roomCode, socket.id, playerName);
     socket.join(roomCode);
-    currentRoom = roomCode;
-
-    emitRoomState(roomCode);
-
-    if (callback) callback({ ok: true, isHost: socket.id === room.hostId });
+    socket.emit("joinedRoom", { roomCode, playerId: socket.id });
+    broadcastRoomUpdate(roomCode);
   });
 
-  socket.on("startGuessPhase", ({ roomCode }) => {
-    const room = rooms[roomCode];
-    if (!room) return;
-    if (socket.id !== room.hostId) return;
-
-    room.phase = "guessing";
-    room.secretNumber = Math.floor(Math.random() * 20) + 1; // 1-20
-    room.guesses = {};
-
-    io.to(roomCode).emit("guessPhaseStarted", {
-      message: "Guess a number 1–20 to decide who starts in the middle!"
-    });
-
-    emitRoomState(roomCode);
-  });
-
-  socket.on("submitGuess", ({ roomCode, guess }) => {
-    const room = rooms[roomCode];
-    if (!room) return;
-    if (room.phase !== "guessing") return;
-    if (!room.players[socket.id]) return;
-
-    const num = Number(guess);
-    if (!Number.isInteger(num) || num < 1 || num > 20) return;
-
-    room.guesses[socket.id] = num;
-
-    // If everyone has guessed, choose middle
-    if (Object.keys(room.guesses).length === Object.keys(room.players).length) {
-      chooseMiddleFromGuesses(roomCode);
-    } else {
-      emitRoomState(roomCode);
+  socket.on("joinRoom", ({ roomCode, playerName }) => {
+    roomCode = (roomCode || "").trim().toUpperCase();
+    const room = getRoom(roomCode);
+    if (!room) {
+      socket.emit("errorMessage", "Room not found.");
+      return;
     }
-  });
-
-  // Middle calls a target: start a duel (10s timer handled on client)
-  socket.on("middleCall", ({ roomCode, targetId }) => {
-    const room = rooms[roomCode];
-    if (!room) return;
-    if (room.phase !== "playing") return;
-    if (socket.id !== room.middleId) return;
-    if (!room.players[targetId]) return;
-
-    room.duel = {
-      middleId: room.middleId,
-      targetId,
-      status: "pending"
-    };
-
-    io.to(roomCode).emit("duelStarted", {
-      middleId: room.middleId,
-      targetId,
-      durationMs: 10000 // 10 seconds
-    });
-
-    emitRoomState(roomCode);
-  });
-
-  // Middle claims they tagged in time (target did not escape)
-  socket.on("middleSuccess", ({ roomCode }) => {
-    const room = rooms[roomCode];
-    if (!room || !room.duel) return;
-    if (room.duel.status !== "pending") return;
-
-    const { middleId, targetId } = room.duel;
-    if (socket.id !== middleId) return;
-
-    // Target was not successful -> target loses 5 points
-    const middle = room.players[middleId];
-    const target = room.players[targetId];
-    if (!middle || !target) return;
-
-    target.score -= 5;
-
-    // Swap animal names (target takes middle's animal)
-    const tempAnimal = middle.animal;
-    middle.animal = target.animal;
-    target.animal = tempAnimal;
-
-    // Target becomes new middle
-    room.middleId = targetId;
-
-    room.duel.status = "resolved";
-
-    io.to(roomCode).emit("duelResolved", {
-      result: "middleTagged",
-      middleId,
-      newMiddleId: targetId,
-      targetId
-    });
-
-    emitRoomState(roomCode);
-  });
-
-  // Target says they escaped (called another animal in time)
-  socket.on("targetEscape", ({ roomCode }) => {
-    const room = rooms[roomCode];
-    if (!room || !room.duel) return;
-    if (room.duel.status !== "pending") return;
-
-    const { middleId, targetId } = room.duel;
-    if (socket.id !== targetId) return;
-
-    const middle = room.players[middleId];
-    const target = room.players[targetId];
-    if (!middle || !target) return;
-
-    // Middle failed -> middle loses 5 points
-    middle.score -= 5;
-
-    room.duel.status = "resolved";
-
-    io.to(roomCode).emit("duelResolved", {
-      result: "targetEscaped",
-      middleId,
-      targetId
-    });
-
-    emitRoomState(roomCode);
-  });
-
-  // Timeout – assume middle failed to tag
-  socket.on("duelTimeout", ({ roomCode }) => {
-    const room = rooms[roomCode];
-    if (!room || !room.duel) return;
-    if (room.duel.status !== "pending") return;
-
-    const { middleId, targetId } = room.duel;
-    const middle = room.players[middleId];
-
-    if (middle) {
-      middle.score -= 5;
+    if (room.players.length >= 10) {
+      socket.emit("errorMessage", "Room is full (max 10 players).");
+      return;
     }
-
-    room.duel.status = "resolved";
-
-    io.to(roomCode).emit("duelResolved", {
-      result: "timeout",
-      middleId,
-      targetId
-    });
-
-    emitRoomState(roomCode);
-  });
-
-  socket.on("disconnect", () => {
-    if (!currentRoom) return;
-    const room = rooms[currentRoom];
-    if (!room) return;
-
-    delete room.players[socket.id];
-
-    // If middle left, clear middle
-    if (room.middleId === socket.id) {
-      room.middleId = null;
-    }
-
-    // If host left, assign new host
-    if (room.hostId === socket.id) {
-      const ids = Object.keys(room.players);
-      room.hostId = ids.length > 0 ? ids[0] : null;
-    }
-
-    // Reset duel if one participant left
-    if (room.duel && (room.duel.middleId === socket.id || room.duel.targetId === socket.id)) {
-      room.duel = null;
-    }
-
-    // Delete room if empty
-    if (Object.keys(room.players).length === 0) {
-      delete rooms[currentRoom];
-    } else {
-      emitRoomState(currentRoom);
-    }
-  });
-});
-
-server.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-});
+    if (room.inProgress) {
+      socket.emit
