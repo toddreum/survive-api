@@ -196,4 +196,93 @@ io.on("connection", (socket) => {
       return;
     }
     if (room.inProgress) {
-      socket.emit
+      socket.emit("errorMessage", "Game already started in this room.");
+      return;
+    }
+
+    room.players.push({
+      id: socket.id,
+      name: playerName || "Player",
+      alive: true
+    });
+    socket.join(roomCode);
+    socket.emit("joinedRoom", { roomCode, playerId: socket.id });
+    broadcastRoomUpdate(roomCode);
+  });
+
+  socket.on("startGame", ({ roomCode }) => {
+    const room = getRoom(roomCode);
+    if (!room) return;
+    if (socket.id !== room.hostId) {
+      socket.emit("errorMessage", "Only the host can start the game.");
+      return;
+    }
+    if (room.players.length < 2) {
+      socket.emit("errorMessage", "Need at least 2 players to start.");
+      return;
+    }
+    startGame(roomCode);
+  });
+
+  socket.on("submitWord", ({ roomCode, word }) => {
+    const room = getRoom(roomCode);
+    if (!room || !room.inProgress) return;
+
+    const currentPlayer = room.players[room.currentTurnIndex];
+    if (!currentPlayer || currentPlayer.id !== socket.id) {
+      socket.emit("errorMessage", "It's not your turn.");
+      return;
+    }
+
+    word = (word || "").trim();
+    if (!word) {
+      socket.emit("errorMessage", "You must type something to survive!");
+      return;
+    }
+
+    io.to(roomCode).emit("wordSubmitted", {
+      playerId: socket.id,
+      playerName: currentPlayer.name,
+      word
+    });
+
+    if (room.timeoutId) {
+      clearTimeout(room.timeoutId);
+      room.timeoutId = null;
+    }
+    advanceTurn(roomCode);
+  });
+
+  socket.on("disconnect", () => {
+    for (const roomCode of Object.keys(rooms)) {
+      const room = rooms[roomCode];
+      const idx = room.players.findIndex((p) => p.id === socket.id);
+      if (idx !== -1) {
+        const wasHost = room.hostId === socket.id;
+        room.players.splice(idx, 1);
+
+        if (room.players.length === 0) {
+          if (room.timeoutId) {
+            clearTimeout(room.timeoutId);
+          }
+          delete rooms[roomCode];
+          continue;
+        }
+
+        if (wasHost) {
+          room.hostId = room.players[0].id;
+        }
+
+        if (room.currentTurnIndex >= room.players.length) {
+          room.currentTurnIndex = 0;
+        }
+
+        broadcastRoomUpdate(roomCode);
+      }
+    }
+  });
+});
+
+server.listen(PORT, () => {
+  console.log(`Survive server running on port ${PORT}`);
+});
