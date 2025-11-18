@@ -1,16 +1,13 @@
 {
-  "name": "survive-api",
+  "name": "animal-tag-game",
   "version": "1.0.0",
-  "private": true,
-  "type": "module",
-  "description": "Backend for Survive.com - Stripe checkout + health boost",
+  "description": "Online animal-name tagging game",
+  "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "cors": "^2.8.5",
     "express": "^4.19.2",
-    "stripe": "^16.6.0"
-  },
-  "engines": { "node": ">=20.0.0" }
+    "socket.io": "^4.7.5"
+  }
 }
