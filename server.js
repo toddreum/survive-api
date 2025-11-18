@@ -7,25 +7,24 @@ const { Server } = require("socket.io");
 const app = express();
 const server = http.createServer(app);
 
-// Allow your cPanel frontend to talk to this server
+// Allow your cPanel frontend (any origin) to connect
 const io = new Server(server, {
   cors: {
-    origin: "*",           // you can tighten this later to your domain
+    origin: "*",
     methods: ["GET", "POST"]
   }
 });
 
 const PORT = process.env.PORT || 3000;
 
-// Simple health check
+// Simple health check route
 app.get("/", (req, res) => {
   res.send("Survive API is running.");
 });
 
 // ---- GAME STATE ----
-// rooms[roomCode] = { hostId, inProgress, currentTurnIndex, timeoutId, players: [...] }
+const rooms = {}; // roomCode -> { hostId, inProgress, currentTurnIndex, timeoutId, players: [...] }
 // player = { id, name, alive }
-const rooms = {};
 
 function createRoom(roomCode, hostId, hostName) {
   rooms[roomCode] = {
@@ -110,7 +109,7 @@ function startTurn(roomCode) {
     room.timeoutId = null;
   }
 
-  const TURN_DURATION_MS = 15000; // 15 seconds per turn
+  const TURN_DURATION_MS = 15000; // 15 seconds
 
   io.to(roomCode).emit("turnChanged", {
     activePlayerId: currentPlayer.id,
@@ -119,7 +118,7 @@ function startTurn(roomCode) {
   });
 
   room.timeoutId = setTimeout(() => {
-    // Player ran out of time -> eliminated
+    // Player failed to type in time
     currentPlayer.alive = false;
     io.to(roomCode).emit("playerEliminated", {
       playerId: currentPlayer.id,
@@ -180,7 +179,7 @@ function endGame(roomCode) {
 
 // ---- SOCKET.IO HANDLERS ----
 io.on("connection", (socket) => {
-  // Create room
+  // CREATE ROOM
   socket.on("createRoom", ({ roomCode, playerName }) => {
     roomCode = (roomCode || "").trim().toUpperCase();
 
@@ -200,7 +199,7 @@ io.on("connection", (socket) => {
     broadcastRoomUpdate(roomCode);
   });
 
-  // Join room
+  // JOIN ROOM
   socket.on("joinRoom", ({ roomCode, playerName }) => {
     roomCode = (roomCode || "").trim().toUpperCase();
     const room = getRoom(roomCode);
@@ -231,7 +230,7 @@ io.on("connection", (socket) => {
     broadcastRoomUpdate(roomCode);
   });
 
-  // Start game (host only)
+  // START GAME
   socket.on("startGame", ({ roomCode }) => {
     const room = getRoom(roomCode);
     if (!room) return;
@@ -249,7 +248,7 @@ io.on("connection", (socket) => {
     startGame(roomCode);
   });
 
-  // Submit word
+  // SUBMIT WORD
   socket.on("submitWord", ({ roomCode, word }) => {
     const room = getRoom(roomCode);
     if (!room || !room.inProgress) return;
@@ -262,53 +261,4 @@ io.on("connection", (socket) => {
 
     word = (word || "").trim();
     if (!word) {
-      socket.emit("errorMessage", "You must type something to survive!");
-      return;
-    }
-
-    io.to(roomCode).emit("wordSubmitted", {
-      playerId: socket.id,
-      playerName: currentPlayer.name,
-      word
-    });
-
-    if (room.timeoutId) {
-      clearTimeout(room.timeoutId);
-      room.timeoutId = null;
-    }
-
-    advanceTurn(roomCode);
-  });
-
-  // Disconnect
-  socket.on("disconnect", () => {
-    for (const roomCode of Object.keys(rooms)) {
-      const room = rooms[roomCode];
-      const idx = room.players.findIndex((p) => p.id === socket.id);
-      if (idx === -1) continue;
-
-      const wasHost = room.hostId === socket.id;
-      room.players.splice(idx, 1);
-
-      if (room.players.length === 0) {
-        if (room.timeoutId) clearTimeout(room.timeoutId);
-        delete rooms[roomCode];
-        continue;
-      }
-
-      if (wasHost) {
-        room.hostId = room.players[0].id;
-      }
-
-      if (room.currentTurnIndex >= room.players.length) {
-        room.currentTurnIndex = 0;
-      }
-
-      broadcastRoomUpdate(roomCode);
-    }
-  });
-});
-
-server.listen(PORT, () => {
-  console.log(`Survive API listening on port ${PORT}`);
-});
+      socket.emi
