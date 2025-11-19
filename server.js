@@ -1,152 +1,294 @@
+// server.js
+// Simple room-based sync server for SURVIVE – Neon Aardvark Tag
+
 const express = require("express");
 const http = require("http");
 const cors = require("cors");
 const { Server } = require("socket.io");
 
-const app = express();
-app.use(cors());
+const PORT = process.env.PORT || 10000;
 
+const app = express();
+
+// --- CORS for HTTP routes ---
+app.use(
+  cors({
+    origin: "*",           // you can lock this down later
+    methods: ["GET", "POST"],
+  })
+);
+
+app.use(express.json());
+
+// Simple health check
 app.get("/", (req, res) => {
-  res.send("Survive API is running");
+  res.json({ ok: true, message: "SURVIVE API online" });
 });
 
+// Optional debug route to see room codes (no sensitive data)
+app.get("/rooms", (req, res) => {
+  res.json({
+    rooms: Object.values(rooms).map((r) => ({
+      code: r.code,
+      hostId: r.hostId,
+      playerCount: r.players.length,
+      lastUpdated: r.lastUpdated,
+    })),
+  });
+});
+
+// --- HTTP server + Socket.IO ---
 const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  }
+    origin: "*",           // front-end origin(s) allowed
+    methods: ["GET", "POST"],
+  },
 });
 
-// rooms[code] = {
-//   hostId: socket.id,
-//   players: { socketId: { name, isHost } },
-//   lastState: { players, phase, middleIndex, duel, gameEndTime }
-// };
+// In-memory room store
+// room = {
+//   code,
+//   hostId,
+//   createdAt,
+//   lastUpdated,
+//   players: [{ id, name }],
+//   state: { ... arbitrary game state from host ... }
+// }
 const rooms = {};
 
-function generateRoomCode() {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let out = "";
-  for (let i = 0; i < 4; i++) {
-    out += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return out;
+// Helper functions
+function createRoom(code, hostSocket, hostName) {
+  const now = Date.now();
+  const room = {
+    code,
+    hostId: hostSocket.id,
+    createdAt: now,
+    lastUpdated: now,
+    players: [
+      {
+        id: hostSocket.id,
+        name: hostName || "Host",
+      },
+    ],
+    state: null,
+  };
+  rooms[code] = room;
+  hostSocket.join(code);
+  return room;
 }
+
+function getRoom(code) {
+  return rooms[code] || null;
+}
+
+function removePlayerFromRoom(socketId) {
+  let affectedRoomCode = null;
+  Object.values(rooms).forEach((room) => {
+    const before = room.players.length;
+    room.players = room.players.filter((p) => p.id !== socketId);
+    if (room.players.length !== before) {
+      affectedRoomCode = room.code;
+      room.lastUpdated = Date.now();
+    }
+  });
+
+  if (!affectedRoomCode) return;
+
+  const room = rooms[affectedRoomCode];
+
+  // If room is empty, delete it
+  if (!room.players.length) {
+    delete rooms[affectedRoomCode];
+    return;
+  }
+
+  // If host left, reassign host to first remaining player
+  if (!room.players.some((p) => p.id === room.hostId)) {
+    room.hostId = room.players[0].id;
+  }
+
+  broadcastRoomState(room.code);
+}
+
+function sanitizeRoomForClient(room) {
+  return {
+    code: room.code,
+    hostId: room.hostId,
+    players: room.players,
+    state: room.state || null,
+    lastUpdated: room.lastUpdated,
+  };
+}
+
+function broadcastRoomState(code) {
+  const room = getRoom(code);
+  if (!room) return;
+  const payload = sanitizeRoomForClient(room);
+  io.to(code).emit("room:state", payload);
+}
+
+// --- Socket.IO events ---
 
 io.on("connection", (socket) => {
   console.log("Client connected:", socket.id);
 
-  socket.on("createRoom", ({ name }) => {
-    let code;
-    do {
-      code = generateRoomCode();
-    } while (rooms[code]);
+  // Host a new room
+  // payload: { roomCode, playerName }
+  socket.on("room:host", ({ roomCode, playerName }) => {
+    try {
+      const code = (roomCode || "").trim().toUpperCase();
+      if (!code || code.length > 10) {
+        socket.emit("room:error", { message: "Invalid room code." });
+        return;
+      }
 
-    rooms[code] = {
-      hostId: socket.id,
-      players: {
-        [socket.id]: { name: name || "Host", isHost: true }
-      },
-      lastState: null
-    };
+      if (rooms[code] && rooms[code].players.length > 0) {
+        socket.emit("room:error", {
+          message: "Room already exists and is not empty. Pick another code or join.",
+        });
+        return;
+      }
 
-    socket.join(code);
-    socket.emit("roomJoined", {
-      roomCode: code,
-      playerId: socket.id,
-      isHost: true
-    });
+      const room = createRoom(code, socket, playerName);
+      console.log(`Room ${code} hosted by ${socket.id}`);
 
-    console.log(`Room ${code} created by ${socket.id}`);
+      socket.emit("room:joined", {
+        code: room.code,
+        hostId: room.hostId,
+        you: socket.id,
+      });
+
+      broadcastRoomState(code);
+    } catch (err) {
+      console.error("room:host error", err);
+      socket.emit("room:error", { message: "Failed to host room." });
+    }
   });
 
-  socket.on("joinRoom", ({ roomCode, name }) => {
-    const code = (roomCode || "").toUpperCase();
-    const room = rooms[code];
+  // Join an existing room
+  // payload: { roomCode, playerName }
+  socket.on("room:join", ({ roomCode, playerName }) => {
+    try {
+      const code = (roomCode || "").trim().toUpperCase();
+      if (!code) {
+        socket.emit("room:error", { message: "Room code is required." });
+        return;
+      }
+
+      const room = getRoom(code);
+      if (!room) {
+        socket.emit("room:error", { message: "Room not found." });
+        return;
+      }
+
+      if (room.players.length >= 10) {
+        socket.emit("room:error", { message: "Room is full (max 10 players)." });
+        return;
+      }
+
+      // Check if this socket is already in the room
+      if (!room.players.some((p) => p.id === socket.id)) {
+        room.players.push({
+          id: socket.id,
+          name: playerName || `Player ${room.players.length + 1}`,
+        });
+        room.lastUpdated = Date.now();
+      }
+
+      socket.join(code);
+
+      socket.emit("room:joined", {
+        code: room.code,
+        hostId: room.hostId,
+        you: socket.id,
+      });
+
+      broadcastRoomState(code);
+      console.log(`Socket ${socket.id} joined room ${code}`);
+    } catch (err) {
+      console.error("room:join error", err);
+      socket.emit("room:error", { message: "Failed to join room." });
+    }
+  });
+
+  // Client leaves a room explicitly
+  // payload: { roomCode }
+  socket.on("room:leave", ({ roomCode }) => {
+    try {
+      const code = (roomCode || "").trim().toUpperCase();
+      if (!code) return;
+
+      const room = getRoom(code);
+      if (!room) return;
+
+      socket.leave(code);
+      room.players = room.players.filter((p) => p.id !== socket.id);
+      room.lastUpdated = Date.now();
+
+      // Room empty? delete
+      if (!room.players.length) {
+        delete rooms[code];
+      } else {
+        // Host left? reassign
+        if (!room.players.some((p) => p.id === room.hostId)) {
+          room.hostId = room.players[0].id;
+        }
+        broadcastRoomState(code);
+      }
+    } catch (err) {
+      console.error("room:leave error", err);
+    }
+  });
+
+  // Host sends authoritative game state to sync to everyone
+  // payload: { roomCode, state }
+  // "state" should contain the board / players / phase / timer etc.
+  socket.on("room:updateState", ({ roomCode, state }) => {
+    try {
+      const code = (roomCode || "").trim().toUpperCase();
+      const room = getRoom(code);
+      if (!room) return;
+
+      // Only host is allowed to push state
+      if (socket.id !== room.hostId) {
+        socket.emit("room:error", {
+          message: "Only the host can update the game state.",
+        });
+        return;
+      }
+
+      // Store and broadcast
+      room.state = state || null;
+      room.lastUpdated = Date.now();
+      broadcastRoomState(code);
+    } catch (err) {
+      console.error("room:updateState error", err);
+      socket.emit("room:error", { message: "Failed to update state." });
+    }
+  });
+
+  // Clients can request the latest state (e.g. after reconnect)
+  // payload: { roomCode }
+  socket.on("room:requestState", ({ roomCode }) => {
+    const code = (roomCode || "").trim().toUpperCase();
+    const room = getRoom(code);
     if (!room) {
-      socket.emit("errorMessage", "Room not found.");
+      socket.emit("room:error", { message: "Room not found." });
       return;
     }
-    if (Object.keys(room.players).length >= 10) {
-      socket.emit("errorMessage", "Room is full (max 10 players).");
-      return;
-    }
-
-    room.players[socket.id] = {
-      name: name || "Player",
-      isHost: false
-    };
-
-    socket.join(code);
-
-    socket.emit("roomJoined", {
-      roomCode: code,
-      playerId: socket.id,
-      isHost: false,
-      state: room.lastState
-    });
-
-    io.to(room.hostId).emit("playerJoined", {
-      roomCode: code,
-      playerId: socket.id,
-      name: name || "Player"
-    });
-
-    console.log(`Client ${socket.id} joined room ${code}`);
+    const payload = sanitizeRoomForClient(room);
+    socket.emit("room:state", payload);
   });
 
-  // Host pushes full game state to all others
-  socket.on("hostStateUpdate", ({ roomCode, state }) => {
-    const code = (roomCode || "").toUpperCase();
-    const room = rooms[code];
-    if (!room) return;
-    if (room.hostId !== socket.id) return;
-
-    room.lastState = state || null;
-    // broadcast to everyone else in the room
-    socket.to(code).emit("stateUpdate", state);
-  });
-
-  // Player sends some action (not fully used yet; this is for future per-player control)
-  socket.on("playerAction", ({ roomCode, action }) => {
-    const code = (roomCode || "").toUpperCase();
-    const room = rooms[code];
-    if (!room) return;
-    io.to(room.hostId).emit("playerAction", {
-      roomCode: code,
-      fromPlayerId: socket.id,
-      action
-    });
-  });
-
+  // Handle disconnect
   socket.on("disconnect", () => {
     console.log("Client disconnected:", socket.id);
-
-    for (const code of Object.keys(rooms)) {
-      const room = rooms[code];
-      if (!room) continue;
-      if (!room.players[socket.id]) continue;
-
-      const wasHost = room.hostId === socket.id;
-      delete room.players[socket.id];
-
-      if (wasHost) {
-        io.to(code).emit("roomClosed");
-        delete rooms[code];
-        console.log(`Room ${code} closed (host disconnected).`);
-      } else {
-        io.to(room.hostId).emit("playerLeft", {
-          roomCode: code,
-          playerId: socket.id
-        });
-      }
-    }
+    removePlayerFromRoom(socket.id);
   });
 });
 
-const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
-  console.log("Survive API listening on port", PORT);
+  console.log(`SURVIVE API listening on port ${PORT}`);
 });
