@@ -1,7 +1,7 @@
 {
   "name": "survive-api",
   "version": "1.0.0",
-  "description": "Backend for SURVIVE – Neon Aardvark Tag (rooms + sync)",
+  "description": "Backend for SURVIVE – Neon Aardvark Tag (online rooms + sync)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
