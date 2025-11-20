@@ -17,15 +17,12 @@ app.use(express.static(path.join(__dirname, "public")));
 // rooms[code] = {
 //   code,
 //   hostId,
-//   players: {
-//     socketId: { name, animal, joinedAt }
-//   },
+//   players: { socketId: { name, animal, joinedAt } },
 //   calledAnimals: new Set(),
 //   state: 'lobby' | 'started'
 // }
 const rooms = {};
 
-// Decoy animals (global reserved names)
 const decoyAnimals = [
   "aardvark",
   "unicorn",
@@ -39,7 +36,6 @@ const decoyAnimals = [
   "hedgehog"
 ];
 
-// Utility: generate simple 4-char room code
 function generateRoomCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
@@ -72,7 +68,6 @@ function broadcastPlayerList(roomCode) {
 io.on("connection", (socket) => {
   console.log("New client connected:", socket.id);
 
-  // Host creates room
   socket.on("createRoom", ({ nickname }) => {
     const roomCode = generateRoomCode();
     rooms[roomCode] = {
@@ -100,7 +95,6 @@ io.on("connection", (socket) => {
     console.log(`Room created: ${roomCode} by ${socket.id}`);
   });
 
-  // Player joins room
   socket.on("joinRoom", ({ roomCode, nickname }) => {
     roomCode = (roomCode || "").toUpperCase();
     const room = rooms[roomCode];
@@ -124,7 +118,6 @@ io.on("connection", (socket) => {
     console.log(`Socket ${socket.id} joined room ${roomCode}`);
   });
 
-  // Player chooses an animal
   socket.on("chooseAnimal", ({ roomCode, animal }) => {
     roomCode = (roomCode || "").toUpperCase();
     animal = (animal || "").trim();
@@ -143,7 +136,6 @@ io.on("connection", (socket) => {
     const animalLower = animal.toLowerCase();
     const decoySet = new Set(decoyAnimals.map((a) => a.toLowerCase()));
 
-    // Cannot be a decoy
     if (decoySet.has(animalLower)) {
       socket.emit("animalRejected", {
         reason: "That animal is reserved as a decoy. Choose another!"
@@ -151,7 +143,6 @@ io.on("connection", (socket) => {
       return;
     }
 
-    // Cannot duplicate any other player's animal in this room
     const players = room.players;
     for (const [sid, p] of Object.entries(players)) {
       if (sid === socket.id) continue;
@@ -163,14 +154,12 @@ io.on("connection", (socket) => {
       }
     }
 
-    // All good, assign
     players[socket.id].animal = animal;
     socket.emit("animalAccepted", { animal });
     broadcastPlayerList(roomCode);
     console.log(`In room ${roomCode}, ${socket.id} picked animal ${animal}`);
   });
 
-  // Host starts the game
   socket.on("startGame", ({ roomCode }) => {
     roomCode = (roomCode || "").toUpperCase();
     const room = rooms[roomCode];
@@ -183,7 +172,6 @@ io.on("connection", (socket) => {
     console.log(`Game started in room ${roomCode}`);
   });
 
-  // Host calls a random player's animal (no decoys)
   socket.on("callRandomAnimal", ({ roomCode }) => {
     roomCode = (roomCode || "").toUpperCase();
     const room = rooms[roomCode];
@@ -212,7 +200,6 @@ io.on("connection", (socket) => {
     console.log(`In room ${roomCode}, called animal: ${chosen.animal}`);
   });
 
-  // Host calls with decoys (1 real + 2 decoys)
   socket.on("callAnimalWithDecoys", ({ roomCode }) => {
     roomCode = (roomCode || "").toUpperCase();
     const room = rooms[roomCode];
@@ -262,7 +249,6 @@ io.on("connection", (socket) => {
     );
   });
 
-  // Handle disconnect
   socket.on("disconnect", () => {
     console.log("Client disconnected:", socket.id);
 
