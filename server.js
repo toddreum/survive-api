@@ -1,266 +1,300 @@
-// server.js
-// SURVIVE – Neon Aardvark Tag backend
-// Multi-room Socket.IO sync for up to 10 clients per room
-
 const express = require("express");
 const http = require("http");
-const cors = require("cors");
 const { Server } = require("socket.io");
-
-const PORT = process.env.PORT || 10000;
+const path = require("path");
 
 const app = express();
-
-// ----- HTTP + CORS -----
-app.use(
-  cors({
-    origin: "*", // tighten to your domain later if you want
-    methods: ["GET", "POST"]
-  })
-);
-app.use(express.json());
-
-// In-memory rooms map must be defined before /rooms & sockets
-// Each room:
-// {
-//   code: "AB12",
-//   hostId: "<socket.id>",
-//   hostName: "Host",
-//   clients: Set<socketId>,
-//   state: { ...gameStateFromHost... } | null,
-//   createdAt: number,
-//   updatedAt: number
-// }
-const rooms = new Map();
-
-// Simple health check
-app.get("/", (req, res) => {
-  res.json({ ok: true, message: "SURVIVE API online" });
-});
-
-// Optional debug endpoint – shows active rooms (no game details)
-app.get("/rooms", (req, res) => {
-  const summary = [];
-  for (const [code, room] of rooms.entries()) {
-    summary.push({
-      code,
-      hostId: room.hostId,
-      hostName: room.hostName,
-      clientCount: room.clients.size,
-      createdAt: room.createdAt,
-      updatedAt: room.updatedAt
-    });
-  }
-  res.json({ rooms: summary });
-});
-
-// ----- HTTP server + Socket.IO -----
 const server = http.createServer(app);
+const io = new Server(server);
 
-const io = new Server(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  }
-});
+const PORT = process.env.PORT || 3000;
 
-// ----- Room helpers -----
+// Serve static files
+app.use(express.static(path.join(__dirname, "public")));
 
-// Helper: generate a short room code like "AB12"
+// --- Game State ---
+
+// Simple in-memory room store
+// rooms[code] = {
+//   code,
+//   hostId,
+//   players: {
+//     socketId: { name, animal, joinedAt }
+//   },
+//   calledAnimals: new Set(),
+//   state: 'lobby' | 'started'
+// }
+const rooms = {};
+
+// Decoy animals (global reserved names)
+const decoyAnimals = [
+  "aardvark",
+  "unicorn",
+  "dragon",
+  "phoenix",
+  "narwhal",
+  "griffin",
+  "platypus",
+  "penguin",
+  "sloth",
+  "hedgehog"
+];
+
+// Utility: generate simple 4-letter room code
 function generateRoomCode() {
-  const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no 0 / 1 / O / I
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
   for (let i = 0; i < 4; i++) {
-    code += chars[Math.floor(Math.random() * chars.length)];
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
   }
+  if (rooms[code]) return generateRoomCode();
   return code;
 }
 
-function createRoom(hostSocket, hostName) {
-  // Make sure we don't clash codes
-  let code;
-  do {
-    code = generateRoomCode();
-  } while (rooms.has(code));
-
-  const now = Date.now();
-  const room = {
-    code,
-    hostId: hostSocket.id,
-    hostName: hostName || "Host",
-    clients: new Set([hostSocket.id]),
-    state: null,
-    createdAt: now,
-    updatedAt: now
-  };
-
-  rooms.set(code, room);
-  hostSocket.join(code);
-
-  return room;
+// Get list of players in a room
+function getRoomPlayers(roomCode) {
+  const room = rooms[roomCode];
+  if (!room) return [];
+  return Object.entries(room.players).map(([sid, p]) => ({
+    socketId: sid,
+    name: p.name,
+    animal: p.animal
+  }));
 }
 
-function getRoom(codeRaw) {
-  const code = (codeRaw || "").trim().toUpperCase();
-  if (!code) return null;
-  return rooms.get(code) || null;
+// Broadcast player list update
+function broadcastPlayerList(roomCode) {
+  const room = rooms[roomCode];
+  if (!room) return;
+  io.to(roomCode).emit("playerListUpdate", {
+    roomCode,
+    players: getRoomPlayers(roomCode)
+  });
 }
 
-function removeClientFromRooms(socketId) {
-  const affectedRooms = [];
-
-  for (const [code, room] of rooms.entries()) {
-    if (room.clients.has(socketId)) {
-      room.clients.delete(socketId);
-      room.updatedAt = Date.now();
-      affectedRooms.push({ code, room });
-    }
-  }
-
-  for (const { code, room } of affectedRooms) {
-    // If host left this room
-    if (room.hostId === socketId) {
-      // Tell remaining clients the room is closed
-      io.to(code).emit("roomClosed");
-      rooms.delete(code);
-      console.log(`Room ${code} closed because host disconnected.`);
-      continue;
-    }
-
-    // If no clients left at all, just delete the room
-    if (room.clients.size === 0) {
-      rooms.delete(code);
-      console.log(`Room ${code} deleted (no clients left).`);
-    }
-  }
-}
-
-// ----- Socket.IO events -----
 io.on("connection", (socket) => {
-  console.log("Client connected:", socket.id);
+  console.log("New client connected:", socket.id);
 
-  // Keep-alive / heartbeat (optional but helpful on Render)
-  socket.on("pingHost", () => {
-    socket.emit("pongHost");
-  });
+  // Host creates room
+  socket.on("createRoom", ({ nickname }) => {
+    const roomCode = generateRoomCode();
+    rooms[roomCode] = {
+      code: roomCode,
+      hostId: socket.id,
+      players: {},
+      calledAnimals: new Set(),
+      state: "lobby"
+    };
 
-  // Client wants to HOST a new room
-  // payload: { name }
-  socket.on("createRoom", ({ name } = {}) => {
-    try {
-      // If this socket was already in any room, clean it up
-      removeClientFromRooms(socket.id);
+    rooms[roomCode].players[socket.id] = {
+      name: nickname || "Host",
+      animal: null,
+      joinedAt: Date.now()
+    };
 
-      const hostName = (name || "").toString().trim() || "Host";
-      const room = createRoom(socket, hostName);
+    socket.join(roomCode);
 
-      console.log(`Room ${room.code} created by ${socket.id} (${hostName})`);
-
-      socket.emit("roomJoined", {
-        roomCode: room.code,
-        playerId: socket.id,
-        isHost: true,
-        state: room.state // null at first
-      });
-    } catch (err) {
-      console.error("createRoom error:", err);
-      socket.emit("errorMessage", "Failed to create room. Please try again.");
-    }
-  });
-
-  // Client wants to JOIN an existing room
-  // payload: { roomCode, name }
-  socket.on("joinRoom", ({ roomCode, name } = {}) => {
-    try {
-      const room = getRoom(roomCode);
-      if (!room) {
-        socket.emit("errorMessage", "Room not found. Check the code.");
-        return;
-      }
-
-      // Limit total clients to 10 (host + viewers)
-      if (!room.clients.has(socket.id) && room.clients.size >= 10) {
-        socket.emit("errorMessage", "Room is full (max 10 total).");
-        return;
-      }
-
-      // Add client to room if not already tracked
-      if (!room.clients.has(socket.id)) {
-        room.clients.add(socket.id);
-        room.updatedAt = Date.now();
-      }
-
-      socket.join(room.code);
-
-      console.log(
-        `Socket ${socket.id} (${name || "Viewer"}) joined room ${room.code}`
-      );
-
-      socket.emit("roomJoined", {
-        roomCode: room.code,
-        playerId: socket.id,
-        isHost: socket.id === room.hostId,
-        state: room.state // last known game state from host (if any)
-      });
-    } catch (err) {
-      console.error("joinRoom error:", err);
-      socket.emit("errorMessage", "Failed to join room. Please try again.");
-    }
-  });
-
-  // Host pushes authoritative game state
-  // payload: { roomCode, state }
-  socket.on("hostStateUpdate", ({ roomCode, state } = {}) => {
-    try {
-      const room = getRoom(roomCode);
-      if (!room) {
-        socket.emit("errorMessage", "Room not found for state update.");
-        return;
-      }
-
-      // Only the host of that room can send state updates
-      if (socket.id !== room.hostId) {
-        socket.emit("errorMessage", "Only the host can update the game state.");
-        return;
-      }
-
-      // Save and broadcast the new state
-      room.state = state || null;
-      room.updatedAt = Date.now();
-
-      // Send to everyone in the room (including host)
-      io.to(room.code).emit("stateUpdate", room.state);
-    } catch (err) {
-      console.error("hostStateUpdate error:", err);
-      socket.emit("errorMessage", "Failed to sync game state.");
-    }
-  });
-
-  // Optional: future per-player events from clients
-  // payload can be anything; for now we just echo to the host
-  socket.on("playerAction", ({ roomCode, action, data } = {}) => {
-    const room = getRoom(roomCode);
-    if (!room) return;
-
-    // Forward this to the host only (host might use later)
-    io.to(room.hostId).emit("playerAction", {
-      from: socket.id,
-      action,
-      data
+    socket.emit("roomCreated", {
+      roomCode,
+      isHost: true
     });
+
+    broadcastPlayerList(roomCode);
+    console.log(`Room created: ${roomCode} by ${socket.id}`);
   });
 
+  // Player joins room
+  socket.on("joinRoom", ({ roomCode, nickname }) => {
+    roomCode = (roomCode || "").toUpperCase();
+    const room = rooms[roomCode];
+    if (!room) {
+      socket.emit("joinError", { message: "Room not found." });
+      return;
+    }
+
+    room.players[socket.id] = {
+      name: nickname || "Player",
+      animal: null,
+      joinedAt: Date.now()
+    };
+
+    socket.join(roomCode);
+    socket.emit("joinedRoom", {
+      roomCode,
+      isHost: room.hostId === socket.id
+    });
+    broadcastPlayerList(roomCode);
+    console.log(`Socket ${socket.id} joined room ${roomCode}`);
+  });
+
+  // Player chooses an animal
+  socket.on("chooseAnimal", ({ roomCode, animal }) => {
+    roomCode = (roomCode || "").toUpperCase();
+    animal = (animal || "").trim();
+
+    const room = rooms[roomCode];
+    if (!room) {
+      socket.emit("animalRejected", { reason: "Room not found." });
+      return;
+    }
+
+    if (!animal) {
+      socket.emit("animalRejected", { reason: "Animal name cannot be empty." });
+      return;
+    }
+
+    const animalLower = animal.toLowerCase();
+
+    // Cannot be a decoy
+    const decoySet = new Set(decoyAnimals.map((a) => a.toLowerCase()));
+    if (decoySet.has(animalLower)) {
+      socket.emit("animalRejected", {
+        reason: "That animal is reserved as a decoy. Choose another!"
+      });
+      return;
+    }
+
+    // Cannot duplicate any other player's animal in this room
+    const players = room.players;
+    for (const [sid, p] of Object.entries(players)) {
+      if (sid === socket.id) continue;
+      if (p.animal && p.animal.toLowerCase() === animalLower) {
+        socket.emit("animalRejected", {
+          reason: "That animal is already taken by another player."
+        });
+        return;
+      }
+    }
+
+    // All good, assign
+    players[socket.id].animal = animal;
+    socket.emit("animalAccepted", { animal });
+    broadcastPlayerList(roomCode);
+    console.log(`In room ${roomCode}, ${socket.id} picked animal ${animal}`);
+  });
+
+  // Host starts the game
+  socket.on("startGame", ({ roomCode }) => {
+    roomCode = (roomCode || "").toUpperCase();
+    const room = rooms[roomCode];
+    if (!room) return;
+    if (room.hostId !== socket.id) return; // only host
+
+    room.state = "started";
+    room.calledAnimals = new Set();
+    io.to(roomCode).emit("gameStarted", { roomCode });
+    console.log(`Game started in room ${roomCode}`);
+  });
+
+  // Host calls a random player's animal (no decoys)
+  socket.on("callRandomAnimal", ({ roomCode }) => {
+    roomCode = (roomCode || "").toUpperCase();
+    const room = rooms[roomCode];
+    if (!room) return;
+    if (room.hostId !== socket.id) return;
+
+    const players = getRoomPlayers(roomCode).filter((p) => p.animal);
+    const uncalled = players.filter(
+      (p) => !room.calledAnimals.has(p.animal.toLowerCase())
+    );
+
+    if (uncalled.length === 0) {
+      socket.emit("callError", { message: "All animals have been called!" });
+      return;
+    }
+
+    const chosen = uncalled[Math.floor(Math.random() * uncalled.length)];
+    room.calledAnimals.add(chosen.animal.toLowerCase());
+
+    // Broadcast to everyone: which animal was called
+    io.to(roomCode).emit("animalCalled", {
+      animal: chosen.animal,
+      playerName: chosen.name,
+      socketId: chosen.socketId
+    });
+
+    console.log(`In room ${roomCode}, called animal: ${chosen.animal}`);
+  });
+
+  // Host calls with decoys (1 real + 2 decoys)
+  socket.on("callAnimalWithDecoys", ({ roomCode }) => {
+    roomCode = (roomCode || "").toUpperCase();
+    const room = rooms[roomCode];
+    if (!room) return;
+    if (room.hostId !== socket.id) return;
+
+    const players = getRoomPlayers(roomCode).filter((p) => p.animal);
+    const uncalled = players.filter(
+      (p) => !room.calledAnimals.has(p.animal.toLowerCase())
+    );
+
+    if (uncalled.length === 0) {
+      socket.emit("callError", { message: "All animals have been called!" });
+      return;
+    }
+
+    const chosen = uncalled[Math.floor(Math.random() * uncalled.length)];
+    room.calledAnimals.add(chosen.animal.toLowerCase());
+
+    // Build decoys that are not used as any player's animal and not equal to chosen
+    const playerAnimalSet = new Set(
+      players.map((p) => p.animal.toLowerCase())
+    );
+    const validDecoys = decoyAnimals.filter(
+      (d) =>
+        d.toLowerCase() !== chosen.animal.toLowerCase() &&
+        !playerAnimalSet.has(d.toLowerCase())
+    );
+
+    // Pick up to 2 decoys
+    const shuffled = validDecoys.sort(() => Math.random() - 0.5);
+    const chosenDecoys = shuffled.slice(0, 2);
+
+    // Shuffle options
+    const options = [chosen.animal, ...chosenDecoys];
+    options.sort(() => Math.random() - 0.5);
+
+    io.to(roomCode).emit("animalCalledWithDecoys", {
+      correctAnimal: chosen.animal,
+      options,
+      playerName: chosen.name,
+      socketId: chosen.socketId
+    });
+
+    console.log(
+      `In room ${roomCode}, called animal with decoys: ${chosen.animal} vs [${chosenDecoys.join(
+        ", "
+      )}]`
+    );
+  });
+
+  // Handle disconnect
   socket.on("disconnect", () => {
     console.log("Client disconnected:", socket.id);
-    removeClientFromRooms(socket.id);
+
+    // Remove from any room they were in
+    for (const [code, room] of Object.entries(rooms)) {
+      if (room.players[socket.id]) {
+        delete room.players[socket.id];
+
+        // If host left, announce and destroy room
+        if (room.hostId === socket.id) {
+          io.to(code).emit("hostLeft", {
+            message: "Host left. Room is closing."
+          });
+          // Disconnect everyone in that room
+          io.in(code).socketsLeave(code);
+          delete rooms[code];
+          console.log(`Room ${code} closed because host left.`);
+        } else {
+          broadcastPlayerList(code);
+        }
+        break;
+      }
+    }
   });
 });
 
-// Heartbeat broadcast to keep Render instance warm
-setInterval(() => {
-  io.emit("pingHost");
-}, 15000);
-
 server.listen(PORT, () => {
-  console.log(`SURVIVE API listening on port ${PORT}`);
+  console.log(`Aardvark Animal Game running at http://localhost:${PORT}`);
 });
