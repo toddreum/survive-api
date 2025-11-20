@@ -1,6 +1,6 @@
 {
   "name": "aardvark-animal-game",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Online + offline multiplayer animal calling party game (Aardvark edition)",
   "main": "server.js",
   "scripts": {
