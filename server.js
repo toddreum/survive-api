@@ -14,7 +14,6 @@ app.use(express.static(path.join(__dirname, "public")));
 
 // --- Game State ---
 
-// Simple in-memory room store
 // rooms[code] = {
 //   code,
 //   hostId,
@@ -40,7 +39,7 @@ const decoyAnimals = [
   "hedgehog"
 ];
 
-// Utility: generate simple 4-letter room code
+// Utility: generate simple 4-char room code
 function generateRoomCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
@@ -51,7 +50,6 @@ function generateRoomCode() {
   return code;
 }
 
-// Get list of players in a room
 function getRoomPlayers(roomCode) {
   const room = rooms[roomCode];
   if (!room) return [];
@@ -62,7 +60,6 @@ function getRoomPlayers(roomCode) {
   }));
 }
 
-// Broadcast player list update
 function broadcastPlayerList(roomCode) {
   const room = rooms[roomCode];
   if (!room) return;
@@ -144,9 +141,9 @@ io.on("connection", (socket) => {
     }
 
     const animalLower = animal.toLowerCase();
+    const decoySet = new Set(decoyAnimals.map((a) => a.toLowerCase()));
 
     // Cannot be a decoy
-    const decoySet = new Set(decoyAnimals.map((a) => a.toLowerCase()));
     if (decoySet.has(animalLower)) {
       socket.emit("animalRejected", {
         reason: "That animal is reserved as a decoy. Choose another!"
@@ -178,7 +175,7 @@ io.on("connection", (socket) => {
     roomCode = (roomCode || "").toUpperCase();
     const room = rooms[roomCode];
     if (!room) return;
-    if (room.hostId !== socket.id) return; // only host
+    if (room.hostId !== socket.id) return;
 
     room.state = "started";
     room.calledAnimals = new Set();
@@ -206,7 +203,6 @@ io.on("connection", (socket) => {
     const chosen = uncalled[Math.floor(Math.random() * uncalled.length)];
     room.calledAnimals.add(chosen.animal.toLowerCase());
 
-    // Broadcast to everyone: which animal was called
     io.to(roomCode).emit("animalCalled", {
       animal: chosen.animal,
       playerName: chosen.name,
@@ -236,7 +232,6 @@ io.on("connection", (socket) => {
     const chosen = uncalled[Math.floor(Math.random() * uncalled.length)];
     room.calledAnimals.add(chosen.animal.toLowerCase());
 
-    // Build decoys that are not used as any player's animal and not equal to chosen
     const playerAnimalSet = new Set(
       players.map((p) => p.animal.toLowerCase())
     );
@@ -246,13 +241,12 @@ io.on("connection", (socket) => {
         !playerAnimalSet.has(d.toLowerCase())
     );
 
-    // Pick up to 2 decoys
     const shuffled = validDecoys.sort(() => Math.random() - 0.5);
     const chosenDecoys = shuffled.slice(0, 2);
 
-    // Shuffle options
-    const options = [chosen.animal, ...chosenDecoys];
-    options.sort(() => Math.random() - 0.5);
+    const options = [chosen.animal, ...chosenDecoys].sort(
+      () => Math.random() - 0.5
+    );
 
     io.to(roomCode).emit("animalCalledWithDecoys", {
       correctAnimal: chosen.animal,
@@ -272,17 +266,14 @@ io.on("connection", (socket) => {
   socket.on("disconnect", () => {
     console.log("Client disconnected:", socket.id);
 
-    // Remove from any room they were in
     for (const [code, room] of Object.entries(rooms)) {
       if (room.players[socket.id]) {
         delete room.players[socket.id];
 
-        // If host left, announce and destroy room
         if (room.hostId === socket.id) {
           io.to(code).emit("hostLeft", {
             message: "Host left. Room is closing."
           });
-          // Disconnect everyone in that room
           io.in(code).socketsLeave(code);
           delete rooms[code];
           console.log(`Room ${code} closed because host left.`);
