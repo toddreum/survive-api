@@ -14,11 +14,24 @@ const app = express();
 // ----- HTTP + CORS -----
 app.use(
   cors({
-    origin: "*",            // You can tighten this later to your exact domain(s)
+    origin: "*", // tighten to your domain later if you want
     methods: ["GET", "POST"]
   })
 );
 app.use(express.json());
+
+// In-memory rooms map must be defined before /rooms & sockets
+// Each room:
+// {
+//   code: "AB12",
+//   hostId: "<socket.id>",
+//   hostName: "Host",
+//   clients: Set<socketId>,
+//   state: { ...gameStateFromHost... } | null,
+//   createdAt: number,
+//   updatedAt: number
+// }
+const rooms = new Map();
 
 // Simple health check
 app.get("/", (req, res) => {
@@ -51,18 +64,7 @@ const io = new Server(server, {
   }
 });
 
-// ----- In-memory rooms -----
-// Each room:
-// {
-//   code: "AB12",
-//   hostId: "<socket.id>",
-//   hostName: "Host",
-//   clients: Set<socketId>,
-//   state: { ...gameStateFromHost... } | null,
-//   createdAt: number,
-//   updatedAt: number
-// }
-const rooms = new Map();
+// ----- Room helpers -----
 
 // Helper: generate a short room code like "AB12"
 function generateRoomCode() {
@@ -137,6 +139,11 @@ function removeClientFromRooms(socketId) {
 io.on("connection", (socket) => {
   console.log("Client connected:", socket.id);
 
+  // Keep-alive / heartbeat (optional but helpful on Render)
+  socket.on("pingHost", () => {
+    socket.emit("pongHost");
+  });
+
   // Client wants to HOST a new room
   // payload: { name }
   socket.on("createRoom", ({ name } = {}) => {
@@ -172,8 +179,8 @@ io.on("connection", (socket) => {
       }
 
       // Limit total clients to 10 (host + viewers)
-      if (room.clients.size >= 10 && !room.clients.has(socket.id)) {
-        socket.emit("errorMessage", "Room is full (max 10 players/viewers).");
+      if (!room.clients.has(socket.id) && room.clients.size >= 10) {
+        socket.emit("errorMessage", "Room is full (max 10 total).");
         return;
       }
 
@@ -248,6 +255,11 @@ io.on("connection", (socket) => {
     removeClientFromRooms(socket.id);
   });
 });
+
+// Heartbeat broadcast to keep Render instance warm
+setInterval(() => {
+  io.emit("pingHost");
+}, 15000);
 
 server.listen(PORT, () => {
   console.log(`SURVIVE API listening on port ${PORT}`);
