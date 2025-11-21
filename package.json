@@ -1,7 +1,7 @@
 {
-  "name": "aardvark-animal-game",
-  "version": "1.0.1",
-  "description": "Online + offline multiplayer animal calling party game (Aardvark edition)",
+  "name": "aardvark-arena-game",
+  "version": "1.0.0",
+  "description": "Survive.com Aardvark arena game with online rooms + offline bots",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
