@@ -9,12 +9,12 @@ const io = new Server(server);
 
 const PORT = process.env.PORT || 3000;
 
-// serve /public
+// Serve static files from /public
 app.use(express.static(path.join(__dirname, "public")));
 
 const rooms = {};
 
-// global decoy pool (same as client)
+// Decoy animals (shared concept with client)
 const decoyAnimals = [
   "aardvark",
   "unicorn",
@@ -114,7 +114,7 @@ io.on("connection", (socket) => {
     broadcastRoomState(roomCode);
   });
 
-  // CHOOSE ANIMAL
+  // CHOOSE ANIMAL (online)
   socket.on("chooseAnimal", ({ roomCode, animal }) => {
     roomCode = (roomCode || "").toUpperCase();
     animal = (animal || "").trim();
@@ -218,10 +218,10 @@ io.on("connection", (socket) => {
     const chosen = uncalled[Math.floor(Math.random() * uncalled.length)];
     room.calledAnimals.add(chosen.animal.toLowerCase());
 
-    // create decoys that are not used as any player's animal and not the chosen one
     const playerAnimalSet = new Set(
       players.map((p) => p.animal.toLowerCase())
     );
+
     const validDecoys = decoyAnimals.filter(
       (d) =>
         d.toLowerCase() !== chosen.animal.toLowerCase() &&
