@@ -12,9 +12,11 @@ const PORT = process.env.PORT || 3000;
 // Serve static files from /public
 app.use(express.static(path.join(__dirname, "public")));
 
+// In-memory rooms
+// rooms[roomCode] = { code, hostId, players: { socketId: { name, animal, score, joinedAt } }, calledAnimals:Set, state }
 const rooms = {};
 
-// Decoy animals (shared concept with client)
+// Same decoy pool concept as client
 const decoyAnimals = [
   "aardvark",
   "unicorn",
@@ -25,7 +27,9 @@ const decoyAnimals = [
   "platypus",
   "penguin",
   "sloth",
-  "hedgehog"
+  "hedgehog",
+  "yeti",
+  "kraken"
 ];
 
 function generateRoomCode() {
@@ -99,7 +103,7 @@ io.on("connection", (socket) => {
       return;
     }
 
-    room.players[socket.id] = {
+    rooms[roomCode].players[socket.id] = {
       name: nickname || "Player",
       animal: null,
       score: 0,
@@ -219,7 +223,7 @@ io.on("connection", (socket) => {
     room.calledAnimals.add(chosen.animal.toLowerCase());
 
     const playerAnimalSet = new Set(
-      players.map((p) => p.animal.toLowerCase())
+      players.map((p) => (p.animal || "").toLowerCase())
     );
 
     const validDecoys = decoyAnimals.filter(
