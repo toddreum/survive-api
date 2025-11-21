@@ -1,7 +1,7 @@
 {
-  "name": "aardvark-arena-arcade",
+  "name": "survive-com-arena",
   "version": "1.0.0",
-  "description": "Survive.com Aardvark arena party game with online rooms + offline bots",
+  "description": "Survive.com – party arena game (online + offline bots)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -11,7 +11,7 @@
   "license": "MIT",
   "dependencies": {
     "express": "^4.19.2",
-    "socket.io": "^4.8.1"
+    "socket.io": "^4.7.5"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"
