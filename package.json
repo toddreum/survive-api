@@ -1,16 +1,22 @@
 {
-  "name": "survive-aardvark-arena",
+  "name": "survive-api",
   "version": "1.0.0",
-  "description": "Survive.com online/offline aardvark survival arena with Socket.IO backend.",
+  "description": "Realtime backend for Survive.com Aardvark arena",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js"
   },
-  "keywords": ["survive", "aardvark", "socket.io", "multiplayer", "game"],
+  "keywords": [
+    "socket.io",
+    "game",
+    "aardvark",
+    "survive"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "cors": "^2.8.5",
     "express": "^4.19.2",
     "socket.io": "^4.7.5"
   },
