@@ -1,74 +1,86 @@
 // server.js
-// Survive.com Aardvark Arena – Socket.IO backend
+// Survive.com Aardvark arena backend
 
 const express = require("express");
 const http = require("http");
+const cors = require("cors");
 const { Server } = require("socket.io");
 
 const app = express();
+app.use(cors());
+
 const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: process.env.CLIENT_ORIGIN || "*",
+    origin: "*",
     methods: ["GET", "POST"]
   }
 });
 
-// Simple health check
-app.get("/", (req, res) => {
-  res.json({ ok: true, service: "survive-api" });
-});
+// --------- ANIMALS / DECOYS ---------
 
-/*
-Room shape:
+const REAL_ANIMALS = [
+  "Neon Lynx",
+  "Shadow Mongoose",
+  "Laser Otter",
+  "Chaos Raccoon",
+  "Voltage Wolf",
+  "Pixel Panda",
+  "Midnight Viper",
+  "Turbo Falcon",
+  "Rocket Badger",
+  "Nova Shark",
+  "Circuit Owl",
+  "Phantom Fox",
+  "Glacier Bear",
+  "Storm Tiger",
+  "Thunder Hippo",
+  "Ghost Python",
+  "Chrome Koala",
+  "Ember Eagle"
+];
 
-rooms: Map<roomCode, {
-  roomCode: string;
-  hostId: socketId;
-  players: {
-    socketId: string;
-    name: string;
-    animal: string | null;
-    number: number | null;
-    score: number;
-    isBot: boolean;
-  }[];
-  aardvarkId: socketId | null;
-  secretNumber: number | null;
-  numbersLocked: boolean;
-  gameStarted: boolean;
-  calledAnimals: Set<string>;
-  activeCall: {
-    targetId: socketId;
-    aardvarkId: socketId;
-    expiresAt: number;
-  } | null;
-}>
-*/
+// decoys are never assignable to players – just visual noise
+const DECOY_ANIMALS = [
+  "Abyss Kraken",
+  "Void Unicorn",
+  "Glitch Dragon",
+  "Phantom Narwhal",
+  "Hologram Phoenix",
+  "Cyber Griffin",
+  "Static Hedgehog",
+  "Binary Sloth",
+  "Quantum Penguin"
+];
 
+// --------- ROOM STATE ---------
+
+/**
+ * rooms: Map<roomCode, {
+ *   code: string,
+ *   hostId: string,
+ *   createdAt: number,
+ *   status: 'lobby' | 'running',
+ *   aardvarkId: string | null,
+ *   activeTargetId: string | null,
+ *   players: Array<{
+ *     socketId: string,
+ *     name: string,
+ *     animal: string | null,
+ *     number: number | null,
+ *     isAardvark: boolean,
+ *     seatIndex: number | null,
+ *     timesAardvark: number
+ *   }>
+ * }>
+ */
 const rooms = new Map();
 
-const decoyAnimals = [
-  "aardvark",
-  "unicorn",
-  "dragon",
-  "phoenix",
-  "narwhal",
-  "griffin",
-  "platypus",
-  "penguin",
-  "sloth",
-  "hedgehog",
-  "yeti",
-  "kraken"
-];
-const decoySetLower = new Set(decoyAnimals.map((a) => a.toLowerCase()));
+// --------- HELPERS ---------
 
-// -------- Helpers --------
-
-function generateRoomCode() {
-  const letters = "ABCDEFGHJKMNPQRSTUVWXYZ"; // no I/O for clarity
+function makeRoomCode() {
+  const letters = "ABCDEFGHJKMNPQRSTUVWXYZ";
   let code = "";
   for (let i = 0; i < 4; i++) {
     code += letters[Math.floor(Math.random() * letters.length)];
@@ -77,100 +89,196 @@ function generateRoomCode() {
 }
 
 function getRoom(roomCode) {
-  if (!roomCode) return null;
   return rooms.get(roomCode);
 }
 
-function findPlayer(room, socketId) {
-  if (!room) return null;
-  return room.players.find((p) => p.socketId === socketId) || null;
+function getPlayer(room, socketId) {
+  return room.players.find((p) => p.socketId === socketId);
 }
 
 function broadcastRoomState(room) {
-  if (!room) return;
   const payload = {
-    roomCode: room.roomCode,
-    players: room.players,
+    roomCode: room.code,
     aardvarkId: room.aardvarkId,
-    secretNumber: room.secretNumber
+    status: room.status,
+    players: room.players.map((p) => ({
+      socketId: p.socketId,
+      name: p.name,
+      animal: p.animal,
+      number: p.number,
+      isAardvark: p.isAardvark,
+      seatIndex: p.seatIndex,
+      timesAardvark: p.timesAardvark
+    })),
+    decoys: DECOY_ANIMALS
   };
-  io.to(room.roomCode).emit("roomStateUpdate", payload);
+  io.to(room.code).emit("roomStateUpdate", payload);
 }
 
-function pickAardvark(room) {
-  if (!room || !room.players.length) return;
+function getUniqueSeatIndex(room) {
+  const used = new Set(room.players.map((p) => p.seatIndex));
+  for (let i = 0; i < 20; i++) {
+    if (!used.has(i)) return i;
+  }
+  return null;
+}
 
-  // Draw secret 1–20
-  const secret = Math.floor(Math.random() * 20) + 1;
-  room.secretNumber = secret;
+function pickStartingAardvark(room) {
+  // all players must have number + animal + unique
+  const players = room.players;
+  if (!players.length) return null;
 
+  // require all numbers in 1..20 and unique
+  const seenNums = new Set();
+  for (const p of players) {
+    if (typeof p.number !== "number") return null;
+    if (p.number < 1 || p.number > 20) return null;
+    if (seenNums.has(p.number)) return null;
+    seenNums.add(p.number);
+  }
+
+  // require all animals non-empty + unique (case-insensitive)
+  const seenAnimals = new Set();
+  for (const p of players) {
+    if (!p.animal) return null;
+    const key = p.animal.trim().toLowerCase();
+    if (seenAnimals.has(key)) return null;
+    seenAnimals.add(key);
+  }
+
+  // closest to 20 wins starting Aardvark
   let best = null;
-  room.players.forEach((p) => {
-    if (typeof p.number !== "number") return;
-    const dist = Math.abs(p.number - secret);
+  for (const p of players) {
+    const dist = Math.abs(20 - p.number);
     if (!best || dist < best.dist) {
       best = { id: p.socketId, dist };
     }
-  });
+  }
+  if (!best) return null;
 
-  room.aardvarkId = best ? best.id : null;
+  room.aardvarkId = best.id;
+
+  for (const p of players) {
+    p.isAardvark = p.socketId === best.id;
+    if (p.isAardvark) {
+      p.timesAardvark += 1;
+      // starting Aardvark loses their animal alias (removed from ring)
+      p.animal = null;
+    }
+  }
+
+  return best.id;
 }
 
-function ensureHost(socket, room) {
-  return room && room.hostId === socket.id;
+function getRingPlayers(room) {
+  return room.players.filter((p) => !p.isAardvark && p.animal);
 }
 
-function getUncalledPlayersWithAnimals(room) {
-  if (!room) return [];
-  const called = room.calledAnimals || new Set();
-  return room.players.filter(
-    (p) =>
-      p.animal &&
-      !called.has(p.animal.toLowerCase())
-  );
+function pickRandomRingTarget(room) {
+  const ring = getRingPlayers(room);
+  if (!ring.length) return null;
+  const idx = Math.floor(Math.random() * ring.length);
+  return ring[idx];
 }
 
-// -------- Socket.IO main --------
+function swapAardvarkWithTarget(room) {
+  if (!room.aardvarkId || !room.activeTargetId) return null;
+  const aard = getPlayer(room, room.aardvarkId);
+  const target = getPlayer(room, room.activeTargetId);
+  if (!aard || !target) return null;
+  if (aard.socketId === target.socketId) return null;
+
+  // Aardvark becomes ring player and steals their animal + seat
+  const tmpSeat = aard.seatIndex;
+  const tmpAnimal = aard.animal;
+
+  aard.isAardvark = false;
+  aard.seatIndex = target.seatIndex;
+  aard.animal = target.animal;
+
+  // Target becomes new Aardvark in center, loses their animal identity
+  target.isAardvark = true;
+  target.seatIndex = tmpSeat; // often null or ignored visually for center
+  target.animal = null;
+  target.timesAardvark += 1;
+
+  room.aardvarkId = target.socketId;
+  const newAardvarkId = target.socketId;
+  const oldAardvarkId = aard.socketId;
+
+  // clear active target
+  room.activeTargetId = null;
+
+  return { newAardvarkId, oldAardvarkId, beatenId: target.socketId };
+}
+
+// --------- SOCKET.IO ---------
 
 io.on("connection", (socket) => {
-  console.log("Client connected:", socket.id);
+  console.log("Client connected", socket.id);
 
-  // CREATE ROOM
+  socket.on("disconnect", () => {
+    console.log("Client disconnected", socket.id);
+    // remove from any room
+    for (const room of rooms.values()) {
+      const idx = room.players.findIndex((p) => p.socketId === socket.id);
+      if (idx !== -1) {
+        const wasHost = room.hostId === socket.id;
+        room.players.splice(idx, 1);
+        if (!room.players.length) {
+          rooms.delete(room.code);
+          break;
+        } else {
+          if (wasHost) {
+            // promote first player as host
+            room.hostId = room.players[0].socketId;
+            io.to(room.code).emit("hostLeft", {
+              message: "Host left. First player is the new host."
+            });
+          }
+          // if Aardvark left, clear Aardvark
+          if (room.aardvarkId === socket.id) {
+            room.aardvarkId = null;
+          }
+          broadcastRoomState(room);
+        }
+      }
+    }
+  });
+
+  // ---- Create Room ----
   socket.on("createRoom", ({ nickname }) => {
-    let code;
-    do {
-      code = generateRoomCode();
-    } while (rooms.has(code));
+    const code = makeRoomCode();
+    socket.join(code);
 
     const room = {
-      roomCode: code,
+      code,
       hostId: socket.id,
-      players: [
-        {
-          socketId: socket.id,
-          name: nickname || "Host",
-          animal: null,
-          number: null,
-          score: 0,
-          isBot: false
-        }
-      ],
+      createdAt: Date.now(),
+      status: "lobby",
       aardvarkId: null,
-      secretNumber: null,
-      numbersLocked: false,
-      gameStarted: false,
-      calledAnimals: new Set(),
-      activeCall: null
+      activeTargetId: null,
+      players: []
     };
 
+    const player = {
+      socketId: socket.id,
+      name: nickname || "Host",
+      animal: null,
+      number: null,
+      isAardvark: false,
+      seatIndex: 0,
+      timesAardvark: 0
+    };
+
+    room.players.push(player);
     rooms.set(code, room);
-    socket.join(code);
 
     socket.emit("roomCreated", { roomCode: code, isHost: true });
     broadcastRoomState(room);
   });
 
-  // JOIN ROOM
+  // ---- Join Room ----
   socket.on("joinRoom", ({ roomCode, nickname }) => {
     const code = (roomCode || "").toUpperCase();
     const room = getRoom(code);
@@ -179,35 +287,40 @@ io.on("connection", (socket) => {
       socket.emit("joinError", { message: "Room not found." });
       return;
     }
-
-    let player = room.players.find((p) => p.socketId === socket.id);
-    if (!player) {
-      player = {
-        socketId: socket.id,
-        name: nickname || "Player",
-        animal: null,
-        number: null,
-        score: 0,
-        isBot: false
-      };
-      room.players.push(player);
-      socket.join(code);
+    if (room.status !== "lobby") {
+      socket.emit("joinError", { message: "Game already started." });
+      return;
+    }
+    if (room.players.length >= 20) {
+      socket.emit("joinError", { message: "Room is full." });
+      return;
     }
 
-    socket.emit("joinedRoom", {
-      roomCode: code,
-      isHost: room.hostId === socket.id
-    });
+    socket.join(code);
 
+    const seatIndex = getUniqueSeatIndex(room);
+    const player = {
+      socketId: socket.id,
+      name: nickname || "Player",
+      animal: null,
+      number: null,
+      isAardvark: false,
+      seatIndex,
+      timesAardvark: 0
+    };
+
+    room.players.push(player);
+
+    socket.emit("joinedRoom", { roomCode: code, isHost: room.hostId === socket.id });
     broadcastRoomState(room);
   });
 
-  // CHOOSE ANIMAL
+  // ---- Choose Animal ----
   socket.on("chooseAnimal", ({ roomCode, animal }) => {
     const room = getRoom(roomCode);
     if (!room) return;
 
-    const player = findPlayer(room, socket.id);
+    const player = getPlayer(room, socket.id);
     if (!player) return;
 
     const name = (animal || "").trim();
@@ -216,23 +329,24 @@ io.on("connection", (socket) => {
       return;
     }
 
-    const lower = name.toLowerCase();
-    if (decoySetLower.has(lower)) {
+    // enforce unique, case-insensitive, and prevent using decoy names
+    const key = name.toLowerCase();
+    if (DECOY_ANIMALS.some((d) => d.toLowerCase() === key)) {
       socket.emit("animalRejected", {
-        reason: "That animal is reserved as a decoy."
+        reason: "That animal is reserved as a decoy. Choose another."
       });
       return;
     }
 
-    const conflict = room.players.find(
+    const conflict = room.players.some(
       (p) =>
         p.socketId !== socket.id &&
         p.animal &&
-        p.animal.toLowerCase() === lower
+        p.animal.trim().toLowerCase() === key
     );
     if (conflict) {
       socket.emit("animalRejected", {
-        reason: "That animal is already taken."
+        reason: "That animal is already taken in this arena."
       });
       return;
     }
@@ -242,283 +356,184 @@ io.on("connection", (socket) => {
     broadcastRoomState(room);
   });
 
-  // CHOOSE NUMBER
+  // ---- Choose Number ----
   socket.on("chooseNumber", ({ roomCode, number }) => {
     const room = getRoom(roomCode);
     if (!room) return;
-
-    const player = findPlayer(room, socket.id);
+    const player = getPlayer(room, socket.id);
     if (!player) return;
 
-    const num = parseInt(number, 10);
-    if (!Number.isFinite(num) || num < 1 || num > 20) {
+    const n = parseInt(number, 10);
+    if (Number.isNaN(n) || n < 1 || n > 20) {
       socket.emit("numberRejected", {
         reason: "Number must be between 1 and 20."
       });
       return;
     }
 
-    const conflict = room.players.find(
-      (p) => p.socketId !== socket.id && p.number === num
+    const conflict = room.players.some(
+      (p) => p.socketId !== socket.id && p.number === n
     );
     if (conflict) {
       socket.emit("numberRejected", {
-        reason: "That number is already taken."
+        reason: "That number is already taken in this arena."
       });
       return;
     }
 
-    player.number = num;
-    socket.emit("numberAccepted", { number: num });
+    player.number = n;
+    socket.emit("numberAccepted", { number: n });
     broadcastRoomState(room);
   });
 
-  // LOCK NUMBERS + PICK AARDVARK
+  // ---- Lock Numbers + Pick Starting Aardvark ----
   socket.on("lockNumbersAndPickAardvark", ({ roomCode }) => {
     const room = getRoom(roomCode);
-    if (!room || !ensureHost(socket, room)) return;
+    if (!room) return;
+    if (room.hostId !== socket.id) return;
 
-    if (room.players.some((p) => typeof p.number !== "number")) {
+    const aardId = pickStartingAardvark(room);
+    if (!aardId) {
       socket.emit("callError", {
-        message: "Everyone needs a number before locking."
+        message:
+          "All players need a unique animal + unique number 1–20 before locking."
       });
       return;
     }
 
-    pickAardvark(room);
-    room.numbersLocked = true;
-    room.calledAnimals = new Set();
-    room.activeCall = null;
-
-    io.to(roomCode).emit("numbersLocked", {
-      secretNumber: room.secretNumber
-    });
-
-    io.to(roomCode).emit("aardvarkChosen", {
-      aardvarkId: room.aardvarkId,
-      secretNumber: room.secretNumber
+    const aard = getPlayer(room, aardId);
+    io.to(room.code).emit("aardvarkChosen", {
+      aardvarkId: aardId,
+      secretNumber: null, // kept for old client compatibility; unused
+      aardvarkName: aard ? aard.name : null
     });
 
     broadcastRoomState(room);
   });
 
-  // START GAME
+  // ---- Start Game ----
   socket.on("startGame", ({ roomCode }) => {
     const room = getRoom(roomCode);
-    if (!room || !ensureHost(socket, room)) return;
+    if (!room) return;
+    if (room.hostId !== socket.id) return;
 
-    if (!room.numbersLocked || !room.aardvarkId) {
+    if (!room.aardvarkId) {
       socket.emit("callError", {
-        message: "Lock numbers and pick the Aardvark first."
+        message: "Pick a starting Aardvark first."
       });
       return;
     }
 
-    room.gameStarted = true;
-    room.calledAnimals = new Set();
-    room.activeCall = null;
-
-    io.to(roomCode).emit("gameStarted");
+    room.status = "running";
+    io.to(room.code).emit("gameStarted");
     broadcastRoomState(room);
   });
 
-  // CALL RANDOM ANIMAL (no decoys)
+  // ---- Call Random Animal (host helper; Aardvark calls in real life) ----
   socket.on("callRandomAnimal", ({ roomCode }) => {
     const room = getRoom(roomCode);
-    if (!room || !ensureHost(socket, room)) return;
+    if (!room) return;
+    if (!room.aardvarkId) return;
+    if (room.hostId !== socket.id) return;
 
-    if (!room.gameStarted) {
-      socket.emit("callError", {
-        message: "Start the game before calling animals."
-      });
+    const target = pickRandomRingTarget(room);
+    if (!target) {
+      socket.emit("callError", { message: "No valid animals left to call." });
       return;
     }
 
-    const uncalled = getUncalledPlayersWithAnimals(room);
-    if (!uncalled.length) {
-      socket.emit("callError", {
-        message: "All animals have been called this round."
-      });
-      return;
-    }
+    room.activeTargetId = target.socketId;
 
-    const chosen =
-      uncalled[Math.floor(Math.random() * uncalled.length)];
-    room.calledAnimals.add(chosen.animal.toLowerCase());
-
-    const windowMs = 10000;
-    room.activeCall = {
-      targetId: chosen.socketId,
-      aardvarkId: room.aardvarkId,
-      expiresAt: Date.now() + windowMs
-    };
-
-    io.to(roomCode).emit("animalCalled", {
-      animal: chosen.animal,
-      playerName: chosen.name,
-      socketId: chosen.socketId,
-      windowMs
+    io.to(room.code).emit("animalCalled", {
+      animal: target.animal,
+      playerName: target.name,
+      socketId: target.socketId,
+      windowMs: 10000
     });
   });
 
-  // CALL ANIMAL WITH DECOYS
+  // ---- Call Random Animal with Decoys (visual fun) ----
   socket.on("callAnimalWithDecoys", ({ roomCode }) => {
     const room = getRoom(roomCode);
-    if (!room || !ensureHost(socket, room)) return;
+    if (!room) return;
+    if (!room.aardvarkId) return;
+    if (room.hostId !== socket.id) return;
 
-    if (!room.gameStarted) {
-      socket.emit("callError", {
-        message: "Start the game before calling animals."
-      });
+    const target = pickRandomRingTarget(room);
+    if (!target) {
+      socket.emit("callError", { message: "No valid animals left to call." });
       return;
     }
 
-    const uncalled = getUncalledPlayersWithAnimals(room);
-    if (!uncalled.length) {
-      socket.emit("callError", {
-        message: "All animals have been called this round."
-      });
-      return;
+    room.activeTargetId = target.socketId;
+
+    // pick decoys from decoy pool
+    const pool = [...DECOY_ANIMALS];
+    const options = [target.animal];
+    while (options.length < 3 && pool.length) {
+      const idx = Math.floor(Math.random() * pool.length);
+      options.push(pool.splice(idx, 1)[0]);
     }
 
-    const chosen =
-      uncalled[Math.floor(Math.random() * uncalled.length)];
-    room.calledAnimals.add(chosen.animal.toLowerCase());
-
-    const playerAnimalSet = new Set(
-      room.players
-        .filter((p) => p.animal)
-        .map((p) => p.animal.toLowerCase())
-    );
-
-    const validDecoys = decoyAnimals.filter(
-      (d) =>
-        d.toLowerCase() !== chosen.animal.toLowerCase() &&
-        !playerAnimalSet.has(d.toLowerCase())
-    );
-
-    const shuffled = validDecoys.sort(() => Math.random() - 0.5);
-    const chosenDecoys = shuffled.slice(0, 2);
-    const options = [chosen.animal, ...chosenDecoys].sort(
-      () => Math.random() - 0.5
-    );
-
-    const windowMs = 10000;
-    room.activeCall = {
-      targetId: chosen.socketId,
-      aardvarkId: room.aardvarkId,
-      expiresAt: Date.now() + windowMs
-    };
-
-    io.to(roomCode).emit("animalCalledWithDecoys", {
-      correctAnimal: chosen.animal,
+    io.to(room.code).emit("animalCalledWithDecoys", {
+      correctAnimal: target.animal,
       options,
-      playerName: chosen.name,
-      socketId: chosen.socketId,
-      windowMs
+      playerName: target.name,
+      socketId: target.socketId,
+      windowMs: 10000
     });
   });
 
-  // RAM ATTEMPT (Aardvark)
+  // ---- Aardvark Confirms Beat / Swap Seats ----
   socket.on("ramAttempt", ({ roomCode }) => {
     const room = getRoom(roomCode);
-    if (!room || !room.activeCall) return;
+    if (!room) return;
+    if (!room.aardvarkId || room.aardvarkId !== socket.id) return;
+    if (!room.activeTargetId) {
+      socket.emit("callError", { message: "No active target to swap with." });
+      return;
+    }
 
-    const call = room.activeCall;
-    const now = Date.now();
-    if (now > call.expiresAt) return;
+    const result = swapAardvarkWithTarget(room);
+    if (!result) {
+      socket.emit("callError", {
+        message: "Could not complete swap. Check room state."
+      });
+      return;
+    }
 
-    if (socket.id !== call.aardvarkId) return;
+    const { newAardvarkId, oldAardvarkId, beatenId } = result;
 
-    const target = room.players.find(
-      (p) => p.socketId === call.targetId
-    );
-    const aard = room.players.find(
-      (p) => p.socketId === call.aardvarkId
-    );
-    if (!target || !aard) return;
-
-    aard.score = (aard.score || 0) + 5;
-    target.score = (target.score || 0) - 3;
-
-    io.to(roomCode).emit("callResolved", {
-      outcome: "rammed",
-      targetId: target.socketId,
-      scores: room.players
+    io.to(room.code).emit("callResolved", {
+      outcome: "swapped",
+      aardvarkId: newAardvarkId,
+      oldAardvarkId,
+      beatenId
     });
 
-    room.activeCall = null;
     broadcastRoomState(room);
   });
 
-  // ESCAPE ATTEMPT (target player)
+  // ---- Escape Attempt (for backwards compatibility, just clears overlay) ----
   socket.on("escapeAttempt", ({ roomCode }) => {
     const room = getRoom(roomCode);
-    if (!room || !room.activeCall) return;
-
-    const call = room.activeCall;
-    const now = Date.now();
-    if (now > call.expiresAt) return;
-
-    if (socket.id !== call.targetId) return;
-
-    const target = room.players.find(
-      (p) => p.socketId === call.targetId
-    );
-    const aard = room.players.find(
-      (p) => p.socketId === call.aardvarkId
-    );
-    if (!target || !aard) return;
-
-    target.score = (target.score || 0) + 3;
-    aard.score = (aard.score || 0) - 2;
-
-    io.to(roomCode).emit("callResolved", {
+    if (!room) return;
+    // We don't auto-swap on escape; players enforce rules verbally.
+    io.to(room.code).emit("callResolved", {
       outcome: "escaped",
-      targetId: target.socketId,
-      scores: room.players
+      targetId: socket.id
     });
-
-    room.activeCall = null;
+    room.activeTargetId = null;
     broadcastRoomState(room);
-  });
-
-  // DISCONNECT
-  socket.on("disconnect", () => {
-    console.log("Client disconnected:", socket.id);
-
-    for (const [code, room] of rooms.entries()) {
-      const idx = room.players.findIndex(
-        (p) => p.socketId === socket.id
-      );
-      if (idx === -1) continue;
-
-      const wasHost = room.hostId === socket.id;
-      room.players.splice(idx, 1);
-
-      if (!room.players.length || wasHost) {
-        io.to(code).emit("hostLeft", {
-          message: "Host left. Room closed."
-        });
-        rooms.delete(code);
-      } else {
-        if (room.aardvarkId === socket.id) {
-          room.aardvarkId = null;
-          room.secretNumber = null;
-          room.numbersLocked = false;
-          room.gameStarted = false;
-          room.activeCall = null;
-          room.calledAnimals = new Set();
-        }
-        broadcastRoomState(room);
-      }
-    }
   });
 });
 
-// -------- Start server --------
+// Simple health route
+app.get("/", (req, res) => {
+  res.send("Survive.com Aardvark API is running.");
+});
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {
-  console.log(`🦡 Survive API listening on http://localhost:${PORT}`);
+  console.log("Survive API listening on port", PORT);
 });
