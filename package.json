@@ -1,6 +1,6 @@
 {
   "name": "aardvark-call-chain-arena",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Aardvark Call Chain Arena - cinematic, addictive animal calling game.",
   "main": "server.js",
   "scripts": {
@@ -10,6 +10,10 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "cors": "^2.8.5",
     "express": "^4.19.2"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }
