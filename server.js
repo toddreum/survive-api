@@ -35,7 +35,7 @@ app.use((req, res, next) => {
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// CORS: allow front-end origin(s). For local dev, this is usually fine:
+// CORS for /api routes
 app.use(
   "/api",
   cors({
@@ -57,47 +57,36 @@ app.get("/health", (req, res) => {
 
 // --- API proxy -------------------------------------------------------
 // Any request to /api/* is forwarded to BASE_API_URL + same path.
-// For example: /api/scores -> https://survive-api.onrender.com/api/scores
+// e.g. /api/game/animals -> https://survive-api.onrender.com/api/game/animals
 
 app.all("/api/*", async (req, res) => {
   try {
-    // Strip the "/api" prefix and forward the remainder
     const targetPath = req.originalUrl.replace(/^\/api/, "");
     const targetUrl = `${BASE_API_URL}${targetPath}`;
 
-    // Build init/options for fetch
     const headers = { ...req.headers };
-    delete headers.host; // host should not be forwarded directly
+    delete headers.host;
 
     const init = {
       method: req.method,
       headers
     };
 
-    // Attach body for methods that support it
     if (req.method !== "GET" && req.method !== "HEAD") {
-      // For JSON or urlencoded, express has already parsed into req.body
       if (req.is("application/json")) {
         init.body = JSON.stringify(req.body);
       } else if (req.is("application/x-www-form-urlencoded")) {
-        // Rebuild form-encoded body if needed
         const params = new URLSearchParams();
         for (const [key, value] of Object.entries(req.body || {})) {
           params.append(key, value);
         }
         init.body = params.toString();
-      } else {
-        // Fallback: raw text (if you add raw body handling)
-        // For now, we leave it out.
       }
     }
 
     const upstreamResponse = await fetch(targetUrl, init);
-
-    // Forward status code
     res.status(upstreamResponse.status);
 
-    // Forward headers (selectively, to avoid issues)
     upstreamResponse.headers.forEach((value, key) => {
       if (key.toLowerCase() === "transfer-encoding") return;
       res.setHeader(key, value);
@@ -120,7 +109,7 @@ app.all("/api/*", async (req, res) => {
 const publicPath = path.join(__dirname, "public");
 app.use(express.static(publicPath));
 
-// For SPA routing: any non-API, non-health route falls back to index.html
+// SPA fallback
 app.get("*", (req, res) => {
   res.sendFile(path.join(publicPath, "index.html"));
 });
