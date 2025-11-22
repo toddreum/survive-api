@@ -9,7 +9,7 @@
  * - CORS configuration
  * - Compression
  * - Request logging
- * - Rate limiting (optional)
+ * - Rate limiting
  * - Error handling middleware
  * - Health check endpoint
  * - Graceful shutdown
@@ -37,9 +37,9 @@ const API_TARGET = "https://survive-api.onrender.com";
 // --------------------------------------------------
 app.use(
   helmet({
-    contentSecurityPolicy: false, // allow client.js inline dynamic DOM
+    contentSecurityPolicy: false, // allow client.js dynamic DOM
     crossOriginEmbedderPolicy: false,
-    crossOriginResourcePolicy: false,
+    crossOriginResourcePolicy: false
   })
 );
 
@@ -48,9 +48,9 @@ app.use(
 // --------------------------------------------------
 app.use(
   cors({
-    origin: "*", // adjust if needed
+    origin: "*", // tighten if needed
     methods: ["GET", "POST"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    allowedHeaders: ["Content-Type", "Authorization"]
   })
 );
 
@@ -71,7 +71,7 @@ app.use(morgan("combined"));
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 180, // 180 calls/min per IP
-  message: { error: "Too many API requests, slow down." },
+  message: { error: "Too many API requests, slow down." }
 });
 app.use("/api", apiLimiter);
 
@@ -87,7 +87,7 @@ app.use(
     lastModified: true,
     setHeaders(res) {
       res.setHeader("Cache-Control", "public, max-age=86400");
-    },
+    }
   })
 );
 
@@ -110,26 +110,25 @@ app.use(
     timeout: 8000,
     proxyTimeout: 8000,
     pathRewrite: {
-      "^/api": "/api",
+      "^/api": "/api"
     },
-
     onError(err, req, res) {
       console.error("Proxy error:", err.message);
-      res.status(502).json({ error: "API unreachable" });
+      if (!res.headersSent) {
+        res.status(502).json({ error: "API unreachable" });
+      }
     },
-
     onProxyReq(proxyReq, req, _res) {
       proxyReq.setHeader("x-survive-proxy", "active");
       console.log(
         `→ Proxying ${req.method} ${req.originalUrl} to ${API_TARGET}`
       );
     },
-
     onProxyRes(proxyRes, req, _res) {
       console.log(
         `← API responded ${proxyRes.statusCode} for ${req.method} ${req.originalUrl}`
       );
-    },
+    }
   })
 );
 
@@ -145,10 +144,12 @@ app.get("*", (req, res) => {
 // --------------------------------------------------
 app.use((err, req, res, next) => {
   console.error("Server error:", err);
-  res.status(500).json({
-    error: "Internal server error",
-    message: err.message || "Unknown error",
-  });
+  if (!res.headersSent) {
+    res.status(500).json({
+      error: "Internal server error",
+      message: err.message || "Unknown error"
+    });
+  }
 });
 
 // --------------------------------------------------
