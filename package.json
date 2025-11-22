@@ -1,19 +1,23 @@
 {
-  "name": "survive-aardvark-arena",
+  "name": "survive-aardvark-call-chain",
   "version": "1.0.0",
-  "description": "Survive: Aardvark's neon call chain arena game.",
+  "description": "Survive – Aardvark Call Chain Arena. Neon animal calling game with demo mode and backend scoring.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "NODE_ENV=development node server.js"
   },
+  "keywords": [
+    "aardvark",
+    "survive",
+    "game",
+    "neon",
+    "arena"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "cors": "^2.8.5",
-    "express": "^4.19.2"
-  },
-  "engines": {
-    "node": ">=18"
+    "express": "^4.19.2",
+    "http-proxy-middleware": "^2.0.6"
   }
 }
