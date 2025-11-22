@@ -1,7 +1,7 @@
 // server.js
-// Aardvark Call Chain Arena backend
-// - Serves the front-end from /public
-// - Proxies /api/* to https://survive-api.onrender.com (or BASE_API_URL env)
+// Survive - Aardvark Call Chain Arena backend
+// - Serves front-end from /public
+// - Proxies /api/* to https://survive-api.onrender.com (or BASE_API_URL)
 //
 // Requires Node 18+ for global fetch.
 
@@ -11,15 +11,15 @@ const cors = require("cors");
 
 const app = express();
 
-// --- Basic config ----------------------------------------------------
+// --- Config -----------------------------------------------------------
 
 const PORT = process.env.PORT || 3000;
 const BASE_API_URL =
   process.env.BASE_API_URL || "https://survive-api.onrender.com";
 
-// --- Middleware ------------------------------------------------------
+// --- Middleware -------------------------------------------------------
 
-// Simple request logger (minimal, but helpful)
+// Simple logger
 app.use((req, res, next) => {
   const start = Date.now();
   res.on("finish", () => {
@@ -31,11 +31,10 @@ app.use((req, res, next) => {
   next();
 });
 
-// Body parsing for JSON (used if front-end posts to /api via this server)
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// CORS for /api routes
+// CORS only on /api
 app.use(
   "/api",
   cors({
@@ -45,20 +44,22 @@ app.use(
   })
 );
 
-// --- Health check ----------------------------------------------------
+// --- Health check -----------------------------------------------------
 
 app.get("/health", (req, res) => {
   res.json({
     status: "ok",
-    message: "Aardvark Call Chain Arena server is running.",
+    message: "Survive server is running.",
     backend: BASE_API_URL
   });
 });
 
-// --- API proxy -------------------------------------------------------
-// Any request to /api/* is forwarded to BASE_API_URL + same path.
-// e.g. /api/game/animals -> https://survive-api.onrender.com/api/game/animals
-
+// --- API proxy --------------------------------------------------------
+//
+// /api/game/animals     -> BASE_API_URL + /api/game/animals
+// /api/game/session     -> BASE_API_URL + /api/game/session
+// /api/game/leaderboard -> BASE_API_URL + /api/game/leaderboard
+//
 app.all("/api/*", async (req, res) => {
   try {
     const targetPath = req.originalUrl.replace(/^\/api/, "");
@@ -104,7 +105,7 @@ app.all("/api/*", async (req, res) => {
   }
 });
 
-// --- Static front-end ------------------------------------------------
+// --- Static front-end -------------------------------------------------
 
 const publicPath = path.join(__dirname, "public");
 app.use(express.static(publicPath));
@@ -114,12 +115,12 @@ app.get("*", (req, res) => {
   res.sendFile(path.join(publicPath, "index.html"));
 });
 
-// --- Start server ----------------------------------------------------
+// --- Start ------------------------------------------------------------
 
 app.listen(PORT, () => {
-  console.log("==========================================");
-  console.log(" Aardvark Call Chain Arena server started ");
+  console.log("======================================");
+  console.log(" Survive - Aardvark Arena server up ");
   console.log(` Port       : ${PORT}`);
   console.log(` Backend API: ${BASE_API_URL}`);
-  console.log("==========================================");
+  console.log("======================================");
 });
