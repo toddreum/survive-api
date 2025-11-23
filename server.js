@@ -1,6 +1,5 @@
 // server.js
-// Survive — Online backend with SSE private rooms + stats + animals.
-// Runs on Render at https://survive-api.onrender.com
+// SURVIVE — Online backend with SSE private rooms + stats + animals.
 
 const path = require("path");
 const express = require("express");
@@ -16,7 +15,7 @@ const PORT = process.env.PORT || 3000;
 // -----------------------------
 app.use(
   cors({
-    origin: true, // allow all origins or tighten later
+    origin: true,
     credentials: true
   })
 );
@@ -42,17 +41,18 @@ const REAL_ANIMALS = [
   { name: "Eagle", emoji: "🦅" }
 ];
 
+// Decoys: still mechanically “fake” for scoring, but use normal animal names.
 const DECOYS = [
-  "Glitter Yak",
-  "Thunder Llama",
-  "Pixel Serpent",
-  "Nebula Rat",
-  "Turbo Beetle",
-  "Ghost Pony",
-  "Cloud Shark",
-  "Laser Sloth",
-  "Chrono Owl",
-  "Magnet Gecko"
+  "Bear",
+  "Cheetah",
+  "Leopard",
+  "Hyena",
+  "Crocodile",
+  "Cobra",
+  "Falcon",
+  "Vulture",
+  "Bison",
+  "Buffalo"
 ];
 
 // -----------------------------
@@ -87,6 +87,29 @@ function createRoomCode() {
 
 function createPlayerId() {
   return randomBytes(8).toString("hex");
+}
+
+// ensure new player doesn't duplicate animal or secret number in room
+function validateRoomUniqueness(room, newAnimal, newNumber) {
+  for (const p of room.players.values()) {
+    if (newAnimal && p.animal && p.animal === newAnimal) {
+      return {
+        ok: false,
+        error: "That animal is already taken in this room. Choose a different animal."
+      };
+    }
+    if (
+      newNumber != null &&
+      p.secretNumber != null &&
+      p.secretNumber === newNumber
+    ) {
+      return {
+        ok: false,
+        error: "That number is already taken in this room. Choose a different number."
+      };
+    }
+  }
+  return { ok: true };
 }
 
 // -----------------------------
@@ -151,17 +174,22 @@ function ensureRoomInterval(room) {
   room.interval = setInterval(() => {
     const now = Date.now();
     if (room.gameStarted && room.game) {
-      // match time
+      // match timer
       if (room.game.matchSecondsRemaining > 0) {
         room.game.matchSecondsRemaining -= 1;
         if (room.game.matchSecondsRemaining <= 0) {
           room.game.matchSecondsRemaining = 0;
           room.gameStarted = false;
-          addGameHistory(room, "Match time is up. Final Aardvark score: " + room.game.aardvarkScore, "info");
+          addGameHistory(
+            room,
+            "Match time is up. Final Aardvark score: " + room.game.aardvarkScore,
+            "info"
+          );
           broadcastRoom(room);
           return;
         }
       }
+
       // survival timeout
       if (
         room.game.pendingSurvival &&
@@ -171,7 +199,7 @@ function ensureRoomInterval(room) {
         handleSurvivalTimeout(room);
       }
     }
-    broadcastRoom(room, true); // lightweight heartbeat update
+    broadcastRoom(room, true); // heartbeat
   }, 1000);
 }
 
@@ -204,7 +232,7 @@ function addGameHistory(room, text, type = "neutral") {
   }
 }
 
-// Called when pendingSurvival times out
+// When pendingSurvival times out
 function handleSurvivalTimeout(room) {
   if (!room.game || !room.game.pendingSurvival) return;
   const animalName = room.game.pendingSurvival;
@@ -220,7 +248,7 @@ function handleSurvivalTimeout(room) {
   room.game.currentCaller = "Aardvark";
 }
 
-// Clean room if empty
+// Clean up empty room
 function maybeCleanupRoom(room) {
   if (room.sseClients.size === 0 && room.players.size === 0) {
     if (room.interval) clearInterval(room.interval);
@@ -283,7 +311,7 @@ app.get("/api/game/leaderboard", (req, res) => {
 });
 
 // -----------------------------
-// API: rooms (create/join/lock/state/action)
+// API: rooms (create / join / lock / state / action)
 // -----------------------------
 app.post("/api/rooms/create", (req, res) => {
   let code;
@@ -345,9 +373,23 @@ app.post("/api/rooms/join", (req, res) => {
   const playerId = createPlayerId();
   const normalizedName = (name || "").trim() || "Player";
   const normalizedAnimal = normalizeAnimalName(animal || "");
+  const num = secretNumber != null ? Number(secretNumber) : null;
+
+  // Disallow using decoy names as real animals
+  if (isDecoyName(normalizedAnimal)) {
+    return res.status(400).json({
+      ok: false,
+      error: "That animal name is reserved as a decoy. Pick a different one."
+    });
+  }
+
+  const uniqueness = validateRoomUniqueness(room, normalizedAnimal, num);
+  if (!uniqueness.ok) {
+    return res.status(400).json({ ok: false, error: uniqueness.error });
+  }
+
   const emoji =
     REAL_ANIMALS.find((a) => a.name === normalizedAnimal)?.emoji || "🐾";
-  const num = secretNumber != null ? Number(secretNumber) : null;
 
   room.players.set(playerId, {
     id: playerId,
@@ -378,12 +420,38 @@ app.post("/api/rooms/lock", (req, res) => {
     return res.status(404).json({ ok: false, error: "Room not found" });
   }
   if (room.hostId !== playerId) {
-    return res.status(403).json({ ok: false, error: "Only host can lock lobby" });
+    return res
+      .status(403)
+      .json({ ok: false, error: "Only host can lock lobby" });
   }
   if (room.players.size < 2) {
     return res
       .status(400)
       .json({ ok: false, error: "Need at least 2 players to start" });
+  }
+
+  // Ensure animals and numbers are unique before starting
+  const seenAnimals = new Set();
+  const seenNumbers = new Set();
+  for (const p of room.players.values()) {
+    if (p.animal) {
+      if (seenAnimals.has(p.animal)) {
+        return res.status(400).json({
+          ok: false,
+          error: `Animals must be unique. "${p.animal}" appears more than once.`
+        });
+      }
+      seenAnimals.add(p.animal);
+    }
+    if (p.secretNumber != null) {
+      if (seenNumbers.has(p.secretNumber)) {
+        return res.status(400).json({
+          ok: false,
+          error: `Secret numbers must be unique. Number ${p.secretNumber} appears more than once.`
+        });
+      }
+      seenNumbers.add(p.secretNumber);
+    }
   }
 
   room.lobbyLocked = true;
@@ -407,7 +475,6 @@ app.post("/api/rooms/lock", (req, res) => {
     }
   }
 
-  // game state
   room.gameStarted = true;
   room.game = {
     aardvarkScore: 0,
@@ -483,14 +550,13 @@ app.post("/api/rooms/action", (req, res) => {
   const isDecoy = isDecoyName(targetName);
   const validReal = isReal && !isDecoy;
 
-  // If invalid or decoy → buzzer, penalty, chain reset to Aardvark
   if (!validReal) {
     addGameHistory(
       room,
-      sentence + " (decoy / invalid). Buzzer, −10 and chain snaps back to Aardvark.",
+      sentence +
+        " (decoy / invalid). Buzzer, −10 and chain snaps back to Aardvark.",
       "bad"
     );
-    // If caller was under survival, Aardvark also gets +5.
     if (
       room.game.pendingSurvival &&
       room.game.pendingSurvival === room.game.currentCaller
@@ -512,14 +578,12 @@ app.post("/api/rooms/action", (req, res) => {
     return res.json({ ok: true, room: snapshotRoom(room) });
   }
 
-  // Valid call
   addGameHistory(room, sentence, "neutral");
 
   if (
     room.game.pendingSurvival &&
     room.game.pendingSurvival === room.game.currentCaller
   ) {
-    // animal survived the tag
     room.game.aardvarkScore -= 5;
     if (room.game.aardvarkScore < 0) room.game.aardvarkScore = 0;
     room.game.chainCount += 1;
@@ -531,7 +595,7 @@ app.post("/api/rooms/action", (req, res) => {
   }
 
   room.game.pendingSurvival = targetName;
-  room.game.survivalDeadlineMs = Date.now() + 10000; // 10s
+  room.game.survivalDeadlineMs = Date.now() + 10000;
   room.game.currentCaller = targetName;
 
   broadcastRoom(room);
@@ -539,7 +603,7 @@ app.post("/api/rooms/action", (req, res) => {
 });
 
 // -----------------------------
-// SSE stream: /api/rooms/:code/stream
+// SSE stream
 // -----------------------------
 app.get("/api/rooms/:code/stream", (req, res) => {
   const code = req.params.code;
@@ -558,12 +622,10 @@ app.get("/api/rooms/:code/stream", (req, res) => {
     Connection: "keep-alive",
     "X-Accel-Buffering": "no"
   });
-
   res.write("retry: 2000\n\n");
 
   room.sseClients.add(res);
 
-  // Send initial state
   const initialPayload = JSON.stringify({
     type: "state",
     room: snapshotRoom(room)
@@ -574,7 +636,7 @@ app.get("/api/rooms/:code/stream", (req, res) => {
     try {
       res.write(`data: ${JSON.stringify({ type: "ping" })}\n\n`);
     } catch (err) {
-      // ignore, cleanup in 'close'
+      // ignore
     }
   }, 15000);
 
@@ -586,7 +648,7 @@ app.get("/api/rooms/:code/stream", (req, res) => {
 });
 
 // -----------------------------
-// Static (optional) — if you ever deploy frontend with this server
+// Static (optional)
 // -----------------------------
 const PUBLIC_DIR = path.join(__dirname, "public_html");
 app.use(express.static(PUBLIC_DIR));
