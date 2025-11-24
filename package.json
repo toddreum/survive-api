@@ -1,7 +1,7 @@
 {
-  "name": "survive-lightfall-arena-api",
+  "name": "hide-to-survive-api",
   "version": "1.0.0",
-  "description": "Survive.com - Lightfall Arena multiplayer backend",
+  "description": "Survive.com - Hide to Survive multiplayer backend",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
