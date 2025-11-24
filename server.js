@@ -1,235 +1,262 @@
-// Simple SURVIVE backend with in-memory rooms + SSE
-// Deploy this on Render as survive-api.onrender.com
-
-const express = require("express");
-const cors = require("cors");
-const { randomUUID } = require("crypto");
+const express = require('express');
+const http = require('http');
+const path = require('path');
+const { Server } = require('socket.io');
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: '*'
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
-app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
 
-// In-memory rooms (ephemeral)
-const rooms = new Map(); // code -> room
+// --- GAME STATE ---
 
-function createRoom() {
-  const code = Math.random().toString(36).slice(2, 7).toUpperCase();
-  const room = {
-    code,
-    hostId: null,
-    players: [],
-    gameStarted: false,
-    game: null,
-    sseClients: new Set()
+const MAX_PLAYERS = 4;
+
+const BOARD_TILES = [
+  { name: 'Core Plaza', type: 'start', desc: 'Safe zone. No effects.' },
+  { name: 'Water Plant', type: 'water+', desc: 'You secure water supply.' },
+  { name: 'Food District', type: 'food+', desc: 'You stockpile food.' },
+  { name: 'Black Market', type: 'credits+', desc: 'Risky cash boost.' },
+  { name: 'Media Tower', type: 'influence+', desc: 'You gain public influence.' },
+  { name: 'Power Grid', type: 'energy+', desc: 'You stabilize the power.' },
+  { name: 'Riot Zone', type: 'stability-', desc: 'Unrest hits the city.' },
+  { name: 'Hospital Hub', type: 'stability+', desc: 'You support health services.' },
+  { name: 'Security Barracks', type: 'security+', desc: 'You strengthen defenses.' },
+  { name: 'Smog Alley', type: 'stability-', desc: 'Pollution spikes.' },
+  { name: 'Harbor Gate', type: 'mixed+', desc: 'Trade winds in your favor.' },
+  { name: 'Data Center', type: 'influence+', desc: 'You tap into the network.' }
+];
+
+let gameState = createInitialGameState();
+
+function createInitialGameState() {
+  return {
+    players: {},        // socketId -> player
+    playerOrder: [],    // array of socketIds in turn order
+    currentPlayerIndex: 0,
+    cityStability: 80,
+    started: false,
+    log: []
   };
-  rooms.set(code, room);
-  return room;
 }
 
-function broadcastRoom(room) {
-  const payload = JSON.stringify({
-    type: "state",
-    room: {
-      code: room.code,
-      hostId: room.hostId,
-      players: room.players,
-      gameStarted: room.gameStarted,
-      game: room.game
-    }
-  });
-  for (const res of room.sseClients) {
-    res.write(`data: ${payload}\n\n`);
-  }
+const COLORS = ['#ff4b4b', '#4bff7a', '#4ba3ff', '#ffd84b'];
+
+function nextColor(index) {
+  return COLORS[index % COLORS.length];
 }
 
-app.get("/", (req, res) => {
-  res.send("SURVIVE API is running.");
-});
+function isPlayersTurn(socketId) {
+  const idx = gameState.currentPlayerIndex;
+  return gameState.playerOrder[idx] === socketId;
+}
 
-// Create room
-app.post("/api/rooms/create", (req, res) => {
-  const room = createRoom();
-  const playerId = randomUUID();
-  room.hostId = playerId;
-  room.players.push({
-    id: playerId,
-    name: "Host",
-    animal: null,
-    secretNumber: null,
-    isBot: false
+function broadcastState() {
+  io.emit('gameState', {
+    players: gameState.players,
+    playerOrder: gameState.playerOrder,
+    currentPlayerId: gameState.playerOrder[gameState.currentPlayerIndex],
+    cityStability: gameState.cityStability,
+    board: BOARD_TILES,
+    log: gameState.log.slice(-20) // last 20 lines
   });
-  broadcastRoom(room);
-  res.json({
-    ok: true,
-    roomCode: room.code,
-    playerId,
-    room
-  });
-});
+}
 
-// Join room
-app.post("/api/rooms/join", (req, res) => {
-  const { roomCode, name, animal, secretNumber, isBot } = req.body || {};
-  const code = (roomCode || "").toUpperCase();
-  const room = rooms.get(code);
-  if (!room) {
-    return res.json({ ok: false, error: "Room not found." });
-  }
-  if (room.gameStarted) {
-    return res.json({ ok: false, error: "Game already started." });
-  }
+function addLog(message) {
+  const entry = { message, ts: Date.now() };
+  gameState.log.push(entry);
+}
 
-  const playerId = randomUUID();
-  room.players.push({
-    id: playerId,
-    name: name || "Player",
-    animal: animal || null,
-    secretNumber: secretNumber || null,
-    isBot: !!isBot
-  });
-
-  broadcastRoom(room);
-  res.json({
-    ok: true,
-    playerId,
-    room
-  });
-});
-
-// Lock lobby & start game
-app.post("/api/rooms/lock", (req, res) => {
-  const { roomCode, playerId, matchMinutes } = req.body || {};
-  const code = (roomCode || "").toUpperCase();
-  const room = rooms.get(code);
-  if (!room) {
-    return res.json({ ok: false, error: "Room not found." });
-  }
-  if (room.hostId !== playerId) {
-    return res.json({ ok: false, error: "Only host can start the game." });
-  }
-  if (room.gameStarted) {
-    return res.json({ ok: false, error: "Game already started." });
-  }
-
-  const minutes = Math.max(1, Math.min(30, Number(matchMinutes || 5)));
-
-  room.gameStarted = true;
-  room.game = {
-    matchSecondsRemaining: minutes * 60,
-    aardvarkScore: 0,
-    chainCount: 0,
-    currentCaller: "Aardvark",
-    pendingSurvival: null,
-    survivalDeadline: null,
-    history: []
-  };
-
-  broadcastRoom(room);
-  res.json({ ok: true, room });
-});
-
-// SSE stream for room
-app.get("/api/rooms/:code/stream", (req, res) => {
-  const code = (req.params.code || "").toUpperCase();
-  const room = rooms.get(code);
-  if (!room) {
-    res.status(404).send("Room not found");
-    return;
+function applyTileEffect(player, tile) {
+  switch (tile.type) {
+    case 'water+':
+      player.water += 2;
+      gameState.cityStability += 1;
+      addLog(`${player.name} boosted water reserves at ${tile.name}.`);
+      break;
+    case 'food+':
+      player.food += 2;
+      gameState.cityStability += 1;
+      addLog(`${player.name} secured food supplies at ${tile.name}.`);
+      break;
+    case 'credits+':
+      player.credits += 3;
+      gameState.cityStability -= 1;
+      addLog(`${player.name} cashed in at the ${tile.name}, but tension rises.`);
+      break;
+    case 'influence+':
+      player.influence += 2;
+      addLog(`${player.name} gained influence at ${tile.name}.`);
+      break;
+    case 'energy+':
+      player.energy += 2;
+      gameState.cityStability += 1;
+      addLog(`${player.name} stabilized the grid at ${tile.name}.`);
+      break;
+    case 'security+':
+      player.security += 2;
+      gameState.cityStability += 1;
+      addLog(`${player.name} increased security at ${tile.name}.`);
+      break;
+    case 'stability-':
+      gameState.cityStability -= 3;
+      addLog(`${player.name} triggered unrest at ${tile.name}. City stability falls!`);
+      break;
+    case 'stability+':
+      gameState.cityStability += 3;
+      addLog(`${player.name} supported the city at ${tile.name}. Stability improves.`);
+      break;
+    case 'mixed+':
+      player.credits += 2;
+      player.food += 1;
+      gameState.cityStability += 1;
+      addLog(`${player.name} profited from trade at ${tile.name}.`);
+      break;
+    case 'start':
+    default:
+      addLog(`${player.name} rests at ${tile.name}.`);
+      break;
   }
 
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection", "keep-alive");
-  res.flushHeaders();
+  if (gameState.cityStability > 100) gameState.cityStability = 100;
+  if (gameState.cityStability < 0) gameState.cityStability = 0;
+}
 
-  room.sseClients.add(res);
+// --- SOCKET.IO ---
 
-  // send initial state
-  const payload = JSON.stringify({
-    type: "state",
-    room: {
-      code: room.code,
-      hostId: room.hostId,
-      players: room.players,
-      gameStarted: room.gameStarted,
-      game: room.game
-    }
-  });
-  res.write(`data: ${payload}\n\n`);
+io.on('connection', (socket) => {
+  console.log('Client connected:', socket.id);
 
-  req.on("close", () => {
-    room.sseClients.delete(res);
-  });
-});
-
-// Player action: call animal (online mode logic kept simple)
-app.post("/api/rooms/action", (req, res) => {
-  const { roomCode, playerId, targetAnimal } = req.body || {};
-  const code = (roomCode || "").toUpperCase();
-  const room = rooms.get(code);
-  if (!room || !room.gameStarted || !room.game) {
-    return res.json({ ok: false, error: "Game not active." });
-  }
-
-  const player = room.players.find((p) => p.id === playerId);
-  if (!player) {
-    return res.json({ ok: false, error: "Player not in room." });
-  }
-
-  const name = (targetAnimal || "").trim();
-  if (!name) {
-    return res.json({ ok: false, error: "No animal name." });
-  }
-
-  // Minimal: just log the call and set pendingSurvival on server
-  const norm = name
-    .split(/\s+/)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-    .join(" ");
-
-  room.game.currentCaller = player.animal || player.name || "Player";
-  room.game.pendingSurvival = norm;
-  room.game.survivalDeadline = Date.now() + 10000;
-
-  room.game.history.push({
-    type: "neutral",
-    text: `${room.game.currentCaller} calls ${norm}!`
-  });
-
-  broadcastRoom(room);
-  res.json({ ok: true, room });
-});
-
-// Simple match timer tick for all rooms (every second)
-setInterval(() => {
-  const now = Date.now();
-  for (const room of rooms.values()) {
-    if (!room.gameStarted || !room.game) continue;
-    if (room.game.matchSecondsRemaining <= 0) continue;
-
-    room.game.matchSecondsRemaining -= 1;
-    if (room.game.matchSecondsRemaining < 0) {
-      room.game.matchSecondsRemaining = 0;
+  socket.on('joinGame', (name) => {
+    if (!name || typeof name !== 'string') {
+      name = 'Survivor ' + socket.id.slice(0, 4);
     }
 
-    // Survival timeout (no BONK scoring logic here yet; kept simple)
-    if (room.game.pendingSurvival && room.game.survivalDeadline) {
-      if (now >= room.game.survivalDeadline) {
-        room.game.history.push({
-          type: "info",
-          text: `${room.game.pendingSurvival} ran out of time. (Online mode: host resolves rules.)`
-        });
-        room.game.pendingSurvival = null;
-        room.game.survivalDeadline = null;
+    // if player already exists (reconnect)
+    if (!gameState.players[socket.id]) {
+      if (gameState.playerOrder.length >= MAX_PLAYERS) {
+        socket.emit('errorMessage', 'Game room is full.');
+        return;
       }
+
+      const color = nextColor(gameState.playerOrder.length);
+      const newPlayer = {
+        id: socket.id,
+        name: name.trim().slice(0, 20),
+        color,
+        position: 0,
+        credits: 5,
+        water: 2,
+        food: 2,
+        energy: 1,
+        influence: 0,
+        security: 0
+      };
+
+      gameState.players[socket.id] = newPlayer;
+      gameState.playerOrder.push(socket.id);
+
+      addLog(`${newPlayer.name} joined the city.`);
     }
 
-    broadcastRoom(room);
-  }
-}, 1000);
+    if (gameState.playerOrder.length >= 2 && !gameState.started) {
+      gameState.started = true;
+      addLog('The struggle for the last city begins.');
+    }
 
-app.listen(PORT, () => {
-  console.log("SURVIVE API listening on port", PORT);
+    broadcastState();
+  });
+
+  socket.on('rollDice', () => {
+    if (!gameState.started) {
+      socket.emit('errorMessage', 'Waiting for more players...');
+      return;
+    }
+    if (!isPlayersTurn(socket.id)) {
+      socket.emit('errorMessage', 'It is not your turn.');
+      return;
+    }
+
+    const player = gameState.players[socket.id];
+    if (!player) return;
+
+    const roll = Math.floor(Math.random() * 6) + 1;
+    const oldPos = player.position;
+    const newPos = (oldPos + roll) % BOARD_TILES.length;
+    player.position = newPos;
+
+    const tile = BOARD_TILES[newPos];
+    applyTileEffect(player, tile);
+
+    addLog(`${player.name} rolled a ${roll} and moved to ${tile.name}.`);
+
+    // Check for "collapse ending" basic condition
+    if (gameState.cityStability <= 0) {
+      addLog('The city collapses! Game over.');
+      io.emit('gameOver', {
+        reason: 'collapse',
+        log: gameState.log
+      });
+      gameState = createInitialGameState();
+      broadcastState();
+      return;
+    }
+
+    io.emit('diceResult', {
+      playerId: socket.id,
+      roll,
+      newPosition: newPos,
+      tileName: tile.name,
+      tileType: tile.type
+    });
+
+    // Next player's turn
+    gameState.currentPlayerIndex =
+      (gameState.currentPlayerIndex + 1) % gameState.playerOrder.length;
+
+    broadcastState();
+  });
+
+  socket.on('sendChat', (text) => {
+    if (!text || typeof text !== 'string') return;
+    const player = gameState.players[socket.id];
+    const name = player ? player.name : 'Spectator';
+    io.emit('chatMessage', {
+      from: name,
+      text: text.slice(0, 200),
+      ts: Date.now()
+    });
+  });
+
+  socket.on('disconnect', () => {
+    console.log('Client disconnected:', socket.id);
+    const player = gameState.players[socket.id];
+    if (player) {
+      addLog(`${player.name} left the city.`);
+      delete gameState.players[socket.id];
+      gameState.playerOrder = gameState.playerOrder.filter(
+        (id) => id !== socket.id
+      );
+
+      if (gameState.playerOrder.length === 0) {
+        gameState = createInitialGameState();
+      } else {
+        if (gameState.currentPlayerIndex >= gameState.playerOrder.length) {
+          gameState.currentPlayerIndex = 0;
+        }
+      }
+      broadcastState();
+    }
+  });
+});
+
+server.listen(PORT, () => {
+  console.log('Survive game server running on port', PORT);
 });
