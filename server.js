@@ -16,10 +16,10 @@ const PORT = process.env.PORT || 3000;
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ ok: true, message: 'Hide to Survive server is running.' });
+  res.json({ ok: true, message: 'Hide to Survive: Home Base Tag server is running.' });
 });
 
-// Optional static (not used with cPanel frontend)
+// Optional static (not needed if frontend is on cPanel)
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ===== GAME CONSTANTS =====
@@ -27,13 +27,22 @@ const TICK_RATE = 30;
 const ARENA_WIDTH = 1400;
 const ARENA_HEIGHT = 900;
 const PLAYER_RADIUS = 26;
-const SEEKER_SPEED = 420;
-const HIDER_SPEED = 360;
-const TAG_DISTANCE = 48;
 
-const HIDE_DURATION = 20;   // seconds
-const HUNT_DURATION = 120;  // seconds
-const POST_DURATION = 10;   // seconds
+const CHASER_SPEED = 420;
+const RUNNER_SPEED = 380;
+const TAG_DISTANCE = 52;
+
+const ROUND_DURATION = 90; // seconds
+const POST_DURATION = 10;  // seconds between rounds
+
+const BOT_DESIRED_COUNT = 4;
+
+// Home base (runners must reach here)
+const HOME_BASE = {
+  x: ARENA_WIDTH / 2 - 180,
+  y: ARENA_HEIGHT / 2 - 180,
+  radius: 180
+};
 
 // Walls (rectangles; x,y = center)
 const WALLS = [
@@ -43,27 +52,30 @@ const WALLS = [
   { x: -650, y: 0, width: 40,  height: 800 },
   { x: 650,  y: 0, width: 40,  height: 800 },
 
-  // Interior corridors
-  { x: 0,   y: 0,   width: 40,  height: 700 },
-  { x: 0,   y: 0,   width: 700, height: 40 },
+  // Interior cross
+  { x: 0, y: 0, width: 40, height: 700 },
+  { x: 0, y: 0, width: 700, height: 40 },
+
+  // Side corridors / rooms
   { x: -300, y: -200, width: 260, height: 40 },
   { x:  300, y:  200, width: 260, height: 40 },
   { x: -300, y:  200, width: 40,  height: 260 },
   { x:  300, y: -200, width: 40,  height: 260 },
 
-  // Small cover pieces
+  // Cover blocks
   { x: 150,  y: -100, width: 180, height: 30 },
   { x: -150, y:  100, width: 180, height: 30 }
 ];
 
 // ===== GAME STATE =====
 const ROOM_ID = 'main';
-let players = {}; // socketId -> player
+
+let players = {}; // id -> player
 let hostId = null;
 
 let gameState = {
-  phase: 'lobby',     // 'lobby' | 'hiding' | 'hunting' | 'post'
-  phaseTimeLeft: 0,
+  phase: 'lobby', // 'lobby' | 'playing' | 'post'
+  timeLeft: 0,
   roundNumber: 0
 };
 
@@ -83,8 +95,7 @@ function circleRectCollides(px, py, radius, rect) {
 }
 
 function placeInOpenArea() {
-  // Try random positions until we find one not colliding with walls
-  for (let i = 0; i < 50; i++) {
+  for (let i = 0; i < 60; i++) {
     const x = randRange(-ARENA_WIDTH / 2 + 80, ARENA_WIDTH / 2 - 80);
     const y = randRange(-ARENA_HEIGHT / 2 + 80, ARENA_HEIGHT / 2 - 80);
     let collides = false;
@@ -103,6 +114,34 @@ function getPlayersArray() {
   return Object.values(players);
 }
 
+function spawnBotsIfNeeded() {
+  const bots = getPlayersArray().filter(p => p.isBot);
+  const deficit = BOT_DESIRED_COUNT - bots.length;
+  for (let i = 0; i < deficit; i++) {
+    const id = `BOT-${Date.now()}-${Math.floor(Math.random() * 9999)}`;
+    players[id] = createPlayer(id, `Bot ${bots.length + i + 1}`, true);
+  }
+}
+
+function createPlayer(id, name, isBot = false) {
+  return {
+    id,
+    name,
+    isBot,
+    role: 'runner', // 'runner' or 'chaser'
+    ready: false,
+    connected: !isBot,
+    x: 0,
+    y: 0,
+    vx: 0,
+    vy: 0,
+    input: { up: false, down: false, left: false, right: false },
+    safe: false,
+    tagged: false,
+    score: 0
+  };
+}
+
 function broadcastLobby() {
   const lobbyData = {
     phase: gameState.phase,
@@ -112,7 +151,9 @@ function broadcastLobby() {
       name: p.name,
       role: p.role,
       ready: p.ready,
-      isHost: p.id === hostId
+      isHost: p.id === hostId,
+      isBot: p.isBot,
+      score: p.score
     }))
   };
   io.to(ROOM_ID).emit('lobbyUpdate', lobbyData);
@@ -120,103 +161,173 @@ function broadcastLobby() {
 
 function resetToLobby() {
   gameState.phase = 'lobby';
-  gameState.phaseTimeLeft = 0;
+  gameState.timeLeft = 0;
 
   for (const p of getPlayersArray()) {
-    p.role = 'hider';
+    p.role = 'runner';
     p.ready = false;
-    p.alive = true;
+    p.safe = false;
     p.tagged = false;
-    p.score += 1; // small reward for surviving a round
+    p.vx = 0;
+    p.vy = 0;
   }
   broadcastLobby();
 }
 
 function startRound() {
-  const list = getPlayersArray().filter(p => p.connected);
-  if (list.length < 2) return;
+  const activeHumans = getPlayersArray().filter(p => p.connected);
+  if (activeHumans.length === 0) return;
+
+  spawnBotsIfNeeded();
+  const all = getPlayersArray();
 
   gameState.roundNumber++;
-  // Pick one seeker at random
-  const seekerIndex = Math.floor(Math.random() * list.length);
-  const seekerId = list[seekerIndex].id;
+  gameState.phase = 'playing';
+  gameState.timeLeft = ROUND_DURATION;
 
-  for (const p of list) {
+  // Pick one chaser among HUMANS if possible, otherwise any
+  let candidates = activeHumans;
+  if (candidates.length < 1) candidates = all;
+
+  const chaserIndex = Math.floor(Math.random() * candidates.length);
+  const chaserId = candidates[chaserIndex].id;
+
+  for (const p of all) {
     const pos = placeInOpenArea();
     p.x = pos.x;
     p.y = pos.y;
     p.vx = 0;
     p.vy = 0;
-    p.alive = true;
+    p.safe = false;
     p.tagged = false;
-    if (p.id === seekerId) {
-      p.role = 'seeker';
-    } else {
-      p.role = 'hider';
-    }
+    p.role = (p.id === chaserId) ? 'chaser' : 'runner';
   }
 
-  gameState.phase = 'hiding';
-  gameState.phaseTimeLeft = HIDE_DURATION;
   io.to(ROOM_ID).emit('roundStarted', {
     roundNumber: gameState.roundNumber,
-    seekerId
+    chaserId
   });
+  broadcastLobby();
 }
 
-function advancePhase() {
-  if (gameState.phase === 'hiding') {
-    gameState.phase = 'hunting';
-    gameState.phaseTimeLeft = HUNT_DURATION;
-    io.to(ROOM_ID).emit('phaseChange', { phase: 'hunting' });
-  } else if (gameState.phase === 'hunting') {
-    // Determine winners
-    const hidersAlive = getPlayersArray().filter(p => p.role === 'hider' && !p.tagged);
-    const seeker = getPlayersArray().find(p => p.role === 'seeker');
-    let result = 'draw';
-    if (hidersAlive.length === 0) {
-      result = 'seeker_win';
-      if (seeker) seeker.score += 5;
-    } else {
-      result = 'hiders_win';
-      for (const h of hidersAlive) h.score += 3;
+function endRound(reason) {
+  // Simple scoring:
+  // - Runners: +3 if safe, +1 if still untagged when time ends
+  // - Chaser: +2 per tag
+  const chaser = getPlayersArray().find(p => p.role === 'chaser');
+  const runners = getPlayersArray().filter(p => p.role === 'runner');
+
+  let tagsCount = 0;
+  for (const r of runners) {
+    if (r.safe) r.score += 3;
+    else if (!r.tagged) r.score += 1;
+    if (r.tagged) tagsCount++;
+  }
+  if (chaser) {
+    chaser.score += tagsCount * 2;
+  }
+
+  gameState.phase = 'post';
+  gameState.timeLeft = POST_DURATION;
+
+  io.to(ROOM_ID).emit('roundEnded', {
+    reason,
+    tagsCount
+  });
+  broadcastLobby();
+}
+
+function checkRoundEnd() {
+  const runners = getPlayersArray().filter(p => p.role === 'runner');
+  if (runners.length === 0) return; // weird but okay
+
+  const allDone = runners.every(r => r.safe || r.tagged);
+  if (allDone) {
+    endRound('all_resolved');
+  }
+}
+
+// Bots AI
+function botLogic(p, dt) {
+  if (!p.isBot) return;
+  if (gameState.phase !== 'playing') return;
+
+  const others = getPlayersArray().filter(o => o.id !== p.id);
+
+  if (p.role === 'chaser') {
+    // Move toward nearest runner
+    let target = null;
+    let bestD2 = Infinity;
+    for (const r of others) {
+      if (r.role !== 'runner' || r.tagged || r.safe) continue;
+      const dx = r.x - p.x;
+      const dy = r.y - p.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        target = r;
+      }
     }
-    gameState.phase = 'post';
-    gameState.phaseTimeLeft = POST_DURATION;
-    io.to(ROOM_ID).emit('roundEnded', { result });
-  } else if (gameState.phase === 'post') {
-    resetToLobby();
+    if (target) {
+      const dx = target.x - p.x;
+      const dy = target.y - p.y;
+      const mag = Math.hypot(dx, dy) || 1;
+      const dirx = dx / mag;
+      const diry = dy / mag;
+      p.input = {
+        up: diry < -0.2,
+        down: diry > 0.2,
+        left: dirx < -0.2,
+        right: dirx > 0.2
+      };
+    }
+  } else {
+    // Runner AI: move toward base but also away from chaser
+    const baseDx = HOME_BASE.x - (ARENA_WIDTH / 2) - p.x;
+    const baseDy = HOME_BASE.y - (ARENA_HEIGHT / 2) - p.y;
+
+    let chaser = others.find(o => o.role === 'chaser');
+    let avoidX = 0;
+    let avoidY = 0;
+    if (chaser) {
+      const dx = p.x - chaser.x;
+      const dy = p.y - chaser.y;
+      const d2 = dx * dx + dy * dy;
+      const dist = Math.sqrt(d2) || 1;
+      const factor = dist < 280 ? 1.5 : 0.4;
+      avoidX = (dx / dist) * factor;
+      avoidY = (dy / dist) * factor;
+    }
+
+    const targetX = baseDx + avoidX * 120;
+    const targetY = baseDy + avoidY * 120;
+    const mag = Math.hypot(targetX, targetY) || 1;
+    const dirx = targetX / mag;
+    const diry = targetY / mag;
+
+    p.input = {
+      up: diry < -0.1,
+      down: diry > 0.1,
+      left: dirx < -0.1,
+      right: dirx > 0.1
+    };
   }
 }
 
 // ===== SOCKET HANDLERS =====
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
-
   socket.join(ROOM_ID);
 
-  // Setup player
-  const name = 'Runner ' + socket.id.slice(0, 4);
-  players[socket.id] = {
-    id: socket.id,
-    name,
-    role: 'hider',
-    ready: false,
-    connected: true,
-    x: 0,
-    y: 0,
-    vx: 0,
-    vy: 0,
-    alive: true,
-    tagged: false,
-    score: 0,
-    input: { up: false, down: false, left: false, right: false }
-  };
+  const name = 'Player ' + socket.id.slice(0, 4);
+  players[socket.id] = createPlayer(socket.id, name, false);
+  players[socket.id].connected = true;
 
   if (!hostId) {
     hostId = socket.id;
   }
 
+  spawnBotsIfNeeded();
   broadcastLobby();
 
   socket.emit('connectedToRoom', {
@@ -246,9 +357,9 @@ io.on('connection', (socket) => {
     if (socket.id !== hostId) return;
     if (gameState.phase !== 'lobby') return;
 
-    const readyPlayers = getPlayersArray().filter(p => p.ready && p.connected);
-    if (readyPlayers.length < 2) {
-      socket.emit('errorMessage', 'Need at least 2 ready players to start.');
+    const readyHumans = getPlayersArray().filter(p => p.connected && p.ready);
+    if (readyHumans.length < 1) {
+      socket.emit('errorMessage', 'You need at least 1 ready human player to start.');
       return;
     }
     startRound();
@@ -257,7 +368,7 @@ io.on('connection', (socket) => {
   socket.on('input', (data) => {
     const p = players[socket.id];
     if (!p) return;
-    if (gameState.phase !== 'hiding' && gameState.phase !== 'hunting') return;
+    if (gameState.phase !== 'playing') return;
     p.input = {
       up: !!data.up,
       down: !!data.down,
@@ -274,16 +385,11 @@ io.on('connection', (socket) => {
     console.log('Disconnect', socket.id);
     const wasHost = socket.id === hostId;
     if (players[socket.id]) {
-      players[socket.id].connected = false;
       delete players[socket.id];
     }
     if (wasHost) {
-      const remaining = getPlayersArray();
-      hostId = remaining.length > 0 ? remaining[0].id : null;
-    }
-    if (Object.keys(players).length === 0) {
-      gameState.phase = 'lobby';
-      gameState.phaseTimeLeft = 0;
+      const remainingHumans = getPlayersArray().filter(p => !p.isBot);
+      hostId = remainingHumans.length ? remainingHumans[0].id : null;
     }
     broadcastLobby();
   });
@@ -298,23 +404,33 @@ function gameLoop() {
   lastUpdate = now;
   if (dt > 0.1) dt = 0.1;
 
-  // Phase timing
-  if (gameState.phase === 'hiding' || gameState.phase === 'hunting' || gameState.phase === 'post') {
-    gameState.phaseTimeLeft -= dt;
-    if (gameState.phaseTimeLeft <= 0) {
-      advancePhase();
+  spawnBotsIfNeeded();
+
+  if (gameState.phase === 'playing' || gameState.phase === 'post') {
+    gameState.timeLeft -= dt;
+    if (gameState.timeLeft <= 0) {
+      if (gameState.phase === 'playing') {
+        endRound('time_up');
+      } else if (gameState.phase === 'post') {
+        resetToLobby();
+      }
     }
   }
 
-  // Movement & tagging during hiding/hunting
-  if (gameState.phase === 'hiding' || gameState.phase === 'hunting') {
+  if (gameState.phase === 'playing') {
     for (const p of getPlayersArray()) {
-      if (!p.alive || p.tagged) continue;
+      if (p.tagged || p.safe) continue;
 
-      const speed = p.role === 'seeker' ? SEEKER_SPEED : HIDER_SPEED;
+      // Bot AI
+      if (p.isBot) {
+        botLogic(p, dt);
+      }
+
       const inp = p.input || { up: false, down: false, left: false, right: false };
+      const speed = p.role === 'chaser' ? CHASER_SPEED : RUNNER_SPEED;
 
-      let mx = 0, my = 0;
+      let mx = 0;
+      let my = 0;
       if (inp.up) my -= 1;
       if (inp.down) my += 1;
       if (inp.left) mx -= 1;
@@ -324,16 +440,15 @@ function gameLoop() {
       p.vx = (mx / mag) * speed;
       p.vy = (my / mag) * speed;
 
+      // Position in arena coordinates (origin center)
       let newX = p.x + p.vx * dt;
       let newY = p.y + p.vy * dt;
 
-      // Clamp to arena
       const halfW = ARENA_WIDTH / 2 - PLAYER_RADIUS;
       const halfH = ARENA_HEIGHT / 2 - PLAYER_RADIUS;
       newX = Math.max(-halfW, Math.min(halfW, newX));
       newY = Math.max(-halfH, Math.min(halfH, newY));
 
-      // Check collisions with walls
       let collides = false;
       for (const w of WALLS) {
         if (circleRectCollides(newX, newY, PLAYER_RADIUS, w)) {
@@ -341,45 +456,54 @@ function gameLoop() {
           break;
         }
       }
+
       if (!collides) {
         p.x = newX;
         p.y = newY;
       }
-    }
 
-    // Tagging only during hunting
-    if (gameState.phase === 'hunting') {
-      const seekers = getPlayersArray().filter(p => p.role === 'seeker' && !p.tagged);
-      const hiders = getPlayersArray().filter(p => p.role === 'hider' && !p.tagged);
-
-      for (const s of seekers) {
-        for (const h of hiders) {
-          const dx = h.x - s.x;
-          const dy = h.y - s.y;
-          if (dx * dx + dy * dy <= TAG_DISTANCE * TAG_DISTANCE) {
-            h.tagged = true;
-            io.to(ROOM_ID).emit('playerTagged', { hiderId: h.id, by: s.id });
-          }
+      // Check home base for runners
+      if (p.role === 'runner' && !p.safe && !p.tagged) {
+        // Convert HOME_BASE from top-left-ish to game coords (we'll handle in client similarly)
+        const baseWorldX = HOME_BASE.x - ARENA_WIDTH / 2;
+        const baseWorldY = HOME_BASE.y - ARENA_HEIGHT / 2;
+        const dx = p.x - baseWorldX;
+        const dy = p.y - baseWorldY;
+        if (dx * dx + dy * dy <= HOME_BASE.radius * HOME_BASE.radius) {
+          p.safe = true;
         }
       }
+    }
 
-      const remainingHiders = hiders.filter(h => !h.tagged);
-      if (remainingHiders.length === 0) {
-        gameState.phaseTimeLeft = 0; // trigger immediate advance to post
+    // Tagging
+    const chasers = getPlayersArray().filter(p => p.role === 'chaser' && !p.tagged);
+    const runners = getPlayersArray().filter(p => p.role === 'runner' && !p.safe && !p.tagged);
+
+    for (const c of chasers) {
+      for (const r of runners) {
+        const dx = r.x - c.x;
+        const dy = r.y - c.y;
+        if (dx * dx + dy * dy <= TAG_DISTANCE * TAG_DISTANCE) {
+          r.tagged = true;
+          io.to(ROOM_ID).emit('playerTagged', { runnerId: r.id, by: c.id });
+        }
       }
     }
+
+    checkRoundEnd();
   }
 
-  // Broadcast game state snapshot
+  // Broadcast state snapshot
   const snapshot = {
     t: now,
     phase: gameState.phase,
-    phaseTimeLeft: Math.max(0, gameState.phaseTimeLeft),
+    timeLeft: Math.max(0, gameState.timeLeft),
     roundNumber: gameState.roundNumber,
     arena: {
       width: ARENA_WIDTH,
       height: ARENA_HEIGHT
     },
+    homeBase: HOME_BASE,
     walls: WALLS,
     players: getPlayersArray().map(p => ({
       id: p.id,
@@ -387,7 +511,9 @@ function gameLoop() {
       role: p.role,
       x: p.x,
       y: p.y,
+      safe: p.safe,
       tagged: p.tagged,
+      isBot: p.isBot,
       score: p.score
     }))
   };
@@ -398,5 +524,5 @@ function gameLoop() {
 setInterval(gameLoop, 1000 / TICK_RATE);
 
 server.listen(PORT, () => {
-  console.log('Hide to Survive server running on port', PORT);
+  console.log('Hide to Survive: Home Base Tag server running on port', PORT);
 });
