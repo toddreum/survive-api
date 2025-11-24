@@ -1,7 +1,7 @@
 {
-  "name": "survive-boardgame",
+  "name": "survive-boardgame-api",
   "version": "1.0.0",
-  "description": "Online survival board game prototype for survive.com",
+  "description": "Online survival board game backend for survive.com",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
