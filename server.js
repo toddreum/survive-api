@@ -13,6 +13,8 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 3000;
 
+// Optional: serve /public if you ever put files there,
+// but your main frontend will be on cPanel.
 app.use(express.static(path.join(__dirname, 'public')));
 
 // --- GAME STATE ---
@@ -197,7 +199,7 @@ io.on('connection', (socket) => {
 
     addLog(`${player.name} rolled a ${roll} and moved to ${tile.name}.`);
 
-    // Check for "collapse ending" basic condition
+    // Check for collapse
     if (gameState.cityStability <= 0) {
       addLog('The city collapses! Game over.');
       io.emit('gameOver', {
