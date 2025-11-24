@@ -1,7 +1,7 @@
 {
-  "name": "lightfall-arena-api",
+  "name": "survive-lightfall-arena-api",
   "version": "1.0.0",
-  "description": "Survive: Lightfall Arena – backend server",
+  "description": "Survive.com - Lightfall Arena multiplayer backend",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
