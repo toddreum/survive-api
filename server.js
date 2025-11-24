@@ -7,48 +7,55 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: '*'
+    origin: '*',
+    methods: ['GET', 'POST']
   }
 });
 
 const PORT = process.env.PORT || 3000;
 
-// Optional static (not needed if you serve frontend from cPanel)
+// Optional static (not used if frontend is on cPanel)
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ===== GAME CONSTANTS =====
-const TICK_RATE = 30; // 30 updates per second
-const DT = 1 / TICK_RATE;
+const TICK_RATE = 30; // updates per second
 const ARENA_SIZE = 1600; // square arena
-const PLAYER_RADIUS = 20;
-const BULLET_SPEED = 800;
-const PLAYER_SPEED = 400;
-const MAX_LIGHT = 100;
-const SHOOT_COST = 6;
-const HIT_DAMAGE = 35;
-const LIGHT_REGEN = 8; // per second in light zones
-const PASSIVE_REGEN = 4; // per second out of combat
-const BOT_COUNT = 4;
-const MAX_PLAYERS = 8;
+const PLAYER_RADIUS = 24;
+const BULLET_SPEED = 900;
+const PLAYER_SPEED = 420;
 
-// Light wells (healing zones)
+const MAX_LIGHT = 100;
+const SHOOT_COST = 7;
+const HIT_DAMAGE = 40;
+const LIGHT_REGEN = 10;   // per second in light wells
+const PASSIVE_REGEN = 4;  // per second anywhere
+const BOT_DESIRED_COUNT = 4;
+const MAX_PLAYERS = 12;
+
+// Light wells (healing / visibility zones)
 const LIGHT_WELLS = [
-  { x: 0, y: 0, radius: 180 },
-  { x: 500, y: 500, radius: 150 },
-  { x: -550, y: -480, radius: 150 }
+  { x: 0, y: 0, radius: 200 },
+  { x: 480, y: 480, radius: 160 },
+  { x: -520, y: -460, radius: 160 },
+  { x: -600, y: 520, radius: 140 }
 ];
 
 // ===== GAME STATE =====
 let players = {};  // id -> player
 let bullets = [];  // bullet objects
 let lastUpdate = Date.now();
+let shootCooldowns = {}; // id -> cooldown seconds
 
-// Utility functions
+// Utilities
 function randRange(min, max) {
   return Math.random() * (max - min) + min;
 }
 function clamp(v, min, max) {
   return v < min ? min : v > max ? max : v;
+}
+function randomNeonColor() {
+  const palette = ['#4ade80', '#38bdf8', '#f97316', '#e11d48', '#a855f7'];
+  return palette[Math.floor(Math.random() * palette.length)];
 }
 
 function createPlayer(id, name, isBot = false) {
@@ -67,21 +74,109 @@ function createPlayer(id, name, isBot = false) {
     respawnTimer: 0,
     color: isBot ? randomNeonColor() : '#fb923c',
     isBot,
-    botThinkTimer: 0
+    botThinkTimer: 0,
+    score: 0   // kills
   };
-}
-
-function randomNeonColor() {
-  const palette = ['#4ade80', '#38bdf8', '#f97316', '#e11d48', '#a855f7'];
-  return palette[Math.floor(Math.random() * palette.length)];
 }
 
 function spawnBotsIfNeeded() {
   const currentBots = Object.values(players).filter(p => p.isBot).length;
-  for (let i = currentBots; i < BOT_COUNT; i++) {
+  for (let i = currentBots; i < BOT_DESIRED_COUNT; i++) {
     const id = `bot-${i}-${Date.now()}`;
-    players[id] = createPlayer(id, `Bot ${i + 1}`, true);
+    players[id] = createPlayer(id, `BOT ${i + 1}`, true);
   }
+}
+
+function isInLightWell(x, y) {
+  for (const w of LIGHT_WELLS) {
+    const dx = x - w.x;
+    const dy = y - w.y;
+    if (dx * dx + dy * dy <= w.radius * w.radius) return true;
+  }
+  return false;
+}
+
+function botLogic(bot, dt) {
+  bot.botThinkTimer -= dt;
+  if (bot.botThinkTimer <= 0) {
+    bot.botThinkTimer = randRange(0.25, 0.7);
+
+    let target = null;
+    let bestDist = Infinity;
+    for (const p of Object.values(players)) {
+      if (p.id === bot.id || !p.alive || p.isBot) continue; // prefer humans
+      const dx = p.x - bot.x;
+      const dy = p.y - bot.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bestDist) {
+        bestDist = d2;
+        target = p;
+      }
+    }
+    // if no human found, chase any
+    if (!target) {
+      for (const p of Object.values(players)) {
+        if (p.id === bot.id || !p.alive) continue;
+        const dx = p.x - bot.x;
+        const dy = p.y - bot.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < bestDist) {
+          bestDist = d2;
+          target = p;
+        }
+      }
+    }
+
+    if (target) {
+      const dx = target.x - bot.x;
+      const dy = target.y - bot.y;
+      bot.aimAngle = Math.atan2(dy, dx);
+
+      const angle = bot.aimAngle + randRange(-0.7, 0.7);
+      const dirx = Math.cos(angle);
+      const diry = Math.sin(angle);
+      bot.input = {
+        up: diry < -0.25,
+        down: diry > 0.25,
+        left: dirx < -0.25,
+        right: dirx > 0.25,
+        shooting: Math.random() < 0.8
+      };
+    } else {
+      bot.input = {
+        up: Math.random() < 0.5,
+        down: Math.random() < 0.5,
+        left: Math.random() < 0.5,
+        right: Math.random() < 0.5,
+        shooting: false
+      };
+    }
+  }
+}
+
+function maybeShoot(player, dt) {
+  const id = player.id;
+  if (shootCooldowns[id] === undefined) shootCooldowns[id] = 0;
+  shootCooldowns[id] -= dt;
+  if (shootCooldowns[id] > 0) return;
+  if (player.light <= SHOOT_COST + 5) return;
+
+  shootCooldowns[id] = 0.18; // fire rate
+
+  const angle = player.aimAngle;
+  const sx = player.x + Math.cos(angle) * (PLAYER_RADIUS + 5);
+  const sy = player.y + Math.sin(angle) * (PLAYER_RADIUS + 5);
+  bullets.push({
+    ownerId: player.id,
+    x: sx,
+    y: sy,
+    vx: Math.cos(angle) * BULLET_SPEED,
+    vy: Math.sin(angle) * BULLET_SPEED,
+    ttl: 1.25
+  });
+
+  player.light -= SHOOT_COST;
+  if (player.light < 0) player.light = 0;
 }
 
 // ===== SOCKET HANDLERS =====
@@ -89,8 +184,8 @@ io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
 
   socket.on('join', (name) => {
-    if (Object.keys(players).length >= MAX_PLAYERS) {
-      socket.emit('joinRejected', 'Arena is full, try again later.');
+    if (Object.keys(players).length >= MAX_PLAYERS + BOT_DESIRED_COUNT) {
+      socket.emit('joinRejected', 'Arena is full. Try again later.');
       return;
     }
     const playerName = (name || 'Runner').toString().slice(0, 18);
@@ -103,7 +198,7 @@ io.on('connection', (socket) => {
 
   socket.on('input', (data) => {
     const p = players[socket.id];
-    if (!p || p.isBot) return;
+    if (!p || p.isBot || !p.alive) return;
     p.input = {
       up: !!data.up,
       down: !!data.down,
@@ -116,30 +211,37 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('pingCheck', () => {
+    socket.emit('pongCheck');
+  });
+
   socket.on('disconnect', () => {
     const p = players[socket.id];
     if (p) {
       console.log(`${p.name} disconnected (${socket.id})`);
       delete players[socket.id];
+      delete shootCooldowns[socket.id];
     }
   });
 });
 
-// ===== GAME TICK =====
+// ===== GAME LOOP =====
 function update() {
   const now = Date.now();
   let dt = (now - lastUpdate) / 1000;
   if (dt > 0.1) dt = 0.1;
   lastUpdate = now;
 
-  // Player movement & actions
+  // Update players
   for (const id in players) {
     const p = players[id];
 
     if (!p.alive) {
       p.respawnTimer -= dt;
       if (p.respawnTimer <= 0) {
-        Object.assign(p, createPlayer(id, p.name, p.isBot));
+        const restored = createPlayer(id, p.name, p.isBot);
+        restored.score = p.score; // keep kills
+        players[id] = restored;
       }
       continue;
     }
@@ -153,9 +255,8 @@ function update() {
     if (left) mx -= 1;
     if (right) mx += 1;
     const mag = Math.hypot(mx, my) || 1;
-    const speed = PLAYER_SPEED;
-    p.vx = (mx / mag) * speed;
-    p.vy = (my / mag) * speed;
+    p.vx = (mx / mag) * PLAYER_SPEED;
+    p.vy = (my / mag) * PLAYER_SPEED;
 
     p.x += p.vx * dt;
     p.y += p.vy * dt;
@@ -164,21 +265,17 @@ function update() {
     p.x = clamp(p.x, -half, half);
     p.y = clamp(p.y, -half, half);
 
-    // Shooting
-    if (shooting && p.light > SHOOT_COST + 5) {
+    if (shooting) {
       maybeShoot(p, dt);
     }
 
-    // Light regen
     let regen = PASSIVE_REGEN;
-    if (isInLightWell(p.x, p.y)) {
-      regen += LIGHT_REGEN;
-    }
+    if (isInLightWell(p.x, p.y)) regen += LIGHT_REGEN;
     p.light += regen * dt;
     p.light = clamp(p.light, 0, MAX_LIGHT);
   }
 
-  // Bullets
+  // Update bullets
   for (const b of bullets) {
     b.x += b.vx * dt;
     b.y += b.vy * dt;
@@ -196,16 +293,26 @@ function update() {
         if (p.light <= 0) {
           p.alive = false;
           p.respawnTimer = 3;
+          if (players[b.ownerId]) {
+            players[b.ownerId].score += 1;
+          }
         }
         break;
       }
     }
   }
-  bullets = bullets.filter(b => b.ttl > 0 && Math.abs(b.x) < ARENA_SIZE && Math.abs(b.y) < ARENA_SIZE);
+  bullets = bullets.filter(
+    b => b.ttl > 0 &&
+      Math.abs(b.x) < ARENA_SIZE &&
+      Math.abs(b.y) < ARENA_SIZE
+  );
 
-  // Broadcast state
+  // Make sure bots exist
+  spawnBotsIfNeeded();
+
+  // Broadcast snapshot
   const snapshot = {
-    time: now,
+    t: now,
     arenaSize: ARENA_SIZE,
     players: Object.values(players).map(p => ({
       id: p.id,
@@ -217,10 +324,12 @@ function update() {
       maxLight: MAX_LIGHT,
       alive: p.alive,
       color: p.color,
-      isBot: p.isBot
+      isBot: p.isBot,
+      score: p.score
     })),
     bullets: bullets.map(b => ({
-      x: b.x, y: b.y
+      x: b.x,
+      y: b.y
     })),
     wells: LIGHT_WELLS
   };
@@ -228,90 +337,8 @@ function update() {
   io.emit('state', snapshot);
 }
 
-let shootTimers = {}; // id -> cooldown accumulator
-
-function maybeShoot(player, dt) {
-  if (!shootTimers[player.id]) shootTimers[player.id] = 0;
-  shootTimers[player.id] -= dt;
-  if (shootTimers[player.id] > 0) return;
-
-  shootTimers[player.id] = 0.18; // fire rate
-
-  const angle = player.aimAngle;
-  const sx = player.x + Math.cos(angle) * (PLAYER_RADIUS + 5);
-  const sy = player.y + Math.sin(angle) * (PLAYER_RADIUS + 5);
-  bullets.push({
-    ownerId: player.id,
-    x: sx,
-    y: sy,
-    vx: Math.cos(angle) * BULLET_SPEED,
-    vy: Math.sin(angle) * BULLET_SPEED,
-    ttl: 1.3
-  });
-  player.light -= SHOOT_COST;
-  if (player.light < 0) player.light = 0;
-}
-
-function isInLightWell(x, y) {
-  for (const w of LIGHT_WELLS) {
-    const dx = x - w.x;
-    const dy = y - w.y;
-    if (dx * dx + dy * dy <= w.radius * w.radius) return true;
-  }
-  return false;
-}
-
-function botLogic(bot, dt) {
-  bot.botThinkTimer -= dt;
-  if (bot.botThinkTimer <= 0) {
-    bot.botThinkTimer = randRange(0.3, 0.7);
-    // find nearest visible opponent
-    let target = null;
-    let bestDist = Infinity;
-    for (const p of Object.values(players)) {
-      if (p.id === bot.id || !p.alive) continue;
-      const dx = p.x - bot.x;
-      const dy = p.y - bot.y;
-      const d2 = dx * dx + dy * dy;
-      if (d2 < bestDist) {
-        bestDist = d2;
-        target = p;
-      }
-    }
-    if (target) {
-      const dx = target.x - bot.x;
-      const dy = target.y - bot.y;
-      bot.aimAngle = Math.atan2(dy, dx);
-      // Simple chase/strafe
-      const angle = bot.aimAngle + randRange(-0.8, 0.8);
-      bot.input = {
-        up: false, down: false, left: false, right: false,
-        shooting: true
-      };
-      // convert angle into directional inputs
-      const dirx = Math.cos(angle), diry = Math.sin(angle);
-      bot.input.up = diry < -0.3;
-      bot.input.down = diry > 0.3;
-      bot.input.left = dirx < -0.3;
-      bot.input.right = dirx > 0.3;
-    } else {
-      // wander
-      bot.input = {
-        up: Math.random() < 0.5,
-        down: Math.random() < 0.5,
-        left: Math.random() < 0.5,
-        right: Math.random() < 0.5,
-        shooting: false
-      };
-    }
-  }
-}
-
-// Initial bots
-spawnBotsIfNeeded();
-
 setInterval(update, 1000 / TICK_RATE);
 
 server.listen(PORT, () => {
-  console.log('Lightfall Arena server running on port', PORT);
+  console.log('Survive Lightfall Arena server running on port', PORT);
 });
