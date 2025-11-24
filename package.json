@@ -1,7 +1,7 @@
 {
-  "name": "survive-boardgame-api",
+  "name": "lightfall-arena-api",
   "version": "1.0.0",
-  "description": "Online survival board game backend for survive.com",
+  "description": "Survive: Lightfall Arena – backend server",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
