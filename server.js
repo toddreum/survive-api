@@ -19,10 +19,10 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ===== GAME CONSTANTS =====
 const TICK_RATE = 30; // updates per second
-const ARENA_SIZE = 1600; // square arena
-const PLAYER_RADIUS = 24;
-const BULLET_SPEED = 900;
-const PLAYER_SPEED = 420;
+const ARENA_SIZE = 1400; // square arena
+const PLAYER_RADIUS = 30;
+const BULLET_SPEED = 950;
+const PLAYER_SPEED = 440;
 
 const MAX_LIGHT = 100;
 const SHOOT_COST = 7;
@@ -34,10 +34,33 @@ const MAX_PLAYERS = 12;
 
 // Light wells (healing / visibility zones)
 const LIGHT_WELLS = [
-  { x: 0, y: 0, radius: 200 },
-  { x: 480, y: 480, radius: 160 },
-  { x: -520, y: -460, radius: 160 },
-  { x: -600, y: 520, radius: 140 }
+  { x: 0, y: 0, radius: 180 },
+  { x: 420, y: 420, radius: 150 },
+  { x: -460, y: -420, radius: 150 },
+  { x: -520, y: 460, radius: 130 }
+];
+
+// Maze walls (rectangles, x/y = center)
+const WALLS = [
+  // Outer corridors
+  { x: 0,    y: -420, width: 900, height: 40 },
+  { x: 0,    y:  420, width: 900, height: 40 },
+  { x: -420, y: 0,    width: 40,  height: 900 },
+  { x:  420, y: 0,    width: 40,  height: 900 },
+
+  // Central cross
+  { x: 0, y: 0, width: 320, height: 40 },
+  { x: 0, y: 0, width: 40,  height: 320 },
+
+  // Diagonal corridors / rooms
+  { x: -280, y: -220, width: 260, height: 40 },
+  { x:  280, y:  220, width: 260, height: 40 },
+  { x: -280, y:  220, width: 40,  height: 260 },
+  { x:  280, y: -220, width: 40,  height: 260 },
+
+  // Small cover pieces
+  { x:  150, y: -80, width: 180, height: 30 },
+  { x: -150, y:  80, width: 180, height: 30 }
 ];
 
 // ===== GAME STATE =====
@@ -79,12 +102,16 @@ function createPlayer(id, name, isBot = false) {
   };
 }
 
-function spawnBotsIfNeeded() {
-  const currentBots = Object.values(players).filter(p => p.isBot).length;
-  for (let i = currentBots; i < BOT_DESIRED_COUNT; i++) {
-    const id = `bot-${i}-${Date.now()}`;
-    players[id] = createPlayer(id, `BOT ${i + 1}`, true);
-  }
+// circle vs rectangle collision (rect.x/y = center)
+function circleRectCollides(px, py, radius, rect) {
+  const rx = rect.x;
+  const ry = rect.y;
+  const hw = rect.width / 2;
+  const hh = rect.height / 2;
+
+  const dx = Math.max(Math.abs(px - rx) - hw, 0);
+  const dy = Math.max(Math.abs(py - ry) - hh, 0);
+  return dx * dx + dy * dy <= radius * radius;
 }
 
 function isInLightWell(x, y) {
@@ -96,6 +123,14 @@ function isInLightWell(x, y) {
   return false;
 }
 
+function spawnBotsIfNeeded() {
+  const currentBots = Object.values(players).filter(p => p.isBot).length;
+  for (let i = currentBots; i < BOT_DESIRED_COUNT; i++) {
+    const id = `bot-${i}-${Date.now()}`;
+    players[id] = createPlayer(id, `BOT ${i + 1}`, true);
+  }
+}
+
 function botLogic(bot, dt) {
   bot.botThinkTimer -= dt;
   if (bot.botThinkTimer <= 0) {
@@ -103,8 +138,10 @@ function botLogic(bot, dt) {
 
     let target = null;
     let bestDist = Infinity;
+
+    // Prefer humans
     for (const p of Object.values(players)) {
-      if (p.id === bot.id || !p.alive || p.isBot) continue; // prefer humans
+      if (p.id === bot.id || !p.alive || p.isBot) continue;
       const dx = p.x - bot.x;
       const dy = p.y - bot.y;
       const d2 = dx * dx + dy * dy;
@@ -113,7 +150,7 @@ function botLogic(bot, dt) {
         target = p;
       }
     }
-    // if no human found, chase any
+    // If no human, chase anyone
     if (!target) {
       for (const p of Object.values(players)) {
         if (p.id === bot.id || !p.alive) continue;
@@ -164,15 +201,18 @@ function maybeShoot(player, dt) {
   shootCooldowns[id] = 0.18; // fire rate
 
   const angle = player.aimAngle;
-  const sx = player.x + Math.cos(angle) * (PLAYER_RADIUS + 5);
-  const sy = player.y + Math.sin(angle) * (PLAYER_RADIUS + 5);
+  const sx = player.x + Math.cos(angle) * (PLAYER_RADIUS + 8);
+  const sy = player.y + Math.sin(angle) * (PLAYER_RADIUS + 8);
+  const vx = Math.cos(angle) * BULLET_SPEED;
+  const vy = Math.sin(angle) * BULLET_SPEED;
+
   bullets.push({
     ownerId: player.id,
     x: sx,
     y: sy,
-    vx: Math.cos(angle) * BULLET_SPEED,
-    vy: Math.sin(angle) * BULLET_SPEED,
-    ttl: 1.25
+    vx,
+    vy,
+    ttl: 1.3
   });
 
   player.light -= SHOOT_COST;
@@ -258,12 +298,33 @@ function update() {
     p.vx = (mx / mag) * PLAYER_SPEED;
     p.vy = (my / mag) * PLAYER_SPEED;
 
-    p.x += p.vx * dt;
-    p.y += p.vy * dt;
+    // Move with maze collision
+    const oldX = p.x;
+    const oldY = p.y;
+
+    let newX = p.x + p.vx * dt;
+    let newY = p.y + p.vy * dt;
 
     const half = ARENA_SIZE / 2 - PLAYER_RADIUS;
-    p.x = clamp(p.x, -half, half);
-    p.y = clamp(p.y, -half, half);
+    newX = clamp(newX, -half, half);
+    newY = clamp(newY, -half, half);
+
+    let blocked = false;
+    for (const w of WALLS) {
+      if (circleRectCollides(newX, newY, PLAYER_RADIUS, w)) {
+        blocked = true;
+        break;
+      }
+    }
+
+    if (!blocked) {
+      p.x = newX;
+      p.y = newY;
+    } else {
+      // stop movement if collision
+      p.vx = 0;
+      p.vy = 0;
+    }
 
     if (shooting) {
       maybeShoot(p, dt);
@@ -281,6 +342,20 @@ function update() {
     b.y += b.vy * dt;
     b.ttl -= dt;
 
+    // Bullet vs walls
+    let hitWall = false;
+    for (const w of WALLS) {
+      if (circleRectCollides(b.x, b.y, 6, w)) {
+        hitWall = true;
+        break;
+      }
+    }
+    if (hitWall) {
+      b.ttl = 0;
+      continue;
+    }
+
+    // Bullet vs players
     for (const id in players) {
       const p = players[id];
       if (!p.alive) continue;
@@ -329,9 +404,12 @@ function update() {
     })),
     bullets: bullets.map(b => ({
       x: b.x,
-      y: b.y
+      y: b.y,
+      vx: b.vx,
+      vy: b.vy
     })),
-    wells: LIGHT_WELLS
+    wells: LIGHT_WELLS,
+    walls: WALLS
   };
 
   io.emit('state', snapshot);
