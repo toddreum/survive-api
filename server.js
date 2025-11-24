@@ -1,665 +1,235 @@
-// server.js
-// SURVIVE — Online backend with SSE private rooms + stats + animals.
+// Simple SURVIVE backend with in-memory rooms + SSE
+// Deploy this on Render as survive-api.onrender.com
 
-const path = require("path");
 const express = require("express");
 const cors = require("cors");
-const bodyParser = require("body-parser");
-const { randomBytes } = require("crypto");
+const { randomUUID } = require("crypto");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// -----------------------------
-// Middleware
-// -----------------------------
-app.use(
-  cors({
-    origin: true,
-    credentials: true
-  })
-);
-app.use(bodyParser.json());
+app.use(cors());
+app.use(express.json());
 
-// -----------------------------
-// Base data: animals & decoys
-// -----------------------------
-const REAL_ANIMALS = [
-  { name: "Lion", emoji: "🦁" },
-  { name: "Tiger", emoji: "🐯" },
-  { name: "Elephant", emoji: "🐘" },
-  { name: "Giraffe", emoji: "🦒" },
-  { name: "Zebra", emoji: "🦓" },
-  { name: "Rhino", emoji: "🦏" },
-  { name: "Hippo", emoji: "🦛" },
-  { name: "Fox", emoji: "🦊" },
-  { name: "Wolf", emoji: "🐺" },
-  { name: "Kangaroo", emoji: "🦘" },
-  { name: "Panda", emoji: "🐼" },
-  { name: "Koala", emoji: "🐨" },
-  { name: "Monkey", emoji: "🐒" },
-  { name: "Eagle", emoji: "🦅" }
-];
+// In-memory rooms (ephemeral)
+const rooms = new Map(); // code -> room
 
-// Decoys: still mechanically “fake” for scoring, but use normal animal names.
-const DECOYS = [
-  "Bear",
-  "Cheetah",
-  "Leopard",
-  "Hyena",
-  "Crocodile",
-  "Cobra",
-  "Falcon",
-  "Vulture",
-  "Bison",
-  "Buffalo"
-];
-
-// -----------------------------
-// Helpers
-// -----------------------------
-function normalizeAnimalName(raw) {
-  if (!raw) return "";
-  const t = String(raw).trim();
-  if (!t) return "";
-  return t
-    .split(/\s+/)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-    .join(" ");
-}
-
-function isRealAnimalName(name) {
-  return REAL_ANIMALS.some((a) => a.name === name);
-}
-
-function isDecoyName(name) {
-  return DECOYS.includes(name);
-}
-
-function createRoomCode() {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let code = "";
-  for (let i = 0; i < 5; i++) {
-    code += alphabet[Math.floor(Math.random() * alphabet.length)];
-  }
-  return code;
-}
-
-function createPlayerId() {
-  return randomBytes(8).toString("hex");
-}
-
-// ensure new player doesn't duplicate animal or secret number in room
-function validateRoomUniqueness(room, newAnimal, newNumber) {
-  for (const p of room.players.values()) {
-    if (newAnimal && p.animal && p.animal === newAnimal) {
-      return {
-        ok: false,
-        error: "That animal is already taken in this room. Choose a different animal."
-      };
-    }
-    if (
-      newNumber != null &&
-      p.secretNumber != null &&
-      p.secretNumber === newNumber
-    ) {
-      return {
-        ok: false,
-        error: "That number is already taken in this room. Choose a different number."
-      };
-    }
-  }
-  return { ok: true };
-}
-
-// -----------------------------
-// In-memory storage
-// -----------------------------
-const SESSIONS = [];
-const MAX_SESSIONS = 500;
-
-// Room structure:
-// {
-//   code,
-//   createdAt,
-//   hostId,
-//   players: Map<playerId, { id,name,animal,emoji,secretNumber,isBot }>
-//   lobbyLocked: boolean,
-//   gameStarted: boolean,
-//   matchSeconds: number,
-//   game: {
-//     aardvarkScore,
-//     chainCount,
-//     currentCaller,
-//     pendingSurvival,
-//     matchSecondsRemaining,
-//     survivalDeadlineMs,
-//     history: [{ text,type,ts }]
-//   },
-//   sseClients: Set<res>,
-//   interval: NodeJS.Timer
-// }
-const rooms = new Map();
-
-function snapshotRoom(room) {
-  return {
-    code: room.code,
-    hostId: room.hostId,
-    lobbyLocked: room.lobbyLocked,
-    gameStarted: room.gameStarted,
-    matchSeconds: room.matchSeconds,
-    players: Array.from(room.players.values()).map((p) => ({
-      id: p.id,
-      name: p.name,
-      animal: p.animal,
-      emoji: p.emoji,
-      isBot: !!p.isBot
-    })),
-    game: room.game
-      ? {
-          aardvarkScore: room.game.aardvarkScore,
-          chainCount: room.game.chainCount,
-          currentCaller: room.game.currentCaller,
-          pendingSurvival: room.game.pendingSurvival,
-          matchSecondsRemaining: room.game.matchSecondsRemaining,
-          history: room.game.history
-        }
-      : null
-  };
-}
-
-function ensureRoomInterval(room) {
-  if (room.interval) return;
-
-  room.interval = setInterval(() => {
-    const now = Date.now();
-    if (room.gameStarted && room.game) {
-      // match timer
-      if (room.game.matchSecondsRemaining > 0) {
-        room.game.matchSecondsRemaining -= 1;
-        if (room.game.matchSecondsRemaining <= 0) {
-          room.game.matchSecondsRemaining = 0;
-          room.gameStarted = false;
-          addGameHistory(
-            room,
-            "Match time is up. Final Aardvark score: " + room.game.aardvarkScore,
-            "info"
-          );
-          broadcastRoom(room);
-          return;
-        }
-      }
-
-      // survival timeout
-      if (
-        room.game.pendingSurvival &&
-        room.game.survivalDeadlineMs &&
-        now >= room.game.survivalDeadlineMs
-      ) {
-        handleSurvivalTimeout(room);
-      }
-    }
-    broadcastRoom(room, true); // heartbeat
-  }, 1000);
-}
-
-function broadcastRoom(room, heartbeatOnly = false) {
-  if (!room.sseClients || room.sseClients.size === 0) return;
-  const payload = JSON.stringify({
-    type: heartbeatOnly ? "heartbeat" : "state",
-    room: snapshotRoom(room)
-  });
-  const data = `data: ${payload}\n\n`;
-  for (const res of room.sseClients) {
-    try {
-      res.write(data);
-    } catch (err) {
-      // stale client
-    }
-  }
-}
-
-function addGameHistory(room, text, type = "neutral") {
-  if (!room.game) return;
-  const entry = {
-    text,
-    type,
-    ts: new Date().toISOString()
-  };
-  room.game.history.push(entry);
-  if (room.game.history.length > 200) {
-    room.game.history.splice(0, room.game.history.length - 200);
-  }
-}
-
-// When pendingSurvival times out
-function handleSurvivalTimeout(room) {
-  if (!room.game || !room.game.pendingSurvival) return;
-  const animalName = room.game.pendingSurvival;
-  room.game.aardvarkScore += 5;
-  room.game.chainCount = 0;
-  addGameHistory(
-    room,
-    `${animalName} fails to call in time. Aardvark tags them for +5.`,
-    "bad"
-  );
-  room.game.pendingSurvival = null;
-  room.game.survivalDeadlineMs = null;
-  room.game.currentCaller = "Aardvark";
-}
-
-// Clean up empty room
-function maybeCleanupRoom(room) {
-  if (room.sseClients.size === 0 && room.players.size === 0) {
-    if (room.interval) clearInterval(room.interval);
-    rooms.delete(room.code);
-  }
-}
-
-// -----------------------------
-// API: health & animals
-// -----------------------------
-app.get("/api/health", (req, res) => {
-  res.json({ ok: true, message: "Survive API running." });
-});
-
-app.get("/api/game/animals", (req, res) => {
-  res.json({
-    real: REAL_ANIMALS,
-    decoys: DECOYS
-  });
-});
-
-// -----------------------------
-// API: sessions & leaderboard
-// -----------------------------
-app.post("/api/game/session", (req, res) => {
-  const {
-    playerName = "Unknown",
-    score = 0,
-    maxChain = 0,
-    matchSeconds = 0,
-    endedAt = new Date().toISOString(),
-    endReason = "",
-    history = []
-  } = req.body || {};
-  const entry = {
-    id: Date.now() + Math.random(),
-    playerName,
-    score: Number(score) || 0,
-    maxChain: Number(maxChain) || 0,
-    matchSeconds: Number(matchSeconds) || 0,
-    endedAt,
-    endReason,
-    history
-  };
-  SESSIONS.push(entry);
-  if (SESSIONS.length > MAX_SESSIONS) {
-    SESSIONS.splice(0, SESSIONS.length - MAX_SESSIONS);
-  }
-  res.json({ ok: true });
-});
-
-app.get("/api/game/leaderboard", (req, res) => {
-  const sorted = [...SESSIONS].sort((a, b) => b.score - a.score);
-  const entries = sorted.slice(0, 100).map((s) => ({
-    playerName: s.playerName,
-    score: s.score,
-    maxChain: s.maxChain
-  }));
-  res.json({ entries });
-});
-
-// -----------------------------
-// API: rooms (create / join / lock / state / action)
-// -----------------------------
-app.post("/api/rooms/create", (req, res) => {
-  let code;
-  do {
-    code = createRoomCode();
-  } while (rooms.has(code));
-
-  const playerId = createPlayerId();
-  const now = Date.now();
-
+function createRoom() {
+  const code = Math.random().toString(36).slice(2, 7).toUpperCase();
   const room = {
     code,
-    createdAt: now,
-    hostId: playerId,
-    players: new Map(),
-    lobbyLocked: false,
+    hostId: null,
+    players: [],
     gameStarted: false,
-    matchSeconds: 300,
     game: null,
-    sseClients: new Set(),
-    interval: null
+    sseClients: new Set()
   };
-
   rooms.set(code, room);
-  ensureRoomInterval(room);
+  return room;
+}
 
-  room.players.set(playerId, {
+function broadcastRoom(room) {
+  const payload = JSON.stringify({
+    type: "state",
+    room: {
+      code: room.code,
+      hostId: room.hostId,
+      players: room.players,
+      gameStarted: room.gameStarted,
+      game: room.game
+    }
+  });
+  for (const res of room.sseClients) {
+    res.write(`data: ${payload}\n\n`);
+  }
+}
+
+app.get("/", (req, res) => {
+  res.send("SURVIVE API is running.");
+});
+
+// Create room
+app.post("/api/rooms/create", (req, res) => {
+  const room = createRoom();
+  const playerId = randomUUID();
+  room.hostId = playerId;
+  room.players.push({
     id: playerId,
     name: "Host",
-    animal: "",
-    emoji: "🐾",
+    animal: null,
     secretNumber: null,
     isBot: false
   });
-
+  broadcastRoom(room);
   res.json({
     ok: true,
-    roomCode: code,
+    roomCode: room.code,
     playerId,
-    room: snapshotRoom(room)
+    room
   });
 });
 
+// Join room
 app.post("/api/rooms/join", (req, res) => {
   const { roomCode, name, animal, secretNumber, isBot } = req.body || {};
-  if (!roomCode) {
-    return res.status(400).json({ ok: false, error: "roomCode is required" });
-  }
-  const room = rooms.get(roomCode);
+  const code = (roomCode || "").toUpperCase();
+  const room = rooms.get(code);
   if (!room) {
-    return res.status(404).json({ ok: false, error: "Room not found" });
+    return res.json({ ok: false, error: "Room not found." });
   }
-  if (room.lobbyLocked) {
-    return res
-      .status(400)
-      .json({ ok: false, error: "Lobby is locked, cannot join." });
+  if (room.gameStarted) {
+    return res.json({ ok: false, error: "Game already started." });
   }
 
-  const playerId = createPlayerId();
-  const normalizedName = (name || "").trim() || "Player";
-  const normalizedAnimal = normalizeAnimalName(animal || "");
-  const num = secretNumber != null ? Number(secretNumber) : null;
-
-  // Disallow using decoy names as real animals
-  if (isDecoyName(normalizedAnimal)) {
-    return res.status(400).json({
-      ok: false,
-      error: "That animal name is reserved as a decoy. Pick a different one."
-    });
-  }
-
-  const uniqueness = validateRoomUniqueness(room, normalizedAnimal, num);
-  if (!uniqueness.ok) {
-    return res.status(400).json({ ok: false, error: uniqueness.error });
-  }
-
-  const emoji =
-    REAL_ANIMALS.find((a) => a.name === normalizedAnimal)?.emoji || "🐾";
-
-  room.players.set(playerId, {
+  const playerId = randomUUID();
+  room.players.push({
     id: playerId,
-    name: normalizedName,
-    animal: normalizedAnimal,
-    emoji,
-    secretNumber: num,
+    name: name || "Player",
+    animal: animal || null,
+    secretNumber: secretNumber || null,
     isBot: !!isBot
   });
 
+  broadcastRoom(room);
   res.json({
     ok: true,
-    roomCode,
     playerId,
-    room: snapshotRoom(room)
+    room
   });
 });
 
+// Lock lobby & start game
 app.post("/api/rooms/lock", (req, res) => {
   const { roomCode, playerId, matchMinutes } = req.body || {};
-  if (!roomCode || !playerId) {
-    return res
-      .status(400)
-      .json({ ok: false, error: "roomCode and playerId required" });
-  }
-  const room = rooms.get(roomCode);
+  const code = (roomCode || "").toUpperCase();
+  const room = rooms.get(code);
   if (!room) {
-    return res.status(404).json({ ok: false, error: "Room not found" });
+    return res.json({ ok: false, error: "Room not found." });
   }
   if (room.hostId !== playerId) {
-    return res
-      .status(403)
-      .json({ ok: false, error: "Only host can lock lobby" });
+    return res.json({ ok: false, error: "Only host can start the game." });
   }
-  if (room.players.size < 2) {
-    return res
-      .status(400)
-      .json({ ok: false, error: "Need at least 2 players to start" });
+  if (room.gameStarted) {
+    return res.json({ ok: false, error: "Game already started." });
   }
 
-  // Ensure animals and numbers are unique before starting
-  const seenAnimals = new Set();
-  const seenNumbers = new Set();
-  for (const p of room.players.values()) {
-    if (p.animal) {
-      if (seenAnimals.has(p.animal)) {
-        return res.status(400).json({
-          ok: false,
-          error: `Animals must be unique. "${p.animal}" appears more than once.`
-        });
-      }
-      seenAnimals.add(p.animal);
-    }
-    if (p.secretNumber != null) {
-      if (seenNumbers.has(p.secretNumber)) {
-        return res.status(400).json({
-          ok: false,
-          error: `Secret numbers must be unique. Number ${p.secretNumber} appears more than once.`
-        });
-      }
-      seenNumbers.add(p.secretNumber);
-    }
-  }
-
-  room.lobbyLocked = true;
-  room.matchSeconds = matchMinutes
-    ? Math.max(60, Math.min(Number(matchMinutes) * 60, 1800))
-    : 300;
-
-  // pick first Aardvark by number closest to 20
-  let firstPlayer = null;
-  let bestDiff = Infinity;
-  for (const p of room.players.values()) {
-    if (p.secretNumber == null) continue;
-    const diff = Math.abs(20 - p.secretNumber);
-    if (
-      firstPlayer === null ||
-      diff < bestDiff ||
-      (diff === bestDiff && p.secretNumber > firstPlayer.secretNumber)
-    ) {
-      firstPlayer = p;
-      bestDiff = diff;
-    }
-  }
+  const minutes = Math.max(1, Math.min(30, Number(matchMinutes || 5)));
 
   room.gameStarted = true;
   room.game = {
+    matchSecondsRemaining: minutes * 60,
     aardvarkScore: 0,
     chainCount: 0,
     currentCaller: "Aardvark",
     pendingSurvival: null,
-    matchSecondsRemaining: room.matchSeconds,
-    survivalDeadlineMs: null,
+    survivalDeadline: null,
     history: []
   };
 
-  if (firstPlayer) {
-    addGameHistory(
-      room,
-      `${firstPlayer.name} is closest to 20 (${firstPlayer.secretNumber}) and starts as Aardvark in the middle.`,
-      "info"
-    );
-  } else {
-    addGameHistory(
-      room,
-      "Lobby locked with no numbers; Aardvark starts in the middle by default.",
-      "info"
-    );
-  }
-
-  ensureRoomInterval(room);
   broadcastRoom(room);
-  res.json({ ok: true, room: snapshotRoom(room) });
+  res.json({ ok: true, room });
 });
 
-app.get("/api/rooms/:code/state", (req, res) => {
-  const code = req.params.code;
-  const room = rooms.get(code);
-  if (!room) {
-    return res.status(404).json({ ok: false, error: "Room not found" });
-  }
-  res.json({ ok: true, room: snapshotRoom(room) });
-});
-
-// Submit a call: "Caller calls Target"
-app.post("/api/rooms/action", (req, res) => {
-  const { roomCode, playerId, targetAnimal } = req.body || {};
-  if (!roomCode || !playerId) {
-    return res
-      .status(400)
-      .json({ ok: false, error: "roomCode and playerId required" });
-  }
-  const room = rooms.get(roomCode);
-  if (!room) {
-    return res.status(404).json({ ok: false, error: "Room not found" });
-  }
-  if (!room.gameStarted || !room.game) {
-    return res
-      .status(400)
-      .json({ ok: false, error: "Game not started in this room" });
-  }
-
-  const player = room.players.get(playerId);
-  if (!player) {
-    return res.status(403).json({ ok: false, error: "Unknown player" });
-  }
-
-  const targetName = normalizeAnimalName(targetAnimal || "");
-  if (!targetName) {
-    return res
-      .status(400)
-      .json({ ok: false, error: "targetAnimal is required" });
-  }
-
-  const sentence = `${room.game.currentCaller} calls ${targetName}!`;
-
-  const isReal = isRealAnimalName(targetName);
-  const isDecoy = isDecoyName(targetName);
-  const validReal = isReal && !isDecoy;
-
-  if (!validReal) {
-    addGameHistory(
-      room,
-      sentence +
-        " (decoy / invalid). Buzzer, −10 and chain snaps back to Aardvark.",
-      "bad"
-    );
-    if (
-      room.game.pendingSurvival &&
-      room.game.pendingSurvival === room.game.currentCaller
-    ) {
-      room.game.aardvarkScore += 5;
-      addGameHistory(
-        room,
-        `${room.game.currentCaller} used a decoy while trying to survive. Aardvark tags them for +5.`,
-        "bad"
-      );
-    }
-    room.game.aardvarkScore = Math.max(0, room.game.aardvarkScore - 10);
-    room.game.chainCount = 0;
-    room.game.pendingSurvival = null;
-    room.game.survivalDeadlineMs = null;
-    room.game.currentCaller = "Aardvark";
-
-    broadcastRoom(room);
-    return res.json({ ok: true, room: snapshotRoom(room) });
-  }
-
-  addGameHistory(room, sentence, "neutral");
-
-  if (
-    room.game.pendingSurvival &&
-    room.game.pendingSurvival === room.game.currentCaller
-  ) {
-    room.game.aardvarkScore -= 5;
-    if (room.game.aardvarkScore < 0) room.game.aardvarkScore = 0;
-    room.game.chainCount += 1;
-    addGameHistory(
-      room,
-      `${room.game.pendingSurvival} survives Aardvark and keeps the chain alive. −5 points for Aardvark.`,
-      "good"
-    );
-  }
-
-  room.game.pendingSurvival = targetName;
-  room.game.survivalDeadlineMs = Date.now() + 10000;
-  room.game.currentCaller = targetName;
-
-  broadcastRoom(room);
-  res.json({ ok: true, room: snapshotRoom(room) });
-});
-
-// -----------------------------
-// SSE stream
-// -----------------------------
+// SSE stream for room
 app.get("/api/rooms/:code/stream", (req, res) => {
-  const code = req.params.code;
+  const code = (req.params.code || "").toUpperCase();
   const room = rooms.get(code);
   if (!room) {
-    res.writeHead(404, {
-      "Content-Type": "text/plain"
-    });
-    res.end("Room not found");
+    res.status(404).send("Room not found");
     return;
   }
 
-  res.writeHead(200, {
-    "Content-Type": "text/event-stream",
-    "Cache-Control": "no-cache",
-    Connection: "keep-alive",
-    "X-Accel-Buffering": "no"
-  });
-  res.write("retry: 2000\n\n");
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
 
   room.sseClients.add(res);
 
-  const initialPayload = JSON.stringify({
+  // send initial state
+  const payload = JSON.stringify({
     type: "state",
-    room: snapshotRoom(room)
-  });
-  res.write(`data: ${initialPayload}\n\n`);
-
-  const heartbeatInterval = setInterval(() => {
-    try {
-      res.write(`data: ${JSON.stringify({ type: "ping" })}\n\n`);
-    } catch (err) {
-      // ignore
+    room: {
+      code: room.code,
+      hostId: room.hostId,
+      players: room.players,
+      gameStarted: room.gameStarted,
+      game: room.game
     }
-  }, 15000);
+  });
+  res.write(`data: ${payload}\n\n`);
 
   req.on("close", () => {
-    clearInterval(heartbeatInterval);
     room.sseClients.delete(res);
-    maybeCleanupRoom(room);
   });
 });
 
-// -----------------------------
-// Static (optional)
-// -----------------------------
-const PUBLIC_DIR = path.join(__dirname, "public_html");
-app.use(express.static(PUBLIC_DIR));
+// Player action: call animal (online mode logic kept simple)
+app.post("/api/rooms/action", (req, res) => {
+  const { roomCode, playerId, targetAnimal } = req.body || {};
+  const code = (roomCode || "").toUpperCase();
+  const room = rooms.get(code);
+  if (!room || !room.gameStarted || !room.game) {
+    return res.json({ ok: false, error: "Game not active." });
+  }
 
-app.get("/", (req, res) => {
-  res.send("Survive API up. Frontend is served from cPanel.");
+  const player = room.players.find((p) => p.id === playerId);
+  if (!player) {
+    return res.json({ ok: false, error: "Player not in room." });
+  }
+
+  const name = (targetAnimal || "").trim();
+  if (!name) {
+    return res.json({ ok: false, error: "No animal name." });
+  }
+
+  // Minimal: just log the call and set pendingSurvival on server
+  const norm = name
+    .split(/\s+/)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
+
+  room.game.currentCaller = player.animal || player.name || "Player";
+  room.game.pendingSurvival = norm;
+  room.game.survivalDeadline = Date.now() + 10000;
+
+  room.game.history.push({
+    type: "neutral",
+    text: `${room.game.currentCaller} calls ${norm}!`
+  });
+
+  broadcastRoom(room);
+  res.json({ ok: true, room });
 });
 
-// -----------------------------
-// Start server
-// -----------------------------
+// Simple match timer tick for all rooms (every second)
+setInterval(() => {
+  const now = Date.now();
+  for (const room of rooms.values()) {
+    if (!room.gameStarted || !room.game) continue;
+    if (room.game.matchSecondsRemaining <= 0) continue;
+
+    room.game.matchSecondsRemaining -= 1;
+    if (room.game.matchSecondsRemaining < 0) {
+      room.game.matchSecondsRemaining = 0;
+    }
+
+    // Survival timeout (no BONK scoring logic here yet; kept simple)
+    if (room.game.pendingSurvival && room.game.survivalDeadline) {
+      if (now >= room.game.survivalDeadline) {
+        room.game.history.push({
+          type: "info",
+          text: `${room.game.pendingSurvival} ran out of time. (Online mode: host resolves rules.)`
+        });
+        room.game.pendingSurvival = null;
+        room.game.survivalDeadline = null;
+      }
+    }
+
+    broadcastRoom(room);
+  }
+}, 1000);
+
 app.listen(PORT, () => {
-  console.log(`Survive API listening on http://localhost:${PORT}`);
+  console.log("SURVIVE API listening on port", PORT);
 });
