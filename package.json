@@ -1,7 +1,7 @@
 {
-  "name": "hide-to-survive-api",
+  "name": "hide-to-survive-home-base-tag-api",
   "version": "1.0.0",
-  "description": "Survive.com - Hide to Survive multiplayer backend",
+  "description": "Survive.com - Hide to Survive: Home Base Tag multiplayer backend",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
