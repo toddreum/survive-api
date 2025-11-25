@@ -1,9 +1,16 @@
-const express = require("express");
-const http = require("http");
-const { Server } = require("socket.io");
-const { v4: uuidv4 } = require("uuid");
+'use strict';
+
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const { v4: uuidv4 } = require('uuid');
 
 const app = express();
+app.use(express.json());
+
+// Basic security / headers (optional, lightweight)
+app.disable('x-powered-by');
+
 const server = http.createServer(app);
 
 const io = new Server(server, {
@@ -15,12 +22,8 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 3000;
 
-app.get("/", (req, res) => {
-  res.send("Hide To Survive backend is running.");
-});
-
 // ============ GAME CONSTANTS ============
-const TICK_RATE = 50;
+const TICK_RATE = 50; // ms
 const ROOM_MAX_PLAYERS = 16;
 
 const MAP_WIDTH = 2200;
@@ -48,6 +51,34 @@ const SERUM_PER_ROUND = 4;
 // rooms map
 const rooms = {};
 
+// ============ HELPERS ============
+function sanitizeName(name) {
+  if (!name || typeof name !== 'string') return 'Player';
+  return name.trim().slice(0, 18) || 'Player';
+}
+
+function clamp(v, a, b) {
+  return Math.max(a, Math.min(b, v));
+}
+
+function randomPosition() {
+  return {
+    x: Math.random() * MAP_WIDTH,
+    y: Math.random() * MAP_HEIGHT
+  };
+}
+
+function isValidNumber(n) {
+  return typeof n === 'number' && Number.isFinite(n) && !Number.isNaN(n);
+}
+
+function dist(a, b) {
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+// ============ ROOM MANAGEMENT ============
 function createRoom(roomId, config = {}) {
   rooms[roomId] = {
     id: roomId,
@@ -61,26 +92,30 @@ function createRoom(roomId, config = {}) {
     map: { width: MAP_WIDTH, height: MAP_HEIGHT },
     createdAt: Date.now(),
     config: {
-      botCount: typeof config.botCount === "number" ? config.botCount : 4,
+      botCount: typeof config.botCount === "number" ? clamp(config.botCount, 0, 16) : 4,
       maxPlayers: ROOM_MAX_PLAYERS
     },
     scores: {},
     roundIndex: 0,
     powerups: []
   };
+  console.log(`Created room ${roomId} (bots=${rooms[roomId].config.botCount})`);
 }
 
-function randomPosition() {
-  return {
-    x: Math.random() * MAP_WIDTH,
-    y: Math.random() * MAP_HEIGHT
-  };
-}
-
-function dist(a, b) {
-  const dx = a.x - b.x;
-  const dy = a.y - b.y;
-  return Math.sqrt(dx * dx + dy * dy);
+function getOrCreatePlayerStats(room, id, name) {
+  if (!room.scores[id]) {
+    room.scores[id] = {
+      id,
+      name: name || "Player",
+      score: 0,
+      tags: 0,
+      survived: 0,
+      games: 0
+    };
+  } else if (name && room.scores[id].name !== name) {
+    room.scores[id].name = name;
+  }
+  return room.scores[id];
 }
 
 // ============ GAME LOOP ============
@@ -91,23 +126,30 @@ setInterval(() => {
     const playerCount = Object.keys(room.players).length;
     const botCount = room.bots.length;
 
+    // Cleanup empty rooms older than 30 minutes
     if (playerCount === 0 && botCount === 0) {
       if (now - room.createdAt > 30 * 60 * 1000) {
+        console.log(`Deleting idle room ${room.id}`);
         delete rooms[room.id];
       }
       return;
     }
 
-    handleRoomState(room, now);
-    updateStatusAndSerums(room, now);
+    try {
+      handleRoomState(room, now);
+      updateStatusAndSerums(room, now);
 
-    Object.values(room.players).forEach((p) => applyInput(p, now));
-    updateBots(room, now);
+      // apply inputs
+      Object.values(room.players).forEach((p) => applyInput(p, now));
+      updateBots(room, now);
 
-    handleTagging(room);
+      handleTagging(room);
 
-    const snapshot = buildSnapshot(room);
-    io.to(room.id).emit("stateUpdate", snapshot);
+      const snapshot = buildSnapshot(room);
+      io.to(room.id).emit("stateUpdate", snapshot);
+    } catch (err) {
+      console.error(`Error in game loop for room ${room.id}:`, err);
+    }
   });
 }, TICK_RATE);
 
@@ -280,23 +322,6 @@ function finishRound(room, now, reason) {
   io.to(room.id).emit("roundFinished", { reason });
 }
 
-// ============ SCORES ============
-function getOrCreatePlayerStats(room, id, name) {
-  if (!room.scores[id]) {
-    room.scores[id] = {
-      id,
-      name: name || "Player",
-      score: 0,
-      tags: 0,
-      survived: 0,
-      games: 0
-    };
-  } else if (name && room.scores[id].name !== name) {
-    room.scores[id].name = name;
-  }
-  return room.scores[id];
-}
-
 // ============ STATUS + WAKE SERUM ============
 function updateStatusAndSerums(room, now) {
   Object.values(room.players).forEach((p) => {
@@ -337,10 +362,10 @@ function applyInput(p, now) {
 
   let vx = 0;
   let vy = 0;
-  if (p.input.up) vy -= 1;
-  if (p.input.down) vy += 1;
-  if (p.input.left) vx -= 1;
-  if (p.input.right) vx += 1;
+  if (p.input && p.input.up) vy -= 1;
+  if (p.input && p.input.down) vy += 1;
+  if (p.input && p.input.left) vx -= 1;
+  if (p.input && p.input.right) vx += 1;
 
   const len = Math.sqrt(vx * vx + vy * vy) || 1;
   vx = (vx / len) * speed;
@@ -374,6 +399,10 @@ function updateBots(room, now) {
           dx = Math.cos(bot.wanderAngle);
           dy = Math.sin(bot.wanderAngle);
         }
+      } else {
+        if (Math.random() < 0.03) bot.wanderAngle += Math.random() - 0.5;
+        dx = Math.cos(bot.wanderAngle);
+        dy = Math.sin(bot.wanderAngle);
       }
       const len = Math.sqrt(dx * dx + dy * dy) || 1;
       bot.x = Math.max(0, Math.min(MAP_WIDTH, bot.x + (dx / len) * speed));
@@ -461,6 +490,13 @@ function catchBot(room, seeker, bot) {
 
 // ============ SHOOTING ============
 function handleShot(room, shooterId, shotX, shotY) {
+  // Validation
+  if (!isValidNumber(shotX) || !isValidNumber(shotY)) {
+    // ignore malformed shot
+    console.warn(`Invalid shot coords from ${shooterId} in room ${room.id}:`, shotX, shotY);
+    return;
+  }
+
   const seeker = getSeeker(room);
   if (!seeker || seeker.id !== shooterId) return;
   if (room.state !== "seeking") return;
@@ -575,69 +611,107 @@ function buildSnapshot(room) {
 io.on("connection", (socket) => {
   console.log("Client connected", socket.id);
 
-  socket.on("joinGame", ({ name, roomId, options }) => {
-    const finalRoomId = roomId && roomId.trim() ? roomId.trim() : "default";
+  socket.on("joinGame", (payload) => {
+    try {
+      if (!payload || typeof payload !== 'object') {
+        socket.emit("joinError", { message: "Invalid join payload." });
+        return;
+      }
+      const name = sanitizeName(payload.name);
+      const roomId = payload.roomId && typeof payload.roomId === 'string' && payload.roomId.trim() ? payload.roomId.trim() : "default";
+      const options = payload.options || {};
+      const botCount = typeof options.botCount === 'number' ? clamp(options.botCount, 0, 16) : undefined;
 
-    if (!rooms[finalRoomId]) {
-      const cfg = {
-        botCount:
-          options && typeof options.botCount === "number" ? options.botCount : 4
+      const finalRoomId = roomId;
+
+      if (!rooms[finalRoomId]) {
+        const cfg = {
+          botCount: typeof botCount === "number" ? botCount : 4
+        };
+        createRoom(finalRoomId, cfg);
+      }
+      const room = rooms[finalRoomId];
+
+      if (Object.keys(room.players).length >= room.config.maxPlayers) {
+        socket.emit("joinError", { message: "Room is full." });
+        return;
+      }
+
+      const pos = randomPosition();
+      room.players[socket.id] = {
+        id: socket.id,
+        name,
+        x: pos.x,
+        y: pos.y,
+        vx: 0,
+        vy: 0,
+        role: "hider",
+        caught: false,
+        input: { up: false, down: false, left: false, right: false },
+        tranqUntil: 0
       };
-      createRoom(finalRoomId, cfg);
+
+      getOrCreatePlayerStats(room, socket.id, name);
+
+      socket.join(finalRoomId);
+      socket.roomId = finalRoomId;
+
+      socket.emit("joinedRoom", {
+        roomId: finalRoomId,
+        playerId: socket.id,
+        config: room.config
+      });
+      console.log(`Player ${socket.id} (${name}) joined room ${finalRoomId}`);
+    } catch (err) {
+      console.error("joinGame handler error:", err);
+      socket.emit("joinError", { message: "Server error while joining." });
     }
-    const room = rooms[finalRoomId];
-
-    if (Object.keys(room.players).length >= room.config.maxPlayers) {
-      socket.emit("joinError", { message: "Room is full." });
-      return;
-    }
-
-    const pos = randomPosition();
-    room.players[socket.id] = {
-      id: socket.id,
-      name: name && name.trim() ? name.trim() : "Player",
-      x: pos.x,
-      y: pos.y,
-      vx: 0,
-      vy: 0,
-      role: "hider",
-      caught: false,
-      input: { up: false, down: false, left: false, right: false },
-      tranqUntil: 0
-    };
-
-    getOrCreatePlayerStats(room, socket.id, name);
-
-    socket.join(finalRoomId);
-    socket.roomId = finalRoomId;
-
-    socket.emit("joinedRoom", {
-      roomId: finalRoomId,
-      playerId: socket.id,
-      config: room.config
-    });
-    console.log(`Player ${socket.id} joined room ${finalRoomId}`);
   });
 
   socket.on("input", (input) => {
-    const roomId = socket.roomId;
-    if (!roomId || !rooms[roomId]) return;
+    try {
+      const roomId = socket.roomId;
+      if (!roomId || !rooms[roomId]) return;
 
-    const player = rooms[roomId].players[socket.id];
-    if (!player || player.caught) return;
+      const player = rooms[roomId].players[socket.id];
+      if (!player || player.caught) return;
 
-    player.input = {
-      up: !!input.up,
-      down: !!input.down,
-      left: !!input.left,
-      right: !!input.right
-    };
+      // Basic shape validation
+      const newInput = {
+        up: !!(input && input.up),
+        down: !!(input && input.down),
+        left: !!(input && input.left),
+        right: !!(input && input.right)
+      };
+      player.input = newInput;
+    } catch (err) {
+      console.error("input handler error:", err);
+    }
   });
 
-  socket.on("shoot", ({ x, y }) => {
-    const roomId = socket.roomId;
-    if (!roomId || !rooms[roomId]) return;
-    handleShot(rooms[roomId], socket.id, x, y);
+  socket.on("shoot", (payload) => {
+    try {
+      const roomId = socket.roomId;
+      if (!roomId || !rooms[roomId]) return;
+
+      // payload may be { x, y } — validate
+      let x = null, y = null;
+      if (payload && typeof payload === 'object') {
+        x = Number(payload.x);
+        y = Number(payload.y);
+      }
+
+      if (!isValidNumber(x) || !isValidNumber(y)) {
+        // Ignore malformed shots (do not crash)
+        // We log for debugging but do not send an error to the client to avoid spam.
+        console.warn(`Malformed shoot payload from ${socket.id} in room ${roomId}:`, payload);
+        return;
+      }
+
+      handleShot(rooms[roomId], socket.id, x, y);
+    } catch (err) {
+      console.error("shoot handler error:", err);
+    }
   });
 
   socket.on("disconnect", () => {
@@ -653,4 +727,35 @@ io.on("connection", (socket) => {
 
 server.listen(PORT, () => {
   console.log(`Hide To Survive backend listening on port ${PORT}`);
+});
+
+// ============ Basic HTTP routes for health / debug ============
+app.get("/", (req, res) => {
+  res.send("Hide To Survive backend is running.");
+});
+
+app.get("/health", (req, res) => {
+  res.json({ status: "ok", now: Date.now(), rooms: Object.keys(rooms).length });
+});
+
+app.get("/rooms", (req, res) => {
+  // Returns summarized info about rooms for debugging (no private data)
+  const summary = Object.values(rooms).map(r => ({
+    id: r.id,
+    players: Object.keys(r.players).length,
+    bots: r.bots.length,
+    state: r.state,
+    roundIndex: r.roundIndex,
+    createdAt: r.createdAt
+  }));
+  res.json({ rooms: summary });
+});
+
+// ============ Process handlers ============
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception:', err);
+});
+
+process.on('unhandledRejection', (reason, p) => {
+  console.error('Unhandled Rejection at:', p, 'reason:', reason);
 });
