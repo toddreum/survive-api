@@ -1,528 +1,434 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const path = require('path');
+const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 const server = http.createServer(app);
+
+// Socket.io with CORS (adjust origin in production if you want)
 const io = new Server(server, {
   cors: {
-    origin: '*',
-    methods: ['GET', 'POST']
+    origin: "*", // e.g. ["https://hidetosurvive.com", "https://survive.com"]
+    methods: ["GET", "POST"]
   }
 });
 
 const PORT = process.env.PORT || 3000;
 
-// Health check
-app.get('/health', (req, res) => {
-  res.json({ ok: true, message: 'Hide to Survive: Home Base Tag server is running.' });
+// Simple health check
+app.get('/', (req, res) => {
+  res.send('Hide To Survive backend is running.');
 });
 
-// Optional static (not needed if frontend is on cPanel)
-app.use(express.static(path.join(__dirname, 'public')));
-
 // ===== GAME CONSTANTS =====
-const TICK_RATE = 30;
-const ARENA_WIDTH = 1400;
-const ARENA_HEIGHT = 900;
-const PLAYER_RADIUS = 26;
+const TICK_RATE = 50; // 20 ticks/sec
+const ROOM_MAX_PLAYERS = 16;
 
-const CHASER_SPEED = 420;
-const RUNNER_SPEED = 380;
-const TAG_DISTANCE = 52;
+const MAP_WIDTH = 2200;
+const MAP_HEIGHT = 2200;
 
-const ROUND_DURATION = 90; // seconds
-const POST_DURATION = 10;  // seconds between rounds
+const PLAYER_SPEED = 3.1;
+const BOT_SPEED = 2.8;
 
-const BOT_DESIRED_COUNT = 4;
+const HIDE_TIME = 15000;    // 15 seconds to hide
+const ROUND_TIME = 120000;  // 2 minutes
 
-// Home base (runners must reach here)
-const HOME_BASE = {
-  x: ARENA_WIDTH / 2 - 180,
-  y: ARENA_HEIGHT / 2 - 180,
-  radius: 180
-};
+// ===== IN-MEMORY ROOMS =====
+/*
+room = {
+  id,
+  players: { socketId: playerObj },
+  bots: [botObj],
+  state: "waiting" | "hiding" | "seeking" | "finished",
+  seekerId,
+  roundStartTime,
+  hideEndTime,
+  finishTime,
+  map: { width, height },
+  createdAt
+}
+*/
+const rooms = {};
 
-// Walls (rectangles; x,y = center)
-const WALLS = [
-  // Outer
-  { x: 0, y: -420, width: 1300, height: 40 },
-  { x: 0, y: 420,  width: 1300, height: 40 },
-  { x: -650, y: 0, width: 40,  height: 800 },
-  { x: 650,  y: 0, width: 40,  height: 800 },
-
-  // Interior cross
-  { x: 0, y: 0, width: 40, height: 700 },
-  { x: 0, y: 0, width: 700, height: 40 },
-
-  // Side corridors / rooms
-  { x: -300, y: -200, width: 260, height: 40 },
-  { x:  300, y:  200, width: 260, height: 40 },
-  { x: -300, y:  200, width: 40,  height: 260 },
-  { x:  300, y: -200, width: 40,  height: 260 },
-
-  // Cover blocks
-  { x: 150,  y: -100, width: 180, height: 30 },
-  { x: -150, y:  100, width: 180, height: 30 }
-];
-
-// ===== GAME STATE =====
-const ROOM_ID = 'main';
-
-let players = {}; // id -> player
-let hostId = null;
-
-let gameState = {
-  phase: 'lobby', // 'lobby' | 'playing' | 'post'
-  timeLeft: 0,
-  roundNumber: 0
-};
-
-function randRange(min, max) {
-  return Math.random() * (max - min) + min;
+function createRoom(roomId) {
+  rooms[roomId] = {
+    id: roomId,
+    players: {},
+    bots: [],
+    state: 'waiting',
+    seekerId: null,
+    roundStartTime: null,
+    hideEndTime: null,
+    finishTime: null,
+    map: { width: MAP_WIDTH, height: MAP_HEIGHT },
+    createdAt: Date.now()
+  };
 }
 
-function circleRectCollides(px, py, radius, rect) {
-  const rx = rect.x;
-  const ry = rect.y;
-  const hw = rect.width / 2;
-  const hh = rect.height / 2;
-
-  const dx = Math.max(Math.abs(px - rx) - hw, 0);
-  const dy = Math.max(Math.abs(py - ry) - hh, 0);
-  return dx * dx + dy * dy <= radius * radius;
-}
-
-function placeInOpenArea() {
-  for (let i = 0; i < 60; i++) {
-    const x = randRange(-ARENA_WIDTH / 2 + 80, ARENA_WIDTH / 2 - 80);
-    const y = randRange(-ARENA_HEIGHT / 2 + 80, ARENA_HEIGHT / 2 - 80);
-    let collides = false;
-    for (const w of WALLS) {
-      if (circleRectCollides(x, y, PLAYER_RADIUS + 4, w)) {
-        collides = true;
-        break;
-      }
-    }
-    if (!collides) return { x, y };
-  }
-  return { x: 0, y: 0 };
-}
-
-function getPlayersArray() {
-  return Object.values(players);
-}
-
-function spawnBotsIfNeeded() {
-  const bots = getPlayersArray().filter(p => p.isBot);
-  const deficit = BOT_DESIRED_COUNT - bots.length;
-  for (let i = 0; i < deficit; i++) {
-    const id = `BOT-${Date.now()}-${Math.floor(Math.random() * 9999)}`;
-    players[id] = createPlayer(id, `Bot ${bots.length + i + 1}`, true);
-  }
-}
-
-function createPlayer(id, name, isBot = false) {
+// Utility functions
+function randomPosition() {
   return {
-    id,
-    name,
-    isBot,
-    role: 'runner', // 'runner' or 'chaser'
-    ready: false,
-    connected: !isBot,
-    x: 0,
-    y: 0,
-    vx: 0,
-    vy: 0,
-    input: { up: false, down: false, left: false, right: false },
-    safe: false,
-    tagged: false,
-    score: 0
+    x: Math.random() * MAP_WIDTH,
+    y: Math.random() * MAP_HEIGHT
   };
 }
 
-function broadcastLobby() {
-  const lobbyData = {
-    phase: gameState.phase,
-    roundNumber: gameState.roundNumber,
-    players: getPlayersArray().map(p => ({
-      id: p.id,
-      name: p.name,
-      role: p.role,
-      ready: p.ready,
-      isHost: p.id === hostId,
-      isBot: p.isBot,
-      score: p.score
-    }))
-  };
-  io.to(ROOM_ID).emit('lobbyUpdate', lobbyData);
+function dist(a, b) {
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  return Math.sqrt(dx * dx + dy * dy);
 }
 
-function resetToLobby() {
-  gameState.phase = 'lobby';
-  gameState.timeLeft = 0;
+// ===== GAME LOOP =====
+setInterval(() => {
+  const now = Date.now();
 
-  for (const p of getPlayersArray()) {
-    p.role = 'runner';
-    p.ready = false;
-    p.safe = false;
-    p.tagged = false;
-    p.vx = 0;
-    p.vy = 0;
+  Object.values(rooms).forEach(room => {
+    const playerCount = Object.keys(room.players).length;
+    const botCount = room.bots.length;
+
+    // Clean up empty rooms after 30 minutes
+    if (playerCount === 0 && botCount === 0) {
+      if (now - room.createdAt > 30 * 60 * 1000) {
+        delete rooms[room.id];
+      }
+      return;
+    }
+
+    handleRoomState(room, now);
+
+    // Apply input to players
+    Object.values(room.players).forEach(p => applyInput(p));
+
+    // Update bots
+    updateBots(room);
+
+    // Tag detection
+    handleTagging(room);
+
+    // Broadcast snapshot
+    const snapshot = buildSnapshot(room);
+    io.to(room.id).emit('stateUpdate', snapshot);
+  });
+}, TICK_RATE);
+
+// ===== STATE MACHINE =====
+function handleRoomState(room, now) {
+  const playerCount = Object.keys(room.players).length;
+  const actorCount = playerCount + room.bots.length;
+
+  if (actorCount < 2) {
+    // Not enough to play
+    room.state = 'waiting';
+    room.seekerId = null;
+    room.roundStartTime = null;
+    room.hideEndTime = null;
+    room.finishTime = null;
+    return;
   }
-  broadcastLobby();
+
+  switch (room.state) {
+    case 'waiting':
+      startNewRound(room, now);
+      break;
+    case 'hiding':
+      if (now >= room.hideEndTime) {
+        room.state = 'seeking';
+        room.roundStartTime = now;
+      }
+      break;
+    case 'seeking': {
+      const timeUp = now >= room.roundStartTime + ROUND_TIME;
+      const anyHider = hasAnyHider(room);
+      if (timeUp || !anyHider) {
+        room.state = 'finished';
+        room.finishTime = now;
+      }
+      break;
+    }
+    case 'finished':
+      if (!room.finishTime) room.finishTime = now;
+      if (now - room.finishTime > 8000) {
+        startNewRound(room, now);
+      }
+      break;
+  }
 }
 
-function startRound() {
-  const activeHumans = getPlayersArray().filter(p => p.connected);
-  if (activeHumans.length === 0) return;
+function startNewRound(room, now) {
+  room.state = 'hiding';
+  room.roundStartTime = null;
+  room.hideEndTime = now + HIDE_TIME;
+  room.finishTime = null;
 
-  spawnBotsIfNeeded();
-  const all = getPlayersArray();
-
-  gameState.roundNumber++;
-  gameState.phase = 'playing';
-  gameState.timeLeft = ROUND_DURATION;
-
-  // Pick one chaser among HUMANS if possible, otherwise any
-  let candidates = activeHumans;
-  if (candidates.length < 1) candidates = all;
-
-  const chaserIndex = Math.floor(Math.random() * candidates.length);
-  const chaserId = candidates[chaserIndex].id;
-
-  for (const p of all) {
-    const pos = placeInOpenArea();
+  // Reset players
+  Object.values(room.players).forEach(p => {
+    const pos = randomPosition();
     p.x = pos.x;
     p.y = pos.y;
     p.vx = 0;
     p.vy = 0;
-    p.safe = false;
-    p.tagged = false;
-    p.role = (p.id === chaserId) ? 'chaser' : 'runner';
-  }
-
-  io.to(ROOM_ID).emit('roundStarted', {
-    roundNumber: gameState.roundNumber,
-    chaserId
+    p.caught = false;
+    p.role = 'hider';
   });
-  broadcastLobby();
-}
 
-function endRound(reason) {
-  // Simple scoring:
-  // - Runners: +3 if safe, +1 if still untagged when time ends
-  // - Chaser: +2 per tag
-  const chaser = getPlayersArray().find(p => p.role === 'chaser');
-  const runners = getPlayersArray().filter(p => p.role === 'runner');
-
-  let tagsCount = 0;
-  for (const r of runners) {
-    if (r.safe) r.score += 3;
-    else if (!r.tagged) r.score += 1;
-    if (r.tagged) tagsCount++;
+  // Ensure some bots
+  while (room.bots.length < 4) {
+    const id = 'bot-' + uuidv4();
+    const pos = randomPosition();
+    room.bots.push({
+      id,
+      name: 'Bot ' + id.slice(0, 4),
+      x: pos.x,
+      y: pos.y,
+      vx: 0,
+      vy: 0,
+      caught: false,
+      role: 'hider',
+      wanderAngle: Math.random() * Math.PI * 2
+    });
   }
-  if (chaser) {
-    chaser.score += tagsCount * 2;
-  }
-
-  gameState.phase = 'post';
-  gameState.timeLeft = POST_DURATION;
-
-  io.to(ROOM_ID).emit('roundEnded', {
-    reason,
-    tagsCount
+  room.bots.forEach(b => {
+    const pos = randomPosition();
+    b.x = pos.x;
+    b.y = pos.y;
+    b.vx = 0;
+    b.vy = 0;
+    b.caught = false;
+    b.role = 'hider';
+    b.wanderAngle = Math.random() * Math.PI * 2;
   });
-  broadcastLobby();
+
+  // Pick a seeker from combined pool (players + bots)
+  const candidates = [
+    ...Object.values(room.players).map(p => ({ type: 'player', id: p.id })),
+    ...room.bots.map(b => ({ type: 'bot', id: b.id }))
+  ];
+
+  const chosen = candidates[Math.floor(Math.random() * candidates.length)];
+  room.seekerId = chosen.id;
+
+  Object.values(room.players).forEach(p => {
+    p.role = (p.id === room.seekerId) ? 'seeker' : 'hider';
+    p.caught = false;
+  });
+  room.bots.forEach(b => {
+    b.role = (b.id === room.seekerId) ? 'seeker' : 'hider';
+    b.caught = false;
+  });
+
+  io.to(room.id).emit('roundStarted', {
+    seekerId: room.seekerId,
+    hideTime: HIDE_TIME
+  });
 }
 
-function checkRoundEnd() {
-  const runners = getPlayersArray().filter(p => p.role === 'runner');
-  if (runners.length === 0) return; // weird but okay
-
-  const allDone = runners.every(r => r.safe || r.tagged);
-  if (allDone) {
-    endRound('all_resolved');
-  }
+function hasAnyHider(room) {
+  const playerHiders = Object.values(room.players).some(p => p.role === 'hider' && !p.caught);
+  const botHiders = room.bots.some(b => b.role === 'hider' && !b.caught);
+  return playerHiders || botHiders;
 }
 
-// Bots AI
-function botLogic(p, dt) {
-  if (!p.isBot) return;
-  if (gameState.phase !== 'playing') return;
+// ===== INPUT & MOVEMENT =====
+function applyInput(p) {
+  if (p.caught) return;
+  const speed = PLAYER_SPEED;
 
-  const others = getPlayersArray().filter(o => o.id !== p.id);
+  let vx = 0;
+  let vy = 0;
+  if (p.input.up) vy -= 1;
+  if (p.input.down) vy += 1;
+  if (p.input.left) vx -= 1;
+  if (p.input.right) vx += 1;
 
-  if (p.role === 'chaser') {
-    // Move toward nearest runner
-    let target = null;
-    let bestD2 = Infinity;
-    for (const r of others) {
-      if (r.role !== 'runner' || r.tagged || r.safe) continue;
-      const dx = r.x - p.x;
-      const dy = r.y - p.y;
-      const d2 = dx * dx + dy * dy;
-      if (d2 < bestD2) {
-        bestD2 = d2;
-        target = r;
+  const len = Math.sqrt(vx * vx + vy * vy) || 1;
+  vx = vx / len * speed;
+  vy = vy / len * speed;
+
+  p.x = Math.max(0, Math.min(MAP_WIDTH, p.x + vx));
+  p.y = Math.max(0, Math.min(MAP_HEIGHT, p.y + vy));
+}
+
+// ===== BOT AI =====
+function updateBots(room) {
+  const seeker = getSeeker(room);
+  const players = Object.values(room.players);
+
+  room.bots.forEach(bot => {
+    if (bot.caught) return;
+
+    if (bot.role === 'hider') {
+      // Hiders: run away if seeker is close, otherwise wander
+      let dx = 0, dy = 0;
+      if (seeker) {
+        const d = dist(bot, seeker);
+        if (d < 400) {
+          dx = bot.x - seeker.x;
+          dy = bot.y - seeker.y;
+        } else {
+          // wander
+          if (Math.random() < 0.02) {
+            bot.wanderAngle += (Math.random() - 0.5);
+          }
+          dx = Math.cos(bot.wanderAngle);
+          dy = Math.sin(bot.wanderAngle);
+        }
+      }
+      const len = Math.sqrt(dx * dx + dy * dy) || 1;
+      bot.x = Math.max(0, Math.min(MAP_WIDTH, bot.x + (dx / len) * BOT_SPEED));
+      bot.y = Math.max(0, Math.min(MAP_HEIGHT, bot.y + (dy / len) * BOT_SPEED));
+    } else if (bot.role === 'seeker') {
+      // Seeker bot chases nearest hider
+      const targets = [
+        ...players.filter(p => p.role === 'hider' && !p.caught),
+        ...room.bots.filter(b => b.role === 'hider' && !b.caught)
+      ];
+      if (!targets.length) return;
+
+      let closest = null;
+      let minDist = Infinity;
+      targets.forEach(t => {
+        const d = dist(bot, t);
+        if (d < minDist) {
+          minDist = d;
+          closest = t;
+        }
+      });
+
+      if (closest) {
+        const dx = closest.x - bot.x;
+        const dy = closest.y - bot.y;
+        const len = Math.sqrt(dx * dx + dy * dy) || 1;
+        bot.x = Math.max(0, Math.min(MAP_WIDTH, bot.x + (dx / len) * BOT_SPEED));
+        bot.y = Math.max(0, Math.min(MAP_HEIGHT, bot.y + (dy / len) * BOT_SPEED));
       }
     }
-    if (target) {
-      const dx = target.x - p.x;
-      const dy = target.y - p.y;
-      const mag = Math.hypot(dx, dy) || 1;
-      const dirx = dx / mag;
-      const diry = dy / mag;
-      p.input = {
-        up: diry < -0.2,
-        down: diry > 0.2,
-        left: dirx < -0.2,
-        right: dirx > 0.2
-      };
+  });
+}
+
+function getSeeker(room) {
+  const fromPlayers = Object.values(room.players).find(p => p.id === room.seekerId);
+  if (fromPlayers) return fromPlayers;
+  return room.bots.find(b => b.id === room.seekerId) || null;
+}
+
+// ===== TAGGING =====
+function handleTagging(room) {
+  const seeker = getSeeker(room);
+  if (!seeker) return;
+
+  const TAG_RADIUS = 40;
+
+  Object.values(room.players).forEach(p => {
+    if (p.role === 'hider' && !p.caught && dist(seeker, p) < TAG_RADIUS) {
+      p.caught = true;
+      io.to(room.id).emit('playerTagged', { id: p.id });
     }
-  } else {
-    // Runner AI: move toward base but also away from chaser
-    const baseDx = HOME_BASE.x - (ARENA_WIDTH / 2) - p.x;
-    const baseDy = HOME_BASE.y - (ARENA_HEIGHT / 2) - p.y;
+  });
 
-    let chaser = others.find(o => o.role === 'chaser');
-    let avoidX = 0;
-    let avoidY = 0;
-    if (chaser) {
-      const dx = p.x - chaser.x;
-      const dy = p.y - chaser.y;
-      const d2 = dx * dx + dy * dy;
-      const dist = Math.sqrt(d2) || 1;
-      const factor = dist < 280 ? 1.5 : 0.4;
-      avoidX = (dx / dist) * factor;
-      avoidY = (dy / dist) * factor;
+  room.bots.forEach(b => {
+    if (b.role === 'hider' && !b.caught && dist(seeker, b) < TAG_RADIUS) {
+      b.caught = true;
+      io.to(room.id).emit('botTagged', { id: b.id });
     }
+  });
+}
 
-    const targetX = baseDx + avoidX * 120;
-    const targetY = baseDy + avoidY * 120;
-    const mag = Math.hypot(targetX, targetY) || 1;
-    const dirx = targetX / mag;
-    const diry = targetY / mag;
-
-    p.input = {
-      up: diry < -0.1,
-      down: diry > 0.1,
-      left: dirx < -0.1,
-      right: dirx > 0.1
-    };
-  }
+// ===== SNAPSHOT =====
+function buildSnapshot(room) {
+  return {
+    state: room.state,
+    seekerId: room.seekerId,
+    players: Object.values(room.players).map(p => ({
+      id: p.id,
+      name: p.name,
+      x: p.x,
+      y: p.y,
+      role: p.role,
+      caught: p.caught
+    })),
+    bots: room.bots.map(b => ({
+      id: b.id,
+      name: b.name,
+      x: b.x,
+      y: b.y,
+      role: b.role,
+      caught: b.caught
+    })),
+    map: room.map,
+    hideTimeRemaining: room.state === 'hiding'
+      ? Math.max(0, room.hideEndTime - Date.now())
+      : 0,
+    roundTimeRemaining: room.state === 'seeking' && room.roundStartTime
+      ? Math.max(0, room.roundStartTime + ROUND_TIME - Date.now())
+      : 0
+  };
 }
 
 // ===== SOCKET HANDLERS =====
 io.on('connection', (socket) => {
-  console.log('Client connected:', socket.id);
-  socket.join(ROOM_ID);
+  console.log('Client connected', socket.id);
 
-  const name = 'Player ' + socket.id.slice(0, 4);
-  players[socket.id] = createPlayer(socket.id, name, false);
-  players[socket.id].connected = true;
+  socket.on('joinGame', ({ name, roomId }) => {
+    const finalRoomId = roomId && roomId.trim() ? roomId.trim() : 'default';
 
-  if (!hostId) {
-    hostId = socket.id;
-  }
-
-  spawnBotsIfNeeded();
-  broadcastLobby();
-
-  socket.emit('connectedToRoom', {
-    id: socket.id,
-    hostId,
-    phase: gameState.phase
-  });
-
-  socket.on('setName', (nameStr) => {
-    const p = players[socket.id];
-    if (!p) return;
-    const newName = (nameStr || '').toString().trim().slice(0, 16);
-    if (newName.length > 0) {
-      p.name = newName;
-      broadcastLobby();
+    if (!rooms[finalRoomId]) {
+      createRoom(finalRoomId);
     }
-  });
+    const room = rooms[finalRoomId];
 
-  socket.on('setReady', (isReady) => {
-    const p = players[socket.id];
-    if (!p || gameState.phase !== 'lobby') return;
-    p.ready = !!isReady;
-    broadcastLobby();
-  });
-
-  socket.on('startRound', () => {
-    if (socket.id !== hostId) return;
-    if (gameState.phase !== 'lobby') return;
-
-    const readyHumans = getPlayersArray().filter(p => p.connected && p.ready);
-    if (readyHumans.length < 1) {
-      socket.emit('errorMessage', 'You need at least 1 ready human player to start.');
+    if (Object.keys(room.players).length >= ROOM_MAX_PLAYERS) {
+      socket.emit('joinError', { message: 'Room is full.' });
       return;
     }
-    startRound();
+
+    const pos = randomPosition();
+    room.players[socket.id] = {
+      id: socket.id,
+      name: name && name.trim() ? name.trim() : 'Player',
+      x: pos.x,
+      y: pos.y,
+      vx: 0,
+      vy: 0,
+      role: 'hider',
+      caught: false,
+      input: { up: false, down: false, left: false, right: false }
+    };
+
+    socket.join(finalRoomId);
+    socket.roomId = finalRoomId;
+
+    socket.emit('joinedRoom', { roomId: finalRoomId, playerId: socket.id });
+    console.log(`Player ${socket.id} joined room ${finalRoomId}`);
   });
 
-  socket.on('input', (data) => {
-    const p = players[socket.id];
-    if (!p) return;
-    if (gameState.phase !== 'playing') return;
-    p.input = {
-      up: !!data.up,
-      down: !!data.down,
-      left: !!data.left,
-      right: !!data.right
+  socket.on('input', (input) => {
+    const roomId = socket.roomId;
+    if (!roomId || !rooms[roomId]) return;
+
+    const player = rooms[roomId].players[socket.id];
+    if (!player || player.caught) return;
+
+    player.input = {
+      up: !!input.up,
+      down: !!input.down,
+      left: !!input.left,
+      right: !!input.right
     };
   });
 
-  socket.on('pingCheck', () => {
-    socket.emit('pongCheck');
-  });
-
   socket.on('disconnect', () => {
-    console.log('Disconnect', socket.id);
-    const wasHost = socket.id === hostId;
-    if (players[socket.id]) {
-      delete players[socket.id];
+    const roomId = socket.roomId;
+    if (roomId && rooms[roomId]) {
+      delete rooms[roomId].players[socket.id];
+      console.log(`Player ${socket.id} left room ${roomId}`);
+    } else {
+      console.log('Client disconnected', socket.id);
     }
-    if (wasHost) {
-      const remainingHumans = getPlayersArray().filter(p => !p.isBot);
-      hostId = remainingHumans.length ? remainingHumans[0].id : null;
-    }
-    broadcastLobby();
   });
 });
 
-// ===== GAME LOOP =====
-let lastUpdate = Date.now();
-
-function gameLoop() {
-  const now = Date.now();
-  let dt = (now - lastUpdate) / 1000;
-  lastUpdate = now;
-  if (dt > 0.1) dt = 0.1;
-
-  spawnBotsIfNeeded();
-
-  if (gameState.phase === 'playing' || gameState.phase === 'post') {
-    gameState.timeLeft -= dt;
-    if (gameState.timeLeft <= 0) {
-      if (gameState.phase === 'playing') {
-        endRound('time_up');
-      } else if (gameState.phase === 'post') {
-        resetToLobby();
-      }
-    }
-  }
-
-  if (gameState.phase === 'playing') {
-    for (const p of getPlayersArray()) {
-      if (p.tagged || p.safe) continue;
-
-      // Bot AI
-      if (p.isBot) {
-        botLogic(p, dt);
-      }
-
-      const inp = p.input || { up: false, down: false, left: false, right: false };
-      const speed = p.role === 'chaser' ? CHASER_SPEED : RUNNER_SPEED;
-
-      let mx = 0;
-      let my = 0;
-      if (inp.up) my -= 1;
-      if (inp.down) my += 1;
-      if (inp.left) mx -= 1;
-      if (inp.right) mx += 1;
-      const mag = Math.hypot(mx, my) || 1;
-
-      p.vx = (mx / mag) * speed;
-      p.vy = (my / mag) * speed;
-
-      // Position in arena coordinates (origin center)
-      let newX = p.x + p.vx * dt;
-      let newY = p.y + p.vy * dt;
-
-      const halfW = ARENA_WIDTH / 2 - PLAYER_RADIUS;
-      const halfH = ARENA_HEIGHT / 2 - PLAYER_RADIUS;
-      newX = Math.max(-halfW, Math.min(halfW, newX));
-      newY = Math.max(-halfH, Math.min(halfH, newY));
-
-      let collides = false;
-      for (const w of WALLS) {
-        if (circleRectCollides(newX, newY, PLAYER_RADIUS, w)) {
-          collides = true;
-          break;
-        }
-      }
-
-      if (!collides) {
-        p.x = newX;
-        p.y = newY;
-      }
-
-      // Check home base for runners
-      if (p.role === 'runner' && !p.safe && !p.tagged) {
-        // Convert HOME_BASE from top-left-ish to game coords (we'll handle in client similarly)
-        const baseWorldX = HOME_BASE.x - ARENA_WIDTH / 2;
-        const baseWorldY = HOME_BASE.y - ARENA_HEIGHT / 2;
-        const dx = p.x - baseWorldX;
-        const dy = p.y - baseWorldY;
-        if (dx * dx + dy * dy <= HOME_BASE.radius * HOME_BASE.radius) {
-          p.safe = true;
-        }
-      }
-    }
-
-    // Tagging
-    const chasers = getPlayersArray().filter(p => p.role === 'chaser' && !p.tagged);
-    const runners = getPlayersArray().filter(p => p.role === 'runner' && !p.safe && !p.tagged);
-
-    for (const c of chasers) {
-      for (const r of runners) {
-        const dx = r.x - c.x;
-        const dy = r.y - c.y;
-        if (dx * dx + dy * dy <= TAG_DISTANCE * TAG_DISTANCE) {
-          r.tagged = true;
-          io.to(ROOM_ID).emit('playerTagged', { runnerId: r.id, by: c.id });
-        }
-      }
-    }
-
-    checkRoundEnd();
-  }
-
-  // Broadcast state snapshot
-  const snapshot = {
-    t: now,
-    phase: gameState.phase,
-    timeLeft: Math.max(0, gameState.timeLeft),
-    roundNumber: gameState.roundNumber,
-    arena: {
-      width: ARENA_WIDTH,
-      height: ARENA_HEIGHT
-    },
-    homeBase: HOME_BASE,
-    walls: WALLS,
-    players: getPlayersArray().map(p => ({
-      id: p.id,
-      name: p.name,
-      role: p.role,
-      x: p.x,
-      y: p.y,
-      safe: p.safe,
-      tagged: p.tagged,
-      isBot: p.isBot,
-      score: p.score
-    }))
-  };
-
-  io.to(ROOM_ID).emit('state', snapshot);
-}
-
-setInterval(gameLoop, 1000 / TICK_RATE);
-
 server.listen(PORT, () => {
-  console.log('Hide to Survive: Home Base Tag server running on port', PORT);
+  console.log(`Hide To Survive backend listening on port ${PORT}`);
 });
