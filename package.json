@@ -4,15 +4,11 @@
   "description": "Hide To Survive - multiplayer hide-and-seek backend",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
+    "start": "node server.js"
   },
   "dependencies": {
     "express": "^4.19.2",
     "socket.io": "^4.7.5",
     "uuid": "^9.0.1"
-  },
-  "devDependencies": {
-    "nodemon": "^3.1.0"
   }
 }
