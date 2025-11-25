@@ -84,6 +84,7 @@ setInterval(() => {
     const playerCount = Object.keys(room.players).length;
     const botCount = room.bots.length;
 
+    // delete totally empty rooms after a while
     if (playerCount === 0 && botCount === 0) {
       if (now - room.createdAt > 30 * 60 * 1000) {
         delete rooms[room.id];
@@ -93,21 +94,27 @@ setInterval(() => {
 
     handleRoomState(room, now);
 
+    // move players & bots
     Object.values(room.players).forEach((p) => applyInput(p));
     updateBots(room);
+
+    // tagging / shooting
     handleTagging(room);
 
+    // broadcast snapshot
     const snapshot = buildSnapshot(room);
     io.to(room.id).emit("stateUpdate", snapshot);
   });
 }, TICK_RATE);
 
 // ============ STATE MACHINE ============
+// IMPORTANT CHANGE: only require >=1 human player to run rounds.
+// Bots are spawned inside startNewRound, so we cannot require bots beforehand.
 function handleRoomState(room, now) {
   const playerCount = Object.keys(room.players).length;
-  const actorCount = playerCount + room.bots.length;
 
-  if (actorCount < 2) {
+  // no players => idle / waiting
+  if (playerCount === 0) {
     room.state = "waiting";
     room.seekerId = null;
     room.roundStartTime = null;
@@ -118,14 +125,17 @@ function handleRoomState(room, now) {
 
   switch (room.state) {
     case "waiting":
+      // as soon as we have ONE player, start a round and spawn bots
       startNewRound(room, now);
       break;
+
     case "hiding":
       if (now >= room.hideEndTime) {
         room.state = "seeking";
         room.roundStartTime = now;
       }
       break;
+
     case "seeking": {
       const timeUp = now >= room.roundStartTime + ROUND_TIME;
       const anyHider = hasAnyHider(room);
@@ -136,6 +146,7 @@ function handleRoomState(room, now) {
       }
       break;
     }
+
     case "finished":
       if (!room.finishTime) room.finishTime = now;
       if (now - room.finishTime > 8000) {
@@ -152,6 +163,7 @@ function startNewRound(room, now) {
   room.finishTime = null;
   room.roundIndex++;
 
+  // reset players
   Object.values(room.players).forEach((p) => {
     const pos = randomPosition();
     p.x = pos.x;
@@ -165,6 +177,7 @@ function startNewRound(room, now) {
     stats.games += 1;
   });
 
+  // spawn / reset bots
   const desiredBots = Math.max(0, Math.min(16, room.config.botCount || 0));
   while (room.bots.length < desiredBots) {
     const id = "bot-" + uuidv4();
@@ -196,6 +209,7 @@ function startNewRound(room, now) {
     b.wanderAngle = Math.random() * Math.PI * 2;
   });
 
+  // choose seeker from pool of players + bots
   const candidates = [
     ...Object.values(room.players).map((p) => ({ type: "player", id: p.id })),
     ...room.bots.map((b) => ({ type: "bot", id: b.id }))
@@ -217,6 +231,12 @@ function startNewRound(room, now) {
     hideTime: HIDE_TIME,
     roundIndex: room.roundIndex
   });
+
+  console.log(
+    `Room ${room.id}: round ${room.roundIndex} started with ${Object.keys(
+      room.players
+    ).length} players and ${room.bots.length} bots. Seeker: ${room.seekerId}`
+  );
 }
 
 function hasAnyHider(room) {
