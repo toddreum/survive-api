@@ -39,22 +39,7 @@ const SCORE_FULL_WIPE_BONUS = 75;
 
 const SHOOT_RADIUS = 80;
 
-// room structure:
-// {
-//   id,
-//   players: { socketId: playerObj },
-//   bots: [botObj],
-//   state: "waiting"|"hiding"|"seeking"|"finished",
-//   seekerId,
-//   roundStartTime,
-//   hideEndTime,
-//   finishTime,
-//   map: {width,height},
-//   createdAt,
-//   config: {botCount,maxPlayers},
-//   scores: {playerId: stats},
-//   roundIndex
-// }
+// rooms map
 const rooms = {};
 
 function createRoom(roomId, config = {}) {
