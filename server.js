@@ -39,11 +39,11 @@ const SCORE_FULL_WIPE_BONUS = 75;
 
 const SHOOT_RADIUS = 80;
 
-// NEW: tranquilizer & Wake Serum
-const TRANQ_DURATION = 8000;      // ms – how long tranquilizer lasts
-const TRANQ_SLOW_MULT = 0.35;     // speed multiplier while tranquilized
-const SERUM_PICKUP_RADIUS = 45;   // distance to pick up Wake Serum
-const SERUM_PER_ROUND = 4;        // how many vials per round
+// Tranquilizer & Wake Serum
+const TRANQ_DURATION = 8000;
+const TRANQ_SLOW_MULT = 0.35;
+const SERUM_PICKUP_RADIUS = 45;
+const SERUM_PER_ROUND = 4;
 
 // rooms map
 const rooms = {};
@@ -66,7 +66,7 @@ function createRoom(roomId, config = {}) {
     },
     scores: {},
     roundIndex: 0,
-    powerups: [] // NEW: Wake Serum vials
+    powerups: []
   };
 }
 
@@ -91,7 +91,6 @@ setInterval(() => {
     const playerCount = Object.keys(room.players).length;
     const botCount = room.bots.length;
 
-    // delete totally empty rooms after a while
     if (playerCount === 0 && botCount === 0) {
       if (now - room.createdAt > 30 * 60 * 1000) {
         delete rooms[room.id];
@@ -100,30 +99,22 @@ setInterval(() => {
     }
 
     handleRoomState(room, now);
-
-    // expire tranquilizer effects + check Wake Serum pickups
     updateStatusAndSerums(room, now);
 
-    // move players & bots
     Object.values(room.players).forEach((p) => applyInput(p, now));
     updateBots(room, now);
 
-    // tagging / shooting
     handleTagging(room);
 
-    // broadcast snapshot
     const snapshot = buildSnapshot(room);
     io.to(room.id).emit("stateUpdate", snapshot);
   });
 }, TICK_RATE);
 
 // ============ STATE MACHINE ============
-// IMPORTANT: only require >=1 human player to run rounds.
-// Bots are spawned inside startNewRound, so we cannot require bots beforehand.
 function handleRoomState(room, now) {
   const playerCount = Object.keys(room.players).length;
 
-  // no players => idle / waiting
   if (playerCount === 0) {
     room.state = "waiting";
     room.seekerId = null;
@@ -135,17 +126,14 @@ function handleRoomState(room, now) {
 
   switch (room.state) {
     case "waiting":
-      // as soon as we have ONE player, start a round and spawn bots
       startNewRound(room, now);
       break;
-
     case "hiding":
       if (now >= room.hideEndTime) {
         room.state = "seeking";
         room.roundStartTime = now;
       }
       break;
-
     case "seeking": {
       const timeUp = now >= room.roundStartTime + ROUND_TIME;
       const anyHider = hasAnyHider(room);
@@ -156,7 +144,6 @@ function handleRoomState(room, now) {
       }
       break;
     }
-
     case "finished":
       if (!room.finishTime) room.finishTime = now;
       if (now - room.finishTime > 8000) {
@@ -182,7 +169,7 @@ function startNewRound(room, now) {
     p.vy = 0;
     p.caught = false;
     p.role = "hider";
-    p.tranqUntil = 0; // NEW: clear tranquilizer
+    p.tranqUntil = 0;
 
     const stats = getOrCreatePlayerStats(room, p.id, p.name);
     stats.games += 1;
@@ -206,9 +193,7 @@ function startNewRound(room, now) {
       tranqUntil: 0
     });
   }
-  if (room.bots.length > desiredBots) {
-    room.bots.length = desiredBots;
-  }
+  if (room.bots.length > desiredBots) room.bots.length = desiredBots;
 
   room.bots.forEach((b) => {
     const pos = randomPosition();
@@ -222,7 +207,7 @@ function startNewRound(room, now) {
     b.tranqUntil = 0;
   });
 
-  // choose seeker from pool of players + bots
+  // choose seeker from players + bots
   const candidates = [
     ...Object.values(room.players).map((p) => ({ type: "player", id: p.id })),
     ...room.bots.map((b) => ({ type: "bot", id: b.id }))
@@ -241,7 +226,7 @@ function startNewRound(room, now) {
     b.tranqUntil = 0;
   });
 
-  // NEW: spawn Wake Serum powerups
+  // Wake Serum vials
   room.powerups = [];
   for (let i = 0; i < SERUM_PER_ROUND; i++) {
     const pos = randomPosition();
@@ -314,21 +299,15 @@ function getOrCreatePlayerStats(room, id, name) {
 
 // ============ STATUS + WAKE SERUM ============
 function updateStatusAndSerums(room, now) {
-  // clear expired tranquilizer
   Object.values(room.players).forEach((p) => {
-    if (p.tranqUntil && p.tranqUntil <= now) {
-      p.tranqUntil = 0;
-    }
+    if (p.tranqUntil && p.tranqUntil <= now) p.tranqUntil = 0;
   });
   room.bots.forEach((b) => {
-    if (b.tranqUntil && b.tranqUntil <= now) {
-      b.tranqUntil = 0;
-    }
+    if (b.tranqUntil && b.tranqUntil <= now) b.tranqUntil = 0;
   });
 
   if (!room.powerups || !room.powerups.length) return;
 
-  // players pick up Wake Serum
   const remaining = [];
   room.powerups.forEach((pu) => {
     if (pu.type !== "wake-serum") {
@@ -340,7 +319,6 @@ function updateStatusAndSerums(room, now) {
       if (picked) return;
       const d = dist(p, pu);
       if (d <= SERUM_PICKUP_RADIUS) {
-        // cleanse tranquilizer if active
         p.tranqUntil = 0;
         picked = true;
       }
@@ -354,11 +332,8 @@ function updateStatusAndSerums(room, now) {
 function applyInput(p, now) {
   if (p.caught) return;
 
-  // base speed, slowed if tranquilized
   let speed = PLAYER_SPEED;
-  if (p.tranqUntil && p.tranqUntil > now) {
-    speed *= TRANQ_SLOW_MULT;
-  }
+  if (p.tranqUntil && p.tranqUntil > now) speed *= TRANQ_SLOW_MULT;
 
   let vx = 0;
   let vy = 0;
@@ -383,11 +358,8 @@ function updateBots(room, now) {
   room.bots.forEach((bot) => {
     if (bot.caught) return;
 
-    // base speed, slowed if tranquilized
     let speed = BOT_SPEED;
-    if (bot.tranqUntil && bot.tranqUntil > now) {
-      speed *= TRANQ_SLOW_MULT;
-    }
+    if (bot.tranqUntil && bot.tranqUntil > now) speed *= TRANQ_SLOW_MULT;
 
     if (bot.role === "hider") {
       let dx = 0,
@@ -398,9 +370,7 @@ function updateBots(room, now) {
           dx = bot.x - seeker.x;
           dy = bot.y - seeker.y;
         } else {
-          if (Math.random() < 0.02) {
-            bot.wanderAngle += Math.random() - 0.5;
-          }
+          if (Math.random() < 0.02) bot.wanderAngle += Math.random() - 0.5;
           dx = Math.cos(bot.wanderAngle);
           dy = Math.sin(bot.wanderAngle);
         }
@@ -489,7 +459,7 @@ function catchBot(room, seeker, bot) {
   io.to(room.id).emit("botTagged", { id: bot.id, by: seeker.id });
 }
 
-// ============ SHOOTING (TRANQ LOGIC) ============
+// ============ SHOOTING ============
 function handleShot(room, shooterId, shotX, shotY) {
   const seeker = getSeeker(room);
   if (!seeker || seeker.id !== shooterId) return;
@@ -535,8 +505,7 @@ function handleShot(room, shooterId, shotX, shotY) {
   if (target) {
     const now = Date.now();
 
-    // FIRST hit = tranquilized (slow)
-    // SECOND hit while tranquilized = fully caught
+    // first hit → tranquilize, second within window → captured
     if (!target.tranqUntil || target.tranqUntil <= now) {
       target.tranqUntil = now + TRANQ_DURATION;
       io.to(room.id).emit("tranqApplied", {
@@ -545,7 +514,6 @@ function handleShot(room, shooterId, shotX, shotY) {
         duration: TRANQ_DURATION
       });
     } else {
-      // already tranquilized → catch
       if (isBot) catchBot(room, seeker, target);
       else catchHider(room, seeker, target);
     }
