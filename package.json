@@ -1,6 +1,6 @@
 {
   "name": "hide-to-survive-backend",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Hide To Survive - multiplayer neon hide-and-seek backend",
   "main": "server.js",
   "scripts": {
