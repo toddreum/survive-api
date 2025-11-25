@@ -1,16 +1,19 @@
 'use strict';
 
 /**
- * server.js — Hide To Survive
- * - Full backend: gameplay, persistence, Stripe Checkout (optional), webhook, admin
- * - CORS enabled so front-end fetch() calls won't be blocked
+ * Full server.js — Hide To Survive
+ * - Complete gameplay loop (rooms, rounds, bots, swap-on-tag)
+ * - Persistence (persist.json)
+ * - Stripe Checkout + webhook (optional; simulated mode if keys missing)
+ * - CORS enabled for client fetch calls
+ * - Admin endpoints: create-room, create-invite, grant/revoke names
  *
- * Env vars:
- * ADMIN_TOKEN
- * STRIPE_SECRET_KEY (optional)
- * STRIPE_WEBHOOK_SECRET (optional)
- * PRICE_ID_NAME / PRICE_ID_CURRENCY_500 / PRICE_ID_CURRENCY_1200 / PRICE_ID_SEASON / PRICE_ID_COSMETIC_BUNDLE (optional)
- * DATA_FILE (optional)
+ * Environment variables:
+ * - ADMIN_TOKEN
+ * - STRIPE_SECRET_KEY (optional)
+ * - STRIPE_WEBHOOK_SECRET (optional)
+ * - PRICE_ID_NAME, PRICE_ID_CURRENCY_500, PRICE_ID_CURRENCY_1200, PRICE_ID_SEASON, PRICE_ID_COSMETIC_BUNDLE (optional)
+ * - DATA_FILE (optional)
  */
 
 const express = require('express');
@@ -25,9 +28,10 @@ try { Stripe = require('stripe'); } catch (e) { /* optional */ }
 
 const app = express();
 
-// CORS middleware (allows any origin; restrict in production to your domain)
+// CORS: allow client to fetch resources from this API
+// In production restrict Access-Control-Allow-Origin to your site domain
 app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*'); // change to your origin for production
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-admin-token');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
@@ -38,14 +42,13 @@ app.use(express.json());
 app.disable('x-powered-by');
 
 const server = http.createServer(app);
-
 const io = new Server(server, {
-  cors: { origin: '*', methods: ['GET','POST'] }
+  cors: { origin: '*', methods: ['GET', 'POST'] }
 });
 
 const PORT = process.env.PORT || 3000;
 
-// CONFIG
+// Config envs
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
 const RESERVED_NAMES_CSV = process.env.RESERVED_NAMES || 'admin,moderator,staff,survive,survive.com';
 const RESERVED_NAMES = RESERVED_NAMES_CSV.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
@@ -59,9 +62,9 @@ const PRICE_ID_CURRENCY_1200 = process.env.PRICE_ID_CURRENCY_1200 || '';
 const PRICE_ID_SEASON = process.env.PRICE_ID_SEASON || '';
 const PRICE_ID_COSMETIC_BUNDLE = process.env.PRICE_ID_COSMETIC_BUNDLE || '';
 
-const stripe = (Stripe && STRIPE_SECRET_KEY) ? Stripe(STRIPE_SECRET_KEY) : null;
+const stripe = Stripe && STRIPE_SECRET_KEY ? Stripe(STRIPE_SECRET_KEY) : null;
 
-// GAME CONSTANTS
+// Game constants
 const TICK_RATE = 50;
 const ROOM_MAX_PLAYERS = 16;
 const MAP_WIDTH = 2200;
@@ -80,11 +83,14 @@ const TRANQ_SLOW_MULT = 0.35;
 const SERUM_PICKUP_RADIUS = 45;
 const SERUM_PER_ROUND = 4;
 
-// In-memory & persisted store
-const rooms = {};
+// Persistent store
 let store = { purchased: {}, accounts: {} };
 
-// PERSISTENCE
+// In-memory runtime state
+const rooms = {};         // roomId -> room object
+const invites = {};       // inviteCode -> roomId (in-memory; persist if needed)
+
+// Persistence helpers
 async function loadStore() {
   try {
     const raw = await fs.readFile(DATA_FILE, 'utf8');
@@ -110,31 +116,41 @@ async function saveStore() {
   }
 }
 
-// HELPERS
+// Utilities
 function nowMs() { return Date.now(); }
-function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
-function randomPosition(){ return { x: Math.random() * MAP_WIDTH, y: Math.random() * MAP_HEIGHT }; }
-function isValidNumber(n){ return typeof n === 'number' && Number.isFinite(n) && !Number.isNaN(n); }
-function dist(a,b){ const dx=a.x-b.x, dy=a.y-b.y; return Math.sqrt(dx*dx+dy*dy); }
-function sanitizeRequestedName(raw){ if(!raw||typeof raw!=='string') return 'Player'; let s=raw.trim().replace(/[\r\n]+/g,''); if(s.length>30) s=s.slice(0,30); return s||'Player'; }
-function generateSuffix(){ return ('000' + Math.floor(Math.random()*10000)).slice(-4); }
-function ensureHashSuffix(name){ if(name.includes('#')){ const parts=name.split('#'); const base=parts[0].trim()||'Player'; const suffix=parts.slice(1).join('#').trim()||generateSuffix(); return `${base}#${suffix}`; } else return `${name}#${generateSuffix()}`; }
-function nameBase(name){ return (typeof name==='string' ? name.split('#')[0].trim().toLowerCase() : '').slice(0,30); }
-function isReservedBase(base){ return RESERVED_NAMES.includes(base.toLowerCase()); }
-function isPurchased(base){ if(!base) return false; return !!store.purchased[base.toLowerCase()]; }
-function makeUniqueNameInRoom(room, desiredName){
+function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+function randomPosition() { return { x: Math.random() * MAP_WIDTH, y: Math.random() * MAP_HEIGHT }; }
+function isValidNumber(n) { return typeof n === 'number' && Number.isFinite(n) && !Number.isNaN(n); }
+function dist(a, b) { const dx = a.x - b.x, dy = a.y - b.y; return Math.sqrt(dx*dx + dy*dy); }
+function sanitizeRequestedName(raw) { if (!raw || typeof raw !== 'string') return 'Player'; let s = raw.trim().replace(/[\r\n]+/g, ''); if (s.length > 30) s = s.slice(0,30); return s || 'Player'; }
+function generateSuffix() { return ('000' + Math.floor(Math.random()*10000)).slice(-4); }
+function ensureHashSuffix(name) {
+  if (name.includes('#')) {
+    const parts = name.split('#');
+    const base = parts[0].trim() || 'Player';
+    const suffix = parts.slice(1).join('#').trim() || generateSuffix();
+    return `${base}#${suffix}`;
+  } else return `${name}#${generateSuffix()}`;
+}
+function nameBase(name) { return (typeof name === 'string' ? name.split('#')[0].trim().toLowerCase() : '').slice(0,30); }
+function isReservedBase(base) { return RESERVED_NAMES.includes(base.toLowerCase()); }
+function isPurchased(base) { if (!base) return false; return !!store.purchased[base.toLowerCase()]; }
+function isSingleWordLetters(base) { if (!base || typeof base !== 'string') return false; return /^[A-Za-z]{2,30}$/.test(base); }
+function makeUniqueNameInRoom(room, desiredName) {
   let final = desiredName;
-  const taken = new Set(Object.values(room.players).map(p=>(p.name||'').toLowerCase()));
-  let tries=0;
-  while(taken.has(final.toLowerCase()) && tries<8){
-    const suf=generateSuffix(); const base=final.split('#')[0]||'Player'; final=`${base}#${suf}`; tries++;
+  const taken = new Set(Object.values(room.players).map(p => (p.name || '').toLowerCase()));
+  let tries = 0;
+  while (taken.has(final.toLowerCase()) && tries < 8) {
+    const suffix = generateSuffix();
+    const base = final.split('#')[0] || 'Player';
+    final = `${base}#${suffix}`;
+    tries++;
   }
-  if(taken.has(final.toLowerCase())) final = `${final.split('#')[0]}#${uuidv4().slice(0,4)}`;
+  if (taken.has(final.toLowerCase())) final = `${final.split('#')[0]}#${uuidv4().slice(0,4)}`;
   return final;
 }
-function isSingleWordLetters(base){ if(!base||typeof base!=='string') return false; return /^[A-Za-z]{2,30}$/.test(base); }
 
-// ACCOUNT HELPERS
+// Accounts helpers
 function getOrCreateAccount(playerName) {
   const key = playerName.trim().toLowerCase();
   if (!store.accounts[key]) store.accounts[key] = { playerName, currency: 0, cosmetics: [], seasonPass: false };
@@ -165,15 +181,13 @@ async function grantCosmeticToOwner(ownerName, cosmeticId) {
   await saveStore();
 }
 
-// ROOM MANAGEMENT & GAME LOGIC (complete)
-
-// Create room
+// Rooms/games
 function createRoom(roomId, config = {}) {
   rooms[roomId] = {
     id: roomId,
     players: {},
     bots: [],
-    state: "waiting",
+    state: 'waiting',
     seekerId: null,
     roundStartTime: null,
     hideEndTime: null,
@@ -181,8 +195,8 @@ function createRoom(roomId, config = {}) {
     map: { width: MAP_WIDTH, height: MAP_HEIGHT },
     createdAt: Date.now(),
     config: {
-      botCount: typeof config.botCount === "number" ? clamp(config.botCount, 0, 16) : 4,
-      maxPlayers: ROOM_MAX_PLAYERS,
+      botCount: typeof config.botCount === 'number' ? clamp(config.botCount, 0, 16) : 4,
+      maxPlayers: typeof config.maxPlayers === 'number' ? config.maxPlayers : ROOM_MAX_PLAYERS,
       swapOnTag: config.swapOnTag !== undefined ? !!config.swapOnTag : true,
       swapCooldownMs: typeof config.swapCooldownMs === 'number' ? config.swapCooldownMs : 2000
     },
@@ -195,70 +209,45 @@ function createRoom(roomId, config = {}) {
 }
 
 function getOrCreatePlayerStats(room, id, name) {
-  if (!room.scores[id]) room.scores[id] = { id, name: name || "Player", score:0, tags:0, survived:0, games:0 };
+  if (!room.scores[id]) room.scores[id] = { id, name: name || 'Player', score: 0, tags: 0, survived: 0, games: 0 };
   else if (name && room.scores[id].name !== name) room.scores[id].name = name;
   return room.scores[id];
 }
 
 // Game loop
-setInterval(() => {
-  const now = Date.now();
-  Object.values(rooms).forEach(room => {
-    const playerCount = Object.keys(room.players).length;
-    const botCount = room.bots.length;
-    if (playerCount === 0 && botCount === 0) {
-      if (now - room.createdAt > 30 * 60 * 1000) delete rooms[room.id];
-      return;
-    }
-    try {
-      handleRoomState(room, now);
-      updateStatusAndSerums(room, now);
-      Object.values(room.players).forEach(p => applyInput(p, now));
-      updateBots(room, now);
-      handleTagging(room);
-      const snapshot = buildSnapshot(room);
-      io.to(room.id).emit("stateUpdate", snapshot);
-    } catch (err) { console.error('Game loop error for room', room.id, err); }
-  });
-}, TICK_RATE);
+function hasAnyHider(room) {
+  const p = Object.values(room.players).some(p => p.role === 'hider' && !p.caught);
+  const b = room.bots.some(b => b.role === 'hider' && !b.caught);
+  return p || b;
+}
 
-// State machine helpers
-function handleRoomState(room, now) {
-  const playerCount = Object.keys(room.players).length;
-  if (playerCount === 0) {
-    room.state = "waiting"; room.seekerId=null; room.roundStartTime=null; room.hideEndTime=null; room.finishTime=null; return;
-  }
-  switch(room.state) {
-    case "waiting": startNewRound(room, now); break;
-    case "hiding": if (now >= room.hideEndTime) { room.state = "seeking"; room.roundStartTime = now; } break;
-    case "seeking": {
-      const timeUp = now >= (room.roundStartTime || 0) + ROUND_TIME;
-      const anyHider = hasAnyHider(room);
-      if (timeUp || !anyHider) {
-        if (room.state !== "finished") finishRound(room, now, !anyHider ? "all_caught" : "time_up");
-      }
-      break;
-    }
-    case "finished": if (!room.finishTime) room.finishTime = now; if (now - room.finishTime > 8000) startNewRound(room, now); break;
-  }
+function getSeeker(room) {
+  const p = Object.values(room.players).find(p => p.id === room.seekerId);
+  if (p) return p;
+  return room.bots.find(b => b.id === room.seekerId) || null;
 }
 
 function startNewRound(room, now) {
-  room.state = "hiding";
+  room.state = 'hiding';
   room.roundStartTime = null;
   room.hideEndTime = now + HIDE_TIME;
   room.finishTime = null;
   room.roundIndex++;
 
+  // reset players
   Object.values(room.players).forEach(p => {
-    const pos = randomPosition(); p.x=pos.x; p.y=pos.y; p.vx=0; p.vy=0; p.caught=false; p.role='hider'; p.tranqUntil=0;
-    const stats = getOrCreatePlayerStats(room, p.id, p.name); stats.games += 1;
+    const pos = randomPosition();
+    p.x = pos.x; p.y = pos.y; p.vx = 0; p.vy = 0; p.caught = false; p.role = 'hider'; p.tranqUntil = 0;
+    const stats = getOrCreatePlayerStats(room, p.id, p.name);
+    stats.games += 1;
   });
 
+  // bots
   const desiredBots = Math.max(0, Math.min(16, room.config.botCount || 0));
   while (room.bots.length < desiredBots) {
-    const id = 'bot-' + uuidv4(); const pos = randomPosition();
-    room.bots.push({ id, name:'Bot '+id.slice(0,4), x:pos.x, y:pos.y, vx:0, vy:0, caught:false, role:'hider', wanderAngle:Math.random()*Math.PI*2, tranqUntil:0 });
+    const id = 'bot-' + uuidv4();
+    const pos = randomPosition();
+    room.bots.push({ id, name: 'Bot ' + id.slice(0,4), x: pos.x, y: pos.y, vx:0, vy:0, caught:false, role:'hider', wanderAngle: Math.random()*Math.PI*2, tranqUntil:0 });
   }
   if (room.bots.length > desiredBots) room.bots.length = desiredBots;
   room.bots.forEach(b => { const pos = randomPosition(); b.x=pos.x; b.y=pos.y; b.vx=0; b.vy=0; b.caught=false; b.role='hider'; b.wanderAngle=Math.random()*Math.PI*2; b.tranqUntil=0; });
@@ -273,20 +262,15 @@ function startNewRound(room, now) {
   room.bots.forEach(b => { b.role = b.id === room.seekerId ? 'seeker' : 'hider'; b.caught=false; b.tranqUntil=0; });
 
   room.powerups = [];
-  for (let i=0;i<SERUM_PER_ROUND;i++) { const pos=randomPosition(); room.powerups.push({ id:'serum-'+uuidv4(), x:pos.x, y:pos.y, type:'wake-serum' }); }
+  for (let i=0;i<SERUM_PER_ROUND;i++) { const pos=randomPosition(); room.powerups.push({ id:'serum-'+uuidv4(), x:pos.x, y:pos.y, type: 'wake-serum' }); }
 
   io.to(room.id).emit('roundStarted', { seekerId: room.seekerId, hideTime: HIDE_TIME, roundIndex: room.roundIndex });
-  console.log(`Room ${room.id} round ${room.roundIndex} started; seeker ${room.seekerId}`);
-}
-
-function hasAnyHider(room) {
-  const p = Object.values(room.players).some(p => p.role==='hider' && !p.caught);
-  const b = room.bots.some(b => b.role==='hider' && !b.caught);
-  return p || b;
+  console.log(`Room ${room.id}: new round ${room.roundIndex} started; seeker ${room.seekerId}`);
 }
 
 function finishRound(room, now, reason) {
-  room.state = 'finished'; room.finishTime = now;
+  room.state = 'finished';
+  room.finishTime = now;
   const seeker = getSeeker(room);
   Object.values(room.players).forEach(p => {
     const stats = getOrCreatePlayerStats(room, p.id, p.name);
@@ -294,12 +278,12 @@ function finishRound(room, now, reason) {
   });
   const anyHiderLeft = hasAnyHider(room);
   if (seeker && !anyHiderLeft) {
-    const sStats = getOrCreatePlayerStats(room, seeker.id, seeker.name || 'Seeker'); sStats.score += SCORE_FULL_WIPE_BONUS;
+    const sStats = getOrCreatePlayerStats(room, seeker.id, seeker.name || 'Seeker');
+    sStats.score += SCORE_FULL_WIPE_BONUS;
   }
   io.to(room.id).emit('roundFinished', { reason });
 }
 
-// status + serums
 function updateStatusAndSerums(room, now) {
   Object.values(room.players).forEach(p => { if (p.tranqUntil && p.tranqUntil <= now) p.tranqUntil = 0; });
   room.bots.forEach(b => { if (b.tranqUntil && b.tranqUntil <= now) b.tranqUntil = 0; });
@@ -309,13 +293,16 @@ function updateStatusAndSerums(room, now) {
   room.powerups.forEach(pu => {
     if (pu.type !== 'wake-serum') { remaining.push(pu); return; }
     let picked = false;
-    Object.values(room.players).forEach(p => { if (picked) return; const d = dist(p, pu); if (d <= SERUM_PICKUP_RADIUS) { p.tranqUntil = 0; picked = true; } });
+    Object.values(room.players).forEach(p => {
+      if (picked) return;
+      const d = dist(p, pu);
+      if (d <= SERUM_PICKUP_RADIUS) { p.tranqUntil = 0; picked = true; }
+    });
     if (!picked) remaining.push(pu);
   });
   room.powerups = remaining;
 }
 
-// movement
 function applyInput(p, now) {
   if (p.caught) return;
   let speed = PLAYER_SPEED;
@@ -331,7 +318,6 @@ function applyInput(p, now) {
   p.y = Math.max(0, Math.min(MAP_HEIGHT, p.y + vy));
 }
 
-// bots
 function updateBots(room, now) {
   const seeker = getSeeker(room);
   const players = Object.values(room.players);
@@ -344,38 +330,23 @@ function updateBots(room, now) {
       if (seeker) {
         const d = dist(bot, seeker);
         if (d < 400) { dx = bot.x - seeker.x; dy = bot.y - seeker.y; }
-        else { if (Math.random()<0.02) bot.wanderAngle += Math.random()-0.5; dx=Math.cos(bot.wanderAngle); dy=Math.sin(bot.wanderAngle); }
-      } else { if (Math.random()<0.03) bot.wanderAngle+=Math.random()-0.5; dx=Math.cos(bot.wanderAngle); dy=Math.sin(bot.wanderAngle); }
+        else { if (Math.random() < 0.02) bot.wanderAngle += Math.random() - 0.5; dx = Math.cos(bot.wanderAngle); dy = Math.sin(bot.wanderAngle); }
+      } else { if (Math.random() < 0.03) bot.wanderAngle += Math.random() - 0.5; dx = Math.cos(bot.wanderAngle); dy = Math.sin(bot.wanderAngle); }
       const len = Math.sqrt(dx*dx + dy*dy) || 1;
-      bot.x = Math.max(0, Math.min(MAP_WIDTH, bot.x + (dx/len)*speed));
-      bot.y = Math.max(0, Math.min(MAP_HEIGHT, bot.y + (dy/len)*speed));
+      bot.x = Math.max(0, Math.min(MAP_WIDTH, bot.x + (dx/len) * speed));
+      bot.y = Math.max(0, Math.min(MAP_HEIGHT, bot.y + (dy/len) * speed));
     } else if (bot.role === 'seeker') {
-      const targets = [...players.filter(p => p.role==='hider' && !p.caught), ...room.bots.filter(b=>b.role==='hider' && !b.caught)];
+      const targets = [...players.filter(p => p.role === 'hider' && !p.caught), ...room.bots.filter(b => b.role === 'hider' && !b.caught)];
       if (!targets.length) return;
-      let closest=null, minD=Infinity;
-      targets.forEach(t=>{ const d = dist(bot,t); if (d<minD){ minD=d; closest=t; }});
-      if (closest) { const dx = closest.x - bot.x; const dy = closest.y - bot.y; const len = Math.sqrt(dx*dx + dy*dy) || 1; bot.x = Math.max(0, Math.min(MAP_WIDTH, bot.x + (dx/len)*speed)); bot.y = Math.max(0, Math.min(MAP_HEIGHT, bot.y + (dy/len)*speed)); }
+      let closest = null, minD = Infinity;
+      targets.forEach(t => { const d = dist(bot, t); if (d < minD) { minD = d; closest = t; }});
+      if (closest) {
+        const dx = closest.x - bot.x, dy = closest.y - bot.y; const len = Math.sqrt(dx*dx + dy*dy) || 1;
+        bot.x = Math.max(0, Math.min(MAP_WIDTH, bot.x + (dx/len) * speed));
+        bot.y = Math.max(0, Math.min(MAP_HEIGHT, bot.y + (dy/len) * speed));
+      }
     }
   });
-}
-
-function getSeeker(room) {
-  const fromPlayers = Object.values(room.players).find(p => p.id === room.seekerId);
-  if (fromPlayers) return fromPlayers;
-  return room.bots.find(b => b.id === room.seekerId) || null;
-}
-
-// tagging
-function handleTagging(room) {
-  const seeker = getSeeker(room);
-  if (!seeker) return;
-  const TAG_RADIUS = 40;
-  Object.values(room.players).forEach(p => {
-    if (p.role === 'hider' && !p.caught && dist(seeker, p) < TAG_RADIUS) {
-      catchHider(room, seeker, p);
-    }
-  });
-  room.bots.forEach(b => { if (b.role === 'hider' && !b.caught && dist(seeker,b) < TAG_RADIUS) catchBot(room, seeker, b); });
 }
 
 function catchHider(room, seeker, hider) {
@@ -393,34 +364,40 @@ function catchHider(room, seeker, hider) {
     const sStats = getOrCreatePlayerStats(room, seeker.id, seeker.name || 'Seeker'); sStats.score += SCORE_TAG; sStats.tags += 1;
     const hStats = getOrCreatePlayerStats(room, hider.id, hider.name); hStats.score -= SCORE_CAUGHT_PENALTY;
     io.to(room.id).emit('seekerSwapped', { newSeekerId: room.seekerId, by: seeker.id });
-    console.log(`Room ${room.id}: seeker swapped to ${room.seekerId} (by ${seeker.id})`);
+    console.log(`Room ${room.id}: seeker swapped to ${room.seekerId} by ${seeker.id}`);
     return;
   }
-  hider.caught = true; hider.tranqUntil = 0;
-  const sStats = getOrCreatePlayerStats(room, seeker.id, seeker.name || 'Seeker'); sStats.score += SCORE_TAG; sStats.tags += 1;
-  const hStats = getOrCreatePlayerStats(room, hider.id, hider.name); hStats.score -= SCORE_CAUGHT_PENALTY;
+  hider.caught = true;
+  hider.tranqUntil = 0;
+  const sStats = getOrCreatePlayerStats(room, seeker.id, seeker.name || 'Seeker');
+  sStats.score += SCORE_TAG;
+  sStats.tags += 1;
+  const hStats = getOrCreatePlayerStats(room, hider.id, hider.name);
+  hStats.score -= SCORE_CAUGHT_PENALTY;
   io.to(room.id).emit('playerTagged', { id: hider.id, by: seeker.id });
 }
 
 function catchBot(room, seeker, bot) {
   if (bot.caught) return;
-  bot.caught = true; bot.tranqUntil = 0;
-  const sStats = getOrCreatePlayerStats(room, seeker.id, seeker.name || 'Seeker'); sStats.score += SCORE_TAG; sStats.tags += 1;
+  bot.caught = true;
+  bot.tranqUntil = 0;
+  const sStats = getOrCreatePlayerStats(room, seeker.id, seeker.name || 'Seeker');
+  sStats.score += SCORE_TAG;
+  sStats.tags += 1;
   io.to(room.id).emit('botTagged', { id: bot.id, by: seeker.id });
 }
 
-// shooting
 function handleShot(room, shooterId, shotX, shotY) {
-  if (!isValidNumber(shotX) || !isValidNumber(shotY)) { console.warn('Invalid shot coords', shooterId, shotX, shotY); return; }
+  if (!isValidNumber(shotX) || !isValidNumber(shotY)) return;
   const seeker = getSeeker(room);
   if (!seeker || seeker.id !== shooterId) return;
   if (room.state !== 'seeking') return;
   const impact = { x: shotX, y: shotY };
-  let closestHider=null, closestD=Infinity;
-  Object.values(room.players).forEach(p => { if (p.role==='hider' && !p.caught) { const d = dist(impact,p); if (d < closestD) { closestD = d; closestHider = p; } } });
-  let closestBot=null, closestBotD=Infinity;
-  room.bots.forEach(b => { if (b.role==='hider' && !b.caught) { const d = dist(impact,b); if (d < closestBotD) { closestBotD = d; closestBot = b; } } });
-  let target=null, isBot=false;
+  let closestHider = null, closestD = Infinity;
+  Object.values(room.players).forEach(p => { if (p.role === 'hider' && !p.caught) { const d = dist(impact,p); if (d < closestD) { closestD = d; closestHider = p; } } });
+  let closestBot = null, closestBotD = Infinity;
+  room.bots.forEach(b => { if (b.role === 'hider' && !b.caught) { const d = dist(impact,b); if (d < closestBotD) { closestBotD = d; closestBot = b; } } });
+  let target = null, isBot = false;
   if (closestHider && closestD <= SHOOT_RADIUS) target = closestHider;
   if (closestBot && closestBotD <= SHOOT_RADIUS && closestBotD < closestD) { target = closestBot; isBot = true; }
   if (target) {
@@ -436,14 +413,13 @@ function handleShot(room, shooterId, shotX, shotY) {
   io.to(room.id).emit('shotFired', { shooterId, x: shotX, y: shotY });
 }
 
-// snapshot
 function buildSnapshot(room) {
   const leaderboard = Object.values(room.scores).sort((a,b)=>b.score-a.score).slice(0,10);
   return {
     state: room.state,
     seekerId: room.seekerId,
-    players: Object.values(room.players).map(p=>({ id:p.id, name:p.name, x:p.x, y:p.y, role:p.role, caught:p.caught, tranq: !!(p.tranqUntil && p.tranqUntil > Date.now()) })),
-    bots: room.bots.map(b=>({ id:b.id, name:b.name, x:b.x, y:b.y, role:b.role, caught:b.caught, tranq: !!(b.tranqUntil && b.tranqUntil > Date.now()) })),
+    players: Object.values(room.players).map(p => ({ id:p.id, name:p.name, x:p.x, y:p.y, role:p.role, caught:p.caught, tranq: !!(p.tranqUntil && p.tranqUntil > Date.now()) })),
+    bots: room.bots.map(b => ({ id:b.id, name:b.name, x:b.x, y:b.y, role:b.role, caught:b.caught, tranq: !!(b.tranqUntil && b.tranqUntil > Date.now()) })),
     map: room.map,
     hideTimeRemaining: room.state === 'hiding' ? Math.max(0, room.hideEndTime - Date.now()) : 0,
     roundTimeRemaining: room.state === 'seeking' && room.roundStartTime ? Math.max(0, room.roundStartTime + ROUND_TIME - Date.now()) : 0,
@@ -453,9 +429,131 @@ function buildSnapshot(room) {
   };
 }
 
-// SOCKET handlers implemented above
+// Start main tick loop: update rooms and emit snapshots
+setInterval(() => {
+  const now = Date.now();
+  Object.values(rooms).forEach(room => {
+    const playerCount = Object.keys(room.players).length;
+    const botCount = room.bots.length;
+    if (playerCount === 0 && botCount === 0) {
+      if (now - room.createdAt > 30 * 60 * 1000) delete rooms[room.id];
+      return;
+    }
+    try {
+      // state machine
+      if (!room.state || room.state === 'waiting') {
+        startNewRound(room, now);
+      }
+      if (room.state === 'hiding' && now >= room.hideEndTime) room.state = 'seeking', room.roundStartTime = now;
+      if (room.state === 'seeking') {
+        const timeUp = now >= (room.roundStartTime || 0) + ROUND_TIME;
+        const anyHider = hasAnyHider(room);
+        if (timeUp || !anyHider) {
+          finishRound(room, now, !anyHider ? 'all_caught' : 'time_up');
+        }
+      }
+      if (room.state === 'finished' && room.finishTime && now - room.finishTime > 8000) startNewRound(room, now);
+
+      updateStatusAndSerums(room, now);
+      Object.values(room.players).forEach(p => applyInput(p, now));
+      updateBots(room, now);
+      handleTagging(room);
+
+      const snapshot = buildSnapshot(room);
+      io.to(room.id).emit('stateUpdate', snapshot);
+    } catch (err) {
+      console.error('Game loop error for room', room.id, err);
+    }
+  });
+}, TICK_RATE);
+
+// Socket handlers
+io.on('connection', socket => {
+  console.log('Client connected', socket.id);
+
+  socket.on('joinGame', payload => {
+    try {
+      if (!payload || typeof payload !== 'object') { socket.emit('joinError', { message: 'Invalid join payload.' }); return; }
+      const requestedRaw = payload.name;
+      const requested = sanitizeRequestedName(requestedRaw);
+      const roomId = payload.roomId && typeof payload.roomId === 'string' && payload.roomId.trim() ? payload.roomId.trim() : 'default';
+      const options = payload.options || {};
+      const botCount = typeof options.botCount === 'number' ? clamp(options.botCount, 0, 16) : undefined;
+      const swapOnTagOpt = typeof options.swapOnTag === 'boolean' ? options.swapOnTag : undefined;
+
+      let candidate = ensureHashSuffix(requested);
+      const base = nameBase(candidate);
+
+      // Reserved single-word policy: require purchase or use #
+      if (isSingleWordLetters(base) && isReservedBase(base) && !isPurchased(base)) {
+        socket.emit('joinError', { message: 'Single-word names are reserved. Use a name with # (e.g., Todd#1234) or purchase the base name.' });
+        return;
+      }
+
+      if (!rooms[roomId]) {
+        const cfg = { botCount: typeof botCount === 'number' ? botCount : 4, swapOnTag: swapOnTagOpt !== undefined ? swapOnTagOpt : true, maxPlayers: ROOM_MAX_PLAYERS };
+        createRoom(roomId, cfg);
+      }
+      const room = rooms[roomId];
+
+      if (Object.keys(room.players).length >= room.config.maxPlayers) { socket.emit('joinError', { message: 'Room is full.' }); return; }
+
+      candidate = makeUniqueNameInRoom(room, candidate);
+
+      const pos = randomPosition();
+      room.players[socket.id] = { id: socket.id, name: candidate, x: pos.x, y: pos.y, vx:0, vy:0, role:'hider', caught:false, input:{ up:false, down:false, left:false, right:false }, tranqUntil:0 };
+
+      getOrCreatePlayerStats(room, socket.id, candidate);
+      socket.join(roomId);
+      socket.roomId = roomId;
+
+      const baseReservedAndUnpurchased = isSingleWordLetters(base) && isReservedBase(base) && !isPurchased(base);
+
+      socket.emit('joinedRoom', { roomId, playerId: socket.id, config: room.config, name: candidate, baseReservedAndUnpurchased });
+      console.log(`Player ${socket.id} (${candidate}) joined room ${roomId}`);
+    } catch (err) {
+      console.error('joinGame error:', err);
+      socket.emit('joinError', { message: 'Server error while joining.' });
+    }
+  });
+
+  socket.on('input', input => {
+    try {
+      const roomId = socket.roomId;
+      if (!roomId || !rooms[roomId]) return;
+      const player = rooms[roomId].players[socket.id];
+      if (!player || player.caught) return;
+      const newInput = { up: !!(input && input.up), down: !!(input && input.down), left: !!(input && input.left), right: !!(input && input.right) };
+      player.input = newInput;
+    } catch (err) { console.error('input handler error', err); }
+  });
+
+  socket.on('shoot', payload => {
+    try {
+      const roomId = socket.roomId;
+      if (!roomId || !rooms[roomId]) return;
+      let x = null, y = null;
+      if (payload && typeof payload === 'object') { x = Number(payload.x); y = Number(payload.y); }
+      if (!isValidNumber(x) || !isValidNumber(y)) { console.warn('Malformed shoot payload', payload); return; }
+      handleShot(rooms[roomId], socket.id, x, y);
+    } catch (err) { console.error('shoot handler error', err); }
+  });
+
+  socket.on('disconnect', () => {
+    const roomId = socket.roomId;
+    if (roomId && rooms[roomId]) {
+      delete rooms[roomId].players[socket.id];
+      console.log(`Player ${socket.id} left room ${roomId}`);
+    } else console.log('Client disconnected', socket.id);
+  });
+});
 
 // HTTP endpoints
+
+app.get('/', (req, res) => res.send('Hide To Survive backend running.'));
+app.get('/health', (req, res) => res.json({ status:'ok', now: Date.now(), rooms: Object.keys(rooms).length }));
+
+// Name availability
 app.get('/name-available', (req, res) => {
   const baseRaw = req.query.base;
   if (!baseRaw || typeof baseRaw !== 'string') return res.status(400).json({ ok:false, error:'Missing base param' });
@@ -465,6 +563,7 @@ app.get('/name-available', (req, res) => {
   res.json({ ok:true, base, reserved, purchased });
 });
 
+// Account
 app.get('/account', (req, res) => {
   const playerName = (req.query.playerName || '').trim();
   if (!playerName) return res.status(400).json({ ok:false, error:'Missing playerName' });
@@ -472,6 +571,7 @@ app.get('/account', (req, res) => {
   res.json({ ok:true, account: acc });
 });
 
+// Create checkout / simulate
 app.post('/create-checkout-session', async (req, res) => {
   try {
     const body = req.body || {};
@@ -492,6 +592,7 @@ app.post('/create-checkout-session', async (req, res) => {
     }
 
     const priceId = priceIdForItemType(itemType);
+
     if (stripe && STRIPE_SECRET_KEY && priceId) {
       const metadata = { playerId, playerName, itemType, itemData: JSON.stringify(itemData) };
       const session = await stripe.checkout.sessions.create({
@@ -505,8 +606,7 @@ app.post('/create-checkout-session', async (req, res) => {
       return res.json({ ok:true, checkoutUrl: session.url });
     }
 
-    // simulate grant if stripe not configured
-    console.log('Simulated purchase (stripe not configured):', itemType, itemData, 'for', playerName || playerId);
+    // Simulate
     if (itemType === 'name') {
       const base = (itemData.base || '').trim();
       if (!base) return res.status(400).json({ ok:false, error:'Missing base' });
@@ -531,24 +631,19 @@ app.post('/create-checkout-session', async (req, res) => {
       return res.json({ ok:true, simulated:true, message:'no-op' });
     }
   } catch (err) {
-    console.error('/create-checkout-session error:', err);
+    console.error('/create-checkout-session error', err);
     return res.status(500).json({ ok:false, error:'Server error' });
   }
 });
 
-// Webhook route: verify signature if STRIPE_WEBHOOK_SECRET set
+// Webhook
 app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
   if (!stripe || !STRIPE_WEBHOOK_SECRET) {
     return res.status(400).send('Stripe not configured for webhook');
   }
   const sig = req.headers['stripe-signature'];
   let event;
-  try {
-    event = stripe.webhooks.constructEvent(req.body, sig, STRIPE_WEBHOOK_SECRET);
-  } catch (err) {
-    console.error('Webhook signature verification failed:', err.message);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
-  }
+  try { event = stripe.webhooks.constructEvent(req.body, sig, STRIPE_WEBHOOK_SECRET); } catch (err) { console.error('Webhook verify failed', err.message); return res.status(400).send(`Webhook Error: ${err.message}`); }
 
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object;
@@ -557,7 +652,6 @@ app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
     const playerName = metadata.playerName || '';
     const itemType = metadata.itemType || '';
     const itemData = metadata.itemData ? JSON.parse(metadata.itemData) : {};
-
     (async () => {
       try {
         if (itemType === 'name') {
@@ -565,7 +659,6 @@ app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
           if (base) {
             await grantPurchasedName(base, playerName || 'stripe');
             if (playerId && io.sockets.sockets.get(playerId)) io.to(playerId).emit('purchaseGranted', { itemType:'name', base });
-            console.log(`Granted purchased name ${base} (stripe) to ${playerName || playerId}`);
           }
         } else if (itemType === 'currency_500' || itemType === 'currency_1200') {
           const amount = itemType === 'currency_500' ? 500 : 1200;
@@ -579,21 +672,89 @@ app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
           await grantCosmeticToOwner(playerName || session.customer_email || 'stripe', cosmeticId);
           if (playerId && io.sockets.sockets.get(playerId)) io.to(playerId).emit('purchaseGranted', { itemType:'cosmetic', cosmeticId });
         }
-      } catch (err) { console.error('Error fulfilling purchase in webhook', err); }
+      } catch (err) { console.error('Fulfill webhook error', err); }
     })();
   }
 
   res.json({ received: true });
 });
 
-// Admin endpoints (grant/revoke/list)
+// Admin helpers
 function checkAdminToken(req, res) {
   const token = (req.headers['x-admin-token'] || '').trim();
-  if (!ADMIN_TOKEN) { res.status(403).json({ ok:false, error: 'Admin token not configured.' }); return false; }
+  if (!ADMIN_TOKEN) { res.status(403).json({ ok:false, error:'Admin token not configured.' }); return false; }
   if (!token || token !== ADMIN_TOKEN) { res.status(401).json({ ok:false, error:'Invalid admin token' }); return false; }
   return true;
 }
 
+// Admin: create room
+app.post('/admin/create-room', (req, res) => {
+  if (!checkAdminToken(req, res)) return;
+  try {
+    const body = req.body || {};
+    const requested = (body.roomId || '').trim();
+    const roomId = requested || (() => {
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      let s = '';
+      for (let i=0;i<6;i++) s += chars[Math.floor(Math.random()*chars.length)];
+      return s;
+    })();
+    if (rooms[roomId]) return res.status(409).json({ ok:false, error:'Room exists', roomId });
+    const cfg = {
+      botCount: typeof body.botCount === 'number' ? clamp(body.botCount, 0, 16) : 4,
+      maxPlayers: typeof body.maxPlayers === 'number' ? clamp(body.maxPlayers, 2, 64) : ROOM_MAX_PLAYERS,
+      swapOnTag: body.swapOnTag !== undefined ? !!body.swapOnTag : true
+    };
+    createRoom(roomId, cfg);
+    return res.status(201).json({ ok:true, room: rooms[roomId] });
+  } catch (err) { console.error('admin/create-room error', err); res.status(500).json({ ok:false, error:'Server error' }); }
+});
+
+// Public: list rooms
+app.get('/rooms', (req, res) => {
+  try {
+    const out = Object.values(rooms).map(r => ({ id: r.id, players: Object.keys(r.players||{}).length, bots: r.bots.length, state: r.state, maxPlayers: r.config.maxPlayers, roundIndex: r.roundIndex }));
+    res.json({ ok:true, rooms: out });
+  } catch (err) { console.error('GET /rooms', err); res.status(500).json({ ok:false, error:'Server error' }); }
+});
+
+// Public: room details
+app.get('/rooms/:id', (req, res) => {
+  try {
+    const id = req.params.id;
+    const r = rooms[id];
+    if (!r) return res.status(404).json({ ok:false, error:'Not found' });
+    return res.json({ ok:true, room: { id: r.id, players: Object.keys(r.players||{}).length, bots: r.bots.length, state: r.state, config: r.config } });
+  } catch (err) { console.error('GET /rooms/:id', err); res.status(500).json({ ok:false, error:'Server error' }); }
+});
+
+// Admin: create invite
+app.post('/admin/create-invite', (req, res) => {
+  if (!checkAdminToken(req, res)) return;
+  try {
+    const { roomId, code } = req.body || {};
+    if (!roomId || !rooms[roomId]) return res.status(400).json({ ok:false, error:'roomId required and must exist' });
+    const newCode = (code && typeof code === 'string' && code.trim()) ? code.trim() : (() => {
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      let s = '';
+      for (let i = 0; i < 6; i++) s += chars[Math.floor(Math.random()*chars.length)];
+      return s;
+    })();
+    invites[newCode] = roomId;
+    return res.json({ ok:true, code: newCode, roomId });
+  } catch (err) { console.error('create-invite', err); res.status(500).json({ ok:false, error:'Server error' }); }
+});
+
+app.get('/invite/:code', (req, res) => {
+  try {
+    const code = (req.params.code || '').trim();
+    const roomId = invites[code];
+    if (!roomId) return res.status(404).json({ ok:false, error:'Invite not found' });
+    return res.json({ ok:true, code, roomId, url: `${req.protocol}://${req.get('host')}/?room=${encodeURIComponent(roomId)}` });
+  } catch (err) { console.error('GET /invite/:code', err); res.status(500).json({ ok:false, error:'Server error' }); }
+});
+
+// Admin name grant/revoke/list
 app.post('/admin/grant-name', async (req, res) => {
   try {
     if (!checkAdminToken(req, res)) return;
@@ -623,11 +784,12 @@ app.get('/admin/purchased-names', (req, res) => {
   try { if (!checkAdminToken(req, res)) return; res.json({ ok:true, purchased: store.purchased }); } catch (err) { console.error(err); res.status(500).json({ ok:false, error:'Server error' }); }
 });
 
-// START
+// Start server
 server.listen(PORT, async () => {
   console.log(`Hide To Survive backend listening on port ${PORT}`);
   await loadStore();
 });
 
+// Process handlers
 process.on('uncaughtException', (err) => { console.error('Uncaught exception:', err); });
-process.on('unhandledRejection', (reason,p) => { console.error('Unhandled Rejection at:', p, 'reason:', reason); });
+process.on('unhandledRejection', (reason, p) => { console.error('Unhandled Rejection at:', p, 'reason:', reason); });
