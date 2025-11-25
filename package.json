@@ -4,7 +4,11 @@
   "description": "Hide To Survive - multiplayer neon hide-and-seek backend",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "NODE_ENV=development node server.js"
+  },
+  "engines": {
+    "node": ">=16"
   },
   "dependencies": {
     "express": "^4.19.2",
