@@ -39,6 +39,12 @@ const SCORE_FULL_WIPE_BONUS = 75;
 
 const SHOOT_RADIUS = 80;
 
+// NEW: tranquilizer & Wake Serum
+const TRANQ_DURATION = 8000;      // ms – how long tranquilizer lasts
+const TRANQ_SLOW_MULT = 0.35;     // speed multiplier while tranquilized
+const SERUM_PICKUP_RADIUS = 45;   // distance to pick up Wake Serum
+const SERUM_PER_ROUND = 4;        // how many vials per round
+
 // rooms map
 const rooms = {};
 
@@ -59,7 +65,8 @@ function createRoom(roomId, config = {}) {
       maxPlayers: ROOM_MAX_PLAYERS
     },
     scores: {},
-    roundIndex: 0
+    roundIndex: 0,
+    powerups: [] // NEW: Wake Serum vials
   };
 }
 
@@ -94,9 +101,12 @@ setInterval(() => {
 
     handleRoomState(room, now);
 
+    // expire tranquilizer effects + check Wake Serum pickups
+    updateStatusAndSerums(room, now);
+
     // move players & bots
-    Object.values(room.players).forEach((p) => applyInput(p));
-    updateBots(room);
+    Object.values(room.players).forEach((p) => applyInput(p, now));
+    updateBots(room, now);
 
     // tagging / shooting
     handleTagging(room);
@@ -108,7 +118,7 @@ setInterval(() => {
 }, TICK_RATE);
 
 // ============ STATE MACHINE ============
-// IMPORTANT CHANGE: only require >=1 human player to run rounds.
+// IMPORTANT: only require >=1 human player to run rounds.
 // Bots are spawned inside startNewRound, so we cannot require bots beforehand.
 function handleRoomState(room, now) {
   const playerCount = Object.keys(room.players).length;
@@ -172,6 +182,7 @@ function startNewRound(room, now) {
     p.vy = 0;
     p.caught = false;
     p.role = "hider";
+    p.tranqUntil = 0; // NEW: clear tranquilizer
 
     const stats = getOrCreatePlayerStats(room, p.id, p.name);
     stats.games += 1;
@@ -191,7 +202,8 @@ function startNewRound(room, now) {
       vy: 0,
       caught: false,
       role: "hider",
-      wanderAngle: Math.random() * Math.PI * 2
+      wanderAngle: Math.random() * Math.PI * 2,
+      tranqUntil: 0
     });
   }
   if (room.bots.length > desiredBots) {
@@ -207,6 +219,7 @@ function startNewRound(room, now) {
     b.caught = false;
     b.role = "hider";
     b.wanderAngle = Math.random() * Math.PI * 2;
+    b.tranqUntil = 0;
   });
 
   // choose seeker from pool of players + bots
@@ -220,11 +233,25 @@ function startNewRound(room, now) {
   Object.values(room.players).forEach((p) => {
     p.role = p.id === room.seekerId ? "seeker" : "hider";
     p.caught = false;
+    p.tranqUntil = 0;
   });
   room.bots.forEach((b) => {
     b.role = b.id === room.seekerId ? "seeker" : "hider";
     b.caught = false;
+    b.tranqUntil = 0;
   });
+
+  // NEW: spawn Wake Serum powerups
+  room.powerups = [];
+  for (let i = 0; i < SERUM_PER_ROUND; i++) {
+    const pos = randomPosition();
+    room.powerups.push({
+      id: "serum-" + uuidv4(),
+      x: pos.x,
+      y: pos.y,
+      type: "wake-serum"
+    });
+  }
 
   io.to(room.id).emit("roundStarted", {
     seekerId: room.seekerId,
@@ -285,10 +312,53 @@ function getOrCreatePlayerStats(room, id, name) {
   return room.scores[id];
 }
 
+// ============ STATUS + WAKE SERUM ============
+function updateStatusAndSerums(room, now) {
+  // clear expired tranquilizer
+  Object.values(room.players).forEach((p) => {
+    if (p.tranqUntil && p.tranqUntil <= now) {
+      p.tranqUntil = 0;
+    }
+  });
+  room.bots.forEach((b) => {
+    if (b.tranqUntil && b.tranqUntil <= now) {
+      b.tranqUntil = 0;
+    }
+  });
+
+  if (!room.powerups || !room.powerups.length) return;
+
+  // players pick up Wake Serum
+  const remaining = [];
+  room.powerups.forEach((pu) => {
+    if (pu.type !== "wake-serum") {
+      remaining.push(pu);
+      return;
+    }
+    let picked = false;
+    Object.values(room.players).forEach((p) => {
+      if (picked) return;
+      const d = dist(p, pu);
+      if (d <= SERUM_PICKUP_RADIUS) {
+        // cleanse tranquilizer if active
+        p.tranqUntil = 0;
+        picked = true;
+      }
+    });
+    if (!picked) remaining.push(pu);
+  });
+  room.powerups = remaining;
+}
+
 // ============ MOVEMENT ============
-function applyInput(p) {
+function applyInput(p, now) {
   if (p.caught) return;
-  const speed = PLAYER_SPEED;
+
+  // base speed, slowed if tranquilized
+  let speed = PLAYER_SPEED;
+  if (p.tranqUntil && p.tranqUntil > now) {
+    speed *= TRANQ_SLOW_MULT;
+  }
 
   let vx = 0;
   let vy = 0;
@@ -306,12 +376,18 @@ function applyInput(p) {
 }
 
 // ============ BOT AI ============
-function updateBots(room) {
+function updateBots(room, now) {
   const seeker = getSeeker(room);
   const players = Object.values(room.players);
 
   room.bots.forEach((bot) => {
     if (bot.caught) return;
+
+    // base speed, slowed if tranquilized
+    let speed = BOT_SPEED;
+    if (bot.tranqUntil && bot.tranqUntil > now) {
+      speed *= TRANQ_SLOW_MULT;
+    }
 
     if (bot.role === "hider") {
       let dx = 0,
@@ -330,8 +406,8 @@ function updateBots(room) {
         }
       }
       const len = Math.sqrt(dx * dx + dy * dy) || 1;
-      bot.x = Math.max(0, Math.min(MAP_WIDTH, bot.x + (dx / len) * BOT_SPEED));
-      bot.y = Math.max(0, Math.min(MAP_HEIGHT, bot.y + (dy / len) * BOT_SPEED));
+      bot.x = Math.max(0, Math.min(MAP_WIDTH, bot.x + (dx / len) * speed));
+      bot.y = Math.max(0, Math.min(MAP_HEIGHT, bot.y + (dy / len) * speed));
     } else if (bot.role === "seeker") {
       const targets = [
         ...players.filter((p) => p.role === "hider" && !p.caught),
@@ -353,8 +429,8 @@ function updateBots(room) {
         const dx = closest.x - bot.x;
         const dy = closest.y - bot.y;
         const len = Math.sqrt(dx * dx + dy * dy) || 1;
-        bot.x = Math.max(0, Math.min(MAP_WIDTH, bot.x + (dx / len) * BOT_SPEED));
-        bot.y = Math.max(0, Math.min(MAP_HEIGHT, bot.y + (dy / len) * BOT_SPEED));
+        bot.x = Math.max(0, Math.min(MAP_WIDTH, bot.x + (dx / len) * speed));
+        bot.y = Math.max(0, Math.min(MAP_HEIGHT, bot.y + (dy / len) * speed));
       }
     }
   });
@@ -389,6 +465,7 @@ function handleTagging(room) {
 function catchHider(room, seeker, hider) {
   if (hider.caught) return;
   hider.caught = true;
+  hider.tranqUntil = 0;
 
   const sStats = getOrCreatePlayerStats(room, seeker.id, seeker.name || "Seeker");
   sStats.score += SCORE_TAG;
@@ -403,6 +480,7 @@ function catchHider(room, seeker, hider) {
 function catchBot(room, seeker, bot) {
   if (bot.caught) return;
   bot.caught = true;
+  bot.tranqUntil = 0;
 
   const sStats = getOrCreatePlayerStats(room, seeker.id, seeker.name || "Seeker");
   sStats.score += SCORE_TAG;
@@ -411,7 +489,7 @@ function catchBot(room, seeker, bot) {
   io.to(room.id).emit("botTagged", { id: bot.id, by: seeker.id });
 }
 
-// ============ SHOOTING ============
+// ============ SHOOTING (TRANQ LOGIC) ============
 function handleShot(room, shooterId, shotX, shotY) {
   const seeker = getSeeker(room);
   if (!seeker || seeker.id !== shooterId) return;
@@ -455,8 +533,22 @@ function handleShot(room, shooterId, shotX, shotY) {
   }
 
   if (target) {
-    if (isBot) catchBot(room, seeker, target);
-    else catchHider(room, seeker, target);
+    const now = Date.now();
+
+    // FIRST hit = tranquilized (slow)
+    // SECOND hit while tranquilized = fully caught
+    if (!target.tranqUntil || target.tranqUntil <= now) {
+      target.tranqUntil = now + TRANQ_DURATION;
+      io.to(room.id).emit("tranqApplied", {
+        id: target.id,
+        isBot,
+        duration: TRANQ_DURATION
+      });
+    } else {
+      // already tranquilized → catch
+      if (isBot) catchBot(room, seeker, target);
+      else catchHider(room, seeker, target);
+    }
   }
 
   io.to(room.id).emit("shotFired", {
@@ -481,7 +573,8 @@ function buildSnapshot(room) {
       x: p.x,
       y: p.y,
       role: p.role,
-      caught: p.caught
+      caught: p.caught,
+      tranq: !!(p.tranqUntil && p.tranqUntil > Date.now())
     })),
     bots: room.bots.map((b) => ({
       id: b.id,
@@ -489,16 +582,24 @@ function buildSnapshot(room) {
       x: b.x,
       y: b.y,
       role: b.role,
-      caught: b.caught
+      caught: b.caught,
+      tranq: !!(b.tranqUntil && b.tranqUntil > Date.now())
     })),
     map: room.map,
-    hideTimeRemaining: room.state === "hiding" ? Math.max(0, room.hideEndTime - Date.now()) : 0,
+    hideTimeRemaining:
+      room.state === "hiding" ? Math.max(0, room.hideEndTime - Date.now()) : 0,
     roundTimeRemaining:
       room.state === "seeking" && room.roundStartTime
         ? Math.max(0, room.roundStartTime + ROUND_TIME - Date.now())
         : 0,
     leaderboard,
-    roundIndex: room.roundIndex
+    roundIndex: room.roundIndex,
+    powerups: (room.powerups || []).map((p) => ({
+      id: p.id,
+      x: p.x,
+      y: p.y,
+      type: p.type
+    }))
   };
 }
 
@@ -533,7 +634,8 @@ io.on("connection", (socket) => {
       vy: 0,
       role: "hider",
       caught: false,
-      input: { up: false, down: false, left: false, right: false }
+      input: { up: false, down: false, left: false, right: false },
+      tranqUntil: 0
     };
 
     getOrCreatePlayerStats(room, socket.id, name);
