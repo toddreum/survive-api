@@ -4,11 +4,12 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const { v4: uuidv4 } = require('uuid');
+const fs = require('fs').promises;
+const path = require('path');
 
 const app = express();
+// JSON body parsing for admin endpoints
 app.use(express.json());
-
-// Basic security / headers (optional, lightweight)
 app.disable('x-powered-by');
 
 const server = http.createServer(app);
@@ -21,6 +22,14 @@ const io = new Server(server, {
 });
 
 const PORT = process.env.PORT || 3000;
+
+// ============ CONFIG (env-driven) ============
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || ''; // Set a strong token in Render env
+const RESERVED_NAMES_CSV = process.env.RESERVED_NAMES || 'admin,moderator,staff,survive,survive.com';
+const RESERVED_NAMES = RESERVED_NAMES_CSV.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+
+// Persistence file for purchased/unlocked names (simple file-based store)
+const DATA_FILE = process.env.DATA_FILE || path.resolve(__dirname, 'persist.json');
 
 // ============ GAME CONSTANTS ============
 const TICK_RATE = 50; // ms
@@ -48,14 +57,42 @@ const TRANQ_SLOW_MULT = 0.35;
 const SERUM_PICKUP_RADIUS = 45;
 const SERUM_PER_ROUND = 4;
 
-// rooms map
+// rooms map (in-memory)
 const rooms = {};
 
-// ============ HELPERS ============
-function sanitizeName(name) {
-  if (!name || typeof name !== 'string') return 'Player';
-  return name.trim().slice(0, 18) || 'Player';
+// purchasedNames store (in-memory, persisted to DATA_FILE)
+// structure: { purchased: { "<basename>": { owner: "<owner-id-or-meta>", grantedAt: 123456789 } } }
+let store = { purchased: {} };
+
+// ============ PERSISTENCE HELPERS ============
+async function loadStore() {
+  try {
+    const raw = await fs.readFile(DATA_FILE, 'utf8');
+    store = JSON.parse(raw) || { purchased: {} };
+    console.log(`Loaded store from ${DATA_FILE}`);
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      store = { purchased: {} };
+      console.log('No persist file found, starting fresh store.');
+    } else {
+      console.error('Error loading store:', err);
+      store = { purchased: {} };
+    }
+  }
 }
+
+async function saveStore() {
+  try {
+    await fs.mkdir(path.dirname(DATA_FILE), { recursive: true });
+    await fs.writeFile(DATA_FILE, JSON.stringify(store, null, 2), 'utf8');
+    // console.log(`Saved store to ${DATA_FILE}`);
+  } catch (err) {
+    console.error('Error saving store:', err);
+  }
+}
+
+// ============ HELPERS ============
+function nowMs() { return Date.now(); }
 
 function clamp(v, a, b) {
   return Math.max(a, Math.min(b, v));
@@ -76,6 +113,69 @@ function dist(a, b) {
   const dx = a.x - b.x;
   const dy = a.y - b.y;
   return Math.sqrt(dx * dx + dy * dy);
+}
+
+function sanitizeRequestedName(raw) {
+  if (!raw || typeof raw !== 'string') return 'Player';
+  // trim and remove newlines
+  let s = raw.trim().replace(/[\r\n]+/g, '');
+  // disallow long names
+  if (s.length > 30) s = s.slice(0, 30);
+  return s || 'Player';
+}
+
+function generateSuffix() {
+  // 4-digit numeric suffix
+  return ('000' + Math.floor(Math.random() * 10000)).slice(-4);
+}
+
+function ensureHashSuffix(name) {
+  // If name already contains '#', keep it (but normalize). If not, append #NNNN.
+  if (name.includes('#')) {
+    const parts = name.split('#');
+    const base = parts[0].trim() || 'Player';
+    const suffix = parts.slice(1).join('#').trim() || generateSuffix();
+    return `${base}#${suffix}`;
+  } else {
+    return `${name}#${generateSuffix()}`;
+  }
+}
+
+function nameBase(name) {
+  return (typeof name === 'string' ? name.split('#')[0].trim().toLowerCase() : '').slice(0, 30);
+}
+
+function isReservedBase(base) {
+  return RESERVED_NAMES.includes(base.toLowerCase());
+}
+
+function isPurchased(base) {
+  if (!base) return false;
+  return !!store.purchased[base.toLowerCase()];
+}
+
+function isReservedNameEffective(name) {
+  const base = nameBase(name);
+  if (!base) return false;
+  if (isPurchased(base)) return false; // purchased -> allowed
+  return isReservedBase(base);
+}
+
+function makeUniqueNameInRoom(room, desiredName) {
+  // Ensure no other player in room has the same final display name
+  let final = desiredName;
+  const taken = new Set(Object.values(room.players).map(p => (p.name || '').toLowerCase()));
+  let tries = 0;
+  while (taken.has(final.toLowerCase()) && tries < 8) {
+    const suffix = generateSuffix();
+    const base = final.split('#')[0] || 'Player';
+    final = `${base}#${suffix}`;
+    tries++;
+  }
+  if (taken.has(final.toLowerCase())) {
+    final = `${final.split('#')[0]}#${uuidv4().slice(0,4)}`;
+  }
+  return final;
 }
 
 // ============ ROOM MANAGEMENT ============
@@ -492,7 +592,6 @@ function catchBot(room, seeker, bot) {
 function handleShot(room, shooterId, shotX, shotY) {
   // Validation
   if (!isValidNumber(shotX) || !isValidNumber(shotY)) {
-    // ignore malformed shot
     console.warn(`Invalid shot coords from ${shooterId} in room ${room.id}:`, shotX, shotY);
     return;
   }
@@ -617,10 +716,21 @@ io.on("connection", (socket) => {
         socket.emit("joinError", { message: "Invalid join payload." });
         return;
       }
-      const name = sanitizeName(payload.name);
+      const requestedRaw = payload.name;
+      const requested = sanitizeRequestedName(requestedRaw);
       const roomId = payload.roomId && typeof payload.roomId === 'string' && payload.roomId.trim() ? payload.roomId.trim() : "default";
       const options = payload.options || {};
       const botCount = typeof options.botCount === 'number' ? clamp(options.botCount, 0, 16) : undefined;
+
+      // enforce hash suffix policy & reserved names
+      let candidate = ensureHashSuffix(requested);
+      const base = nameBase(candidate);
+
+      if (isReservedNameEffective(candidate)) {
+        // reserved names are blocked unless purchased/unlocked
+        socket.emit("joinError", { message: "This display name is reserved. Choose another name." });
+        return;
+      }
 
       const finalRoomId = roomId;
 
@@ -637,10 +747,13 @@ io.on("connection", (socket) => {
         return;
       }
 
+      // ensure unique name inside room
+      candidate = makeUniqueNameInRoom(room, candidate);
+
       const pos = randomPosition();
       room.players[socket.id] = {
         id: socket.id,
-        name,
+        name: candidate,
         x: pos.x,
         y: pos.y,
         vx: 0,
@@ -651,7 +764,7 @@ io.on("connection", (socket) => {
         tranqUntil: 0
       };
 
-      getOrCreatePlayerStats(room, socket.id, name);
+      getOrCreatePlayerStats(room, socket.id, candidate);
 
       socket.join(finalRoomId);
       socket.roomId = finalRoomId;
@@ -659,9 +772,10 @@ io.on("connection", (socket) => {
       socket.emit("joinedRoom", {
         roomId: finalRoomId,
         playerId: socket.id,
-        config: room.config
+        config: room.config,
+        name: candidate
       });
-      console.log(`Player ${socket.id} (${name}) joined room ${finalRoomId}`);
+      console.log(`Player ${socket.id} (${candidate}) joined room ${finalRoomId}`);
     } catch (err) {
       console.error("joinGame handler error:", err);
       socket.emit("joinError", { message: "Server error while joining." });
@@ -702,8 +816,6 @@ io.on("connection", (socket) => {
       }
 
       if (!isValidNumber(x) || !isValidNumber(y)) {
-        // Ignore malformed shots (do not crash)
-        // We log for debugging but do not send an error to the client to avoid spam.
         console.warn(`Malformed shoot payload from ${socket.id} in room ${roomId}:`, payload);
         return;
       }
@@ -725,8 +837,9 @@ io.on("connection", (socket) => {
   });
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   console.log(`Hide To Survive backend listening on port ${PORT}`);
+  await loadStore();
 });
 
 // ============ Basic HTTP routes for health / debug ============
@@ -735,12 +848,14 @@ app.get("/", (req, res) => {
 });
 
 app.get("/health", (req, res) => {
-  res.json({ status: "ok", now: Date.now(), rooms: Object.keys(rooms).length });
+  res.json({ status: "ok", now: Date.now(), rooms: Object.keys(rooms).length, uptime: process.uptime() });
 });
 
-app.get("/rooms", (req, res) => {
-  // Returns summarized info about rooms for debugging (no private data)
-  const summary = Object.values(rooms).map(r => ({
+/**
+ * Metrics endpoint - open (non-sensitive). Returns rooms summary.
+ */
+app.get("/metrics", (req, res) => {
+  const roomSummaries = Object.values(rooms).map(r => ({
     id: r.id,
     players: Object.keys(r.players).length,
     bots: r.bots.length,
@@ -748,7 +863,165 @@ app.get("/rooms", (req, res) => {
     roundIndex: r.roundIndex,
     createdAt: r.createdAt
   }));
-  res.json({ rooms: summary });
+  const totalPlayers = Object.values(rooms).reduce((acc, r) => acc + Object.keys(r.players).length, 0);
+  res.json({
+    status: "ok",
+    serverTime: Date.now(),
+    rooms: roomSummaries,
+    totalRooms: Object.keys(rooms).length,
+    totalPlayers
+  });
+});
+
+// ============ ADMIN ROUTES (protected by ADMIN_TOKEN) ============
+function checkAdminToken(req, res) {
+  const token = (req.headers['x-admin-token'] || '').trim();
+  if (!ADMIN_TOKEN) {
+    res.status(403).json({ ok: false, error: 'Admin token not configured on server.' });
+    return false;
+  }
+  if (!token || token !== ADMIN_TOKEN) {
+    res.status(401).json({ ok: false, error: 'Invalid admin token' });
+    return false;
+  }
+  return true;
+}
+
+/**
+ * POST /admin/clear-room
+ * body: { roomId: 'default' }
+ * header: x-admin-token: <token>
+ */
+app.post('/admin/clear-room', (req, res) => {
+  try {
+    if (!checkAdminToken(req, res)) return;
+    const roomId = req.body && typeof req.body.roomId === 'string' ? req.body.roomId : null;
+    if (!roomId) return res.status(400).json({ ok: false, error: 'Missing roomId' });
+    if (!rooms[roomId]) return res.status(404).json({ ok: false, error: 'Room not found' });
+
+    // Notify sockets in room (if any) that room is cleared, then remove
+    const sids = io.sockets.adapter.rooms.get(roomId);
+    if (sids && sids.size) {
+      for (const sid of sids) {
+        const sock = io.sockets.sockets.get(sid);
+        if (sock) {
+          try { sock.leave(roomId); sock.emit('roomCleared', { roomId }); } catch (e) { /* ignore */ }
+        }
+      }
+    }
+    delete rooms[roomId];
+    console.log(`Admin cleared room ${roomId}`);
+    return res.json({ ok: true, cleared: roomId });
+  } catch (err) {
+    console.error('/admin/clear-room error:', err);
+    return res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
+/**
+ * POST /admin/clear-all
+ * header: x-admin-token: <token>
+ */
+app.post('/admin/clear-all', (req, res) => {
+  try {
+    if (!checkAdminToken(req, res)) return;
+    const roomIds = Object.keys(rooms);
+    roomIds.forEach(roomId => {
+      const sids = io.sockets.adapter.rooms.get(roomId);
+      if (sids && sids.size) {
+        for (const sid of sids) {
+          const sock = io.sockets.sockets.get(sid);
+          if (sock) {
+            try { sock.leave(roomId); sock.emit('roomCleared', { roomId }); } catch (e) {}
+          }
+        }
+      }
+      delete rooms[roomId];
+    });
+    console.log('Admin cleared all rooms');
+    return res.json({ ok: true, cleared: roomIds.length });
+  } catch (err) {
+    console.error('/admin/clear-all error:', err);
+    return res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
+/**
+ * GET /admin/reserved-names
+ * header: x-admin-token: <token>
+ */
+app.get('/admin/reserved-names', (req, res) => {
+  try {
+    if (!checkAdminToken(req, res)) return;
+    res.json({ ok: true, reservedNames: RESERVED_NAMES });
+  } catch (err) {
+    console.error('/admin/reserved-names error:', err);
+    res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
+/**
+ * GET /admin/purchased-names
+ * header: x-admin-token: <token>
+ * returns purchased/unlocked names map
+ */
+app.get('/admin/purchased-names', (req, res) => {
+  try {
+    if (!checkAdminToken(req, res)) return;
+    res.json({ ok: true, purchased: store.purchased });
+  } catch (err) {
+    console.error('/admin/purchased-names error:', err);
+    res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
+/**
+ * POST /admin/grant-name
+ * header: x-admin-token: <token>
+ * body: { base: "Todd", owner: "optional-owner-id-or-email" }
+ * Grants (persists) the base name so it is no longer treated as reserved.
+ */
+app.post('/admin/grant-name', async (req, res) => {
+  try {
+    if (!checkAdminToken(req, res)) return;
+    const baseRaw = req.body && typeof req.body.base === 'string' ? req.body.base.trim() : null;
+    if (!baseRaw) return res.status(400).json({ ok: false, error: 'Missing base' });
+    const base = baseRaw.split('#')[0].trim().toLowerCase();
+    const owner = req.body && req.body.owner ? String(req.body.owner).trim() : 'admin-grant';
+    store.purchased[base] = { owner, grantedAt: Date.now() };
+    await saveStore();
+    console.log(`Admin granted name: ${base} -> ${owner}`);
+    return res.json({ ok: true, base, owner });
+  } catch (err) {
+    console.error('/admin/grant-name error:', err);
+    res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
+/**
+ * POST /admin/revoke-name
+ * header: x-admin-token: <token>
+ * body: { base: "Todd" }
+ * Removes previously granted purchased name.
+ */
+app.post('/admin/revoke-name', async (req, res) => {
+  try {
+    if (!checkAdminToken(req, res)) return;
+    const baseRaw = req.body && typeof req.body.base === 'string' ? req.body.base.trim() : null;
+    if (!baseRaw) return res.status(400).json({ ok: false, error: 'Missing base' });
+    const base = baseRaw.split('#')[0].trim().toLowerCase();
+    if (store.purchased[base]) {
+      delete store.purchased[base];
+      await saveStore();
+      console.log(`Admin revoked purchased name: ${base}`);
+      return res.json({ ok: true, base });
+    } else {
+      return res.status(404).json({ ok: false, error: 'Not found' });
+    }
+  } catch (err) {
+    console.error('/admin/revoke-name error:', err);
+    res.status(500).json({ ok: false, error: 'Server error' });
+  }
 });
 
 // ============ Process handlers ============
