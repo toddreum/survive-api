@@ -1,7 +1,7 @@
 {
   "name": "hide-to-survive-backend",
-  "version": "1.0.2",
-  "description": "Hide To Survive - multiplayer neon hide-and-seek backend",
+  "version": "1.0.4",
+  "description": "Hide To Survive backend with Stripe integration",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -13,6 +13,7 @@
   "dependencies": {
     "express": "^4.19.2",
     "socket.io": "^4.7.5",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "stripe": "^11.0.0"
   }
 }
