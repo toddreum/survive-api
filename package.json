@@ -1,7 +1,7 @@
 {
   "name": "hide-to-survive-backend",
-  "version": "1.0.5",
-  "description": "Hide To Survive backend with Stripe integration",
+  "version": "1.0.7",
+  "description": "Hide To Survive backend with public create-room endpoint",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
