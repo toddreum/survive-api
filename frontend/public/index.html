@@ -73,9 +73,14 @@
 
     <!-- Contact page (linked from Support in the footer) -->
     <section id="pageContact" class="page" aria-labelledby="contactTitle">
-      <main class="menu-card">
+      <main class="menu-card contact-card">
+        <button class="contact-close" id="contactClose" aria-label="Close contact form">✕</button>
         <h2 id="contactTitle">Contact Support</h2>
-        <p class="menu-subtitle">Send a message to support@survive.com</p>
+
+        <div id="contactSuccess" class="support-success hidden" role="status">
+          <span id="contactSuccessText">Message sent — thank you. Our support team will reply shortly.</span>
+          <button id="contactSuccessClose" class="support-success-close" aria-label="Close">✕</button>
+        </div>
 
         <div class="menu-form" id="contactFormWrap">
           <label for="contactName">Your name</label>
@@ -95,8 +100,6 @@
             <span id="contactStatus" class="muted small"></span>
           </div>
         </div>
-
-        <p class="hint" style="margin-top:12px;color:#9ca3af;font-size:13px">Messages will be sent to support@survive.com. If your host requires SMTP credentials set them on the backend.</p>
       </main>
     </section>
 
@@ -136,8 +139,7 @@
   <footer class="site-footer" role="contentinfo">
     <div class="footer-inner">
       <div class="footer-left">
-        <span class="copyright-symbol">©</span>
-        <span class="copyright-year">2025</span>
+        <span class="copyright-symbol">©</span><span class="copyright-year">2025</span>
         <a class="brand" href="https://survive.com" target="_blank" rel="noopener">Survive.com</a>
       </div>
 
@@ -173,18 +175,28 @@
         showPage('pageContact');
       });
 
-      // contact form send
+      // contact form send with success UI and close X
       const contactSendBtn = document.getElementById('contactSendBtn');
+      const contactSuccess = document.getElementById('contactSuccess');
+      const contactFormWrap = document.getElementById('contactFormWrap');
+      const contactStatus = document.getElementById('contactStatus');
+      const contactClose = document.getElementById('contactClose');
+      const contactSuccessClose = document.getElementById('contactSuccessClose');
+
+      if (contactClose) contactClose.addEventListener('click', (e)=>{ e.preventDefault(); showPage('pageLogin'); });
+
+      if (contactSuccessClose) contactSuccessClose.addEventListener('click', (e)=>{ e.preventDefault(); contactSuccess.classList.add('hidden'); showPage('pageLogin'); });
+
       if (contactSendBtn) {
         contactSendBtn.addEventListener('click', async function(e){
           e.preventDefault();
+          contactStatus.textContent = '';
           const name = (document.getElementById('contactName').value || '').trim();
           const email = (document.getElementById('contactEmail').value || '').trim();
           const subject = (document.getElementById('contactSubject').value || '').trim();
           const message = (document.getElementById('contactMessage').value || '').trim();
-          const status = document.getElementById('contactStatus');
           if (!email || !message) { alert('Please provide your email and a message'); return; }
-          contactSendBtn.disabled = true; status.textContent = 'Sending…';
+          contactSendBtn.disabled = true; contactStatus.textContent = 'Sending…';
           try {
             const resp = await fetch('/support', {
               method: 'POST',
@@ -193,18 +205,20 @@
             });
             const j = await resp.json();
             if (j && j.ok) {
-              status.textContent = 'Message sent. Support will contact you.';
-              document.getElementById('contactName').value=''; document.getElementById('contactSubject').value=''; document.getElementById('contactMessage').value='';
+              // show success UI and allow close
+              contactFormWrap.classList.add('hidden');
+              contactSuccess.classList.remove('hidden');
+              contactStatus.textContent = '';
             } else {
-              status.textContent = 'Could not send message. Try again later.';
+              contactStatus.textContent = 'Could not send message. Try again later.';
               console.warn('support error', j);
             }
           } catch (err) {
             console.error('support send failed', err);
-            status.textContent = 'Send failed. Try again later.';
+            contactStatus.textContent = 'Send failed. Try again later.';
           } finally {
             contactSendBtn.disabled = false;
-            setTimeout(()=>{ if (status) status.textContent = ''; }, 6000);
+            setTimeout(()=>{ if (contactStatus) contactStatus.textContent = ''; }, 4000);
           }
         });
       }
