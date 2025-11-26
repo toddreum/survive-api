@@ -1,4 +1,5 @@
 // Client: join, ack, pos emits, voxel integration, block events, shoot, pickup, HUD updates.
+// This version ensures VoxelWorld.start is invoked robustly.
 
 const BACKEND_URL = (typeof window !== 'undefined' && window.__BACKEND_URL__ && window.__BACKEND_URL__.length)
   ? window.__BACKEND_URL__ : (typeof window !== 'undefined' && window.location && window.location.origin ? window.location.origin : 'https://survive.com');
@@ -67,10 +68,24 @@ function handleJoinedRoom(payload) {
   const pagePlay = $('pagePlay'); if (pagePlay) pagePlay.classList.add('active');
   const hud = $('hud'); if (hud) hud.classList.remove('hidden');
   startPosLoop();
-  if (!voxelStarted && window.VoxelWorld) {
-    window.VoxelWorld.start();
-    voxelStarted = true;
-    for (let cx=-2; cx<=2; cx++) for (let cz=-2; cz<=2; cz++) window.VoxelWorld.requestChunk(cx,cz);
+
+  // Robust VoxelWorld start (ensures start is called and logs status)
+  try {
+    if (!voxelStarted && window.VoxelWorld && typeof window.VoxelWorld.start === 'function') {
+      const ok = window.VoxelWorld.start();
+      voxelStarted = !!ok;
+      if (voxelStarted) {
+        for (let cx=-2; cx<=2; cx++) for (let cz=-2; cz<=2; cz++) window.VoxelWorld.requestChunk(cx,cz);
+        console.info('[client] VoxelWorld started and chunk requests issued');
+      } else {
+        console.warn('[client] VoxelWorld.start returned false — not starting chunks');
+      }
+    } else if (window.VoxelWorld && typeof window.VoxelWorld.requestChunk === 'function') {
+      for (let cx=-2; cx<=2; cx++) for (let cz=-2; cz<=2; cz++) window.VoxelWorld.requestChunk(cx,cz);
+    }
+  } catch (e) {
+    console.error('[client] Failed to start VoxelWorld', e);
+    const o = document.createElement('div'); o.className = 'waiting-overlay'; o.textContent = 'Could not start 3D scene: ' + (e && e.message || 'error'); document.body.appendChild(o);
   }
 }
 
