@@ -9,7 +9,7 @@
 </head>
 <body>
   <header class="hts-header" role="banner">
-    <a class="logo-link" href="/" aria-label="Home">
+    <a class="logo-link" href="/" aria-label="Home" id="homeLogo">
       <img id="siteLogo" src="/logo.png" alt="Survive.com logo" onerror="this.onerror=null;this.src='/logo.svg'"/>
     </a>
 
@@ -117,7 +117,6 @@
         <div id="scoreLabel" class="hud-item">Points: 0  Charge: 0</div>
         <div id="connectionStatus" class="hud-item connection"></div>
         <div id="shieldStatus" class="hud-item shield"></div>
-        <!-- Phase button and "Show Hides" will be added dynamically by game.js -->
         <div style="margin-top:8px">
           <button id="leaveBtn" class="btn-secondary">Leave Match</button>
         </div>
@@ -175,17 +174,32 @@
         const el = document.getElementById(id); if (el) el.classList.add('active');
       }
 
+      // Open profile/in-game view if already joined; otherwise show login
+      function handleNavLoginClick(e){
+        e && e.preventDefault();
+        if (window.myId) { // already joined -> show play (avoid sending user out)
+          showPage('pagePlay');
+        } else {
+          showPage('pageLogin');
+        }
+      }
+      function handleNavPlayClick(e){
+        e && e.preventDefault();
+        if (window.myId) showPage('pagePlay'); else showPage('pageLogin');
+      }
+
       document.getElementById('navHow').addEventListener('click', (e)=>{ e.preventDefault(); showPage('pageHow'); });
-      document.getElementById('navLogin').addEventListener('click', (e)=>{ e.preventDefault(); showPage('pageLogin'); });
-      document.getElementById('navPlay').addEventListener('click', (e)=>{ e.preventDefault(); if (window.myId || (window.hts && window.hts.socketConnected)) showPage('pagePlay'); else { alert('Please JOIN MATCH first'); showPage('pageLogin'); } });
+      document.getElementById('navLogin').addEventListener('click', handleNavLoginClick);
+      document.getElementById('navPlay').addEventListener('click', handleNavPlayClick);
       document.getElementById('navContact').addEventListener('click', (e)=>{ e.preventDefault(); showPage('pageContact'); });
 
+      // support link opens contact page
       document.getElementById('supportLink').addEventListener('click', function(e){
         e.preventDefault();
         showPage('pageContact');
       });
 
-      // contact handlers
+      // contact form send (no backend hints shown)
       const contactSendBtn = document.getElementById('contactSendBtn');
       const contactSuccess = document.getElementById('contactSuccess');
       const contactFormWrap = document.getElementById('contactFormWrap');
@@ -230,6 +244,9 @@
           }
         });
       }
+
+      // expose a global function for the game script to call to open profile/in-game view
+      window.openProfile = function(){ if (window.myId) showPage('pagePlay'); else showPage('pageLogin'); };
     })();
   </script>
 </body>
