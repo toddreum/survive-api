@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Survive — Hide To Survive</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+
+  <!-- env.js is generated at build time (Render) or used locally for testing -->
+  <script src="/env.js"></script>
+
+  <link rel="stylesheet" href="/style.css" />
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+</head>
+<body>
+  <main class="card">
+    <h1>HIDE TO SURVIVE</h1>
+    <p class="subtitle">Fast-paced 3D neon hide-and-seek—tranquilizer-gun style. Hide, or be put to sleep!</p>
+
+    <label for="playerName">Name</label>
+    <input id="playerName" placeholder="Player" />
+
+    <small class="hint">Single-word names (letters only) require a # suffix (e.g., Todd#1234) unless purchased.</small>
+
+    <label for="roomId">Room (optional)</label>
+    <input id="roomId" placeholder="default" />
+
+    <label for="botCount">Bot Count</label>
+    <input id="botCount" type="number" min="0" max="16" value="4" />
+
+    <div class="row">
+      <button id="createRoomBtn" class="btn secondary">Create Room</button>
+      <button id="joinBtn" class="btn primary">JOIN MATCH</button>
+    </div>
+
+    <div id="inviteArea" class="invite hidden">
+      <span id="inviteText"></span>
+      <button id="copyInviteBtn" class="btn small">Copy</button>
+    </div>
+
+    <div id="connectionStatus" class="status">Not connected</div>
+
+    <div style="margin-top:12px;">
+      <a href="#" id="supportLink">Contact Support</a>
+    </div>
+  </main>
+
+  <!-- Support modal -->
+  <div id="supportModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="supportTitle">
+    <div class="modal-inner">
+      <h3 id="supportTitle">Contact Support</h3>
+      <form id="supportForm">
+        <label for="supName">Your name</label>
+        <input id="supName" name="name" type="text" placeholder="Your name" required />
+
+        <label for="supEmail">Your email</label>
+        <input id="supEmail" name="email" type="email" placeholder="you@example.com" required />
+
+        <label for="supSubject">Subject</label>
+        <input id="supSubject" name="subject" type="text" placeholder="Short subject" required />
+
+        <label for="supMessage">Message</label>
+        <textarea id="supMessage" name="message" rows="6" placeholder="Describe the issue..." required></textarea>
+
+        <div class="row right" style="margin-top:12px;">
+          <button type="button" id="supportCancel" class="btn secondary">Cancel</button>
+          <button type="submit" id="supportSend" class="btn primary">Send</button>
+        </div>
+
+        <div id="supportResult" class="footnote"></div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/game.js"></script>
+</body>
+</html>
