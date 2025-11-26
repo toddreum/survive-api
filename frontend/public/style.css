@@ -1,26 +1,24 @@
-/* Updated style.css - constrains logo, reserves layout space, responsive adjustments */
+/* UI and layout (logo sizing, footer styling, hero column) */
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;font-family:Inter,system-ui,Arial;background:radial-gradient(circle at 20% 10%,#021224 0,#000 60%);color:#e5e7eb}
 
-/* Header / logo */
-.hts-header{position:fixed;top:10px;left:12px;right:12px;z-index:220;display:flex;align-items:center;justify-content:space-between;gap:12px}
-.hts-logo-wrap{display:flex;align-items:center;gap:8px;text-decoration:none}
-.hts-logo-large{height:82px;max-height:82px;width:auto;display:block;filter: drop-shadow(0 10px 30px rgba(0,0,0,0.6));margin-left:6px;object-fit:contain}
-
-/* reserve a visible left column on wide screens so logo doesn't overlap the menu */
-@media (min-width:1100px){
-  .main-content { padding-left: 360px; } /* reserve room for a large logo */
-}
-
-/* Navigation */
-.top-actions{display:flex;gap:8px;align-items:center; margin-right:6px;}
+/* Header: top-right nav only */
+.hts-header{position:fixed;top:10px;left:12px;right:12px;z-index:320;display:flex;align-items:center;justify-content:flex-end;padding-right:18px}
+.top-actions{display:flex;gap:8px;align-items:center}
 .nav-btn{background:rgba(255,255,255,0.06);color:#e5e7eb;padding:8px 12px;border-radius:999px;border:none;cursor:pointer;box-shadow:0 6px 16px rgba(0,0,0,0.45)}
+
+/* Left hero (fixed) */
+.left-hero{position:fixed;left:20px;top:60px;bottom:20px; width:320px; display:flex; align-items:center; justify-content:center; z-index:120; pointer-events:none}
+.left-hero-logo{max-width:280px; max-height:80vh; width:auto; height:auto; display:block; filter: drop-shadow(0 12px 30px rgba(0,0,0,0.6)); opacity:1; object-fit:contain;}
+
+/* Reserve left column space so content is never overlapped */
+.main-content { padding-left: 380px; }
 
 /* Pages */
 .page{display:none;padding:24px;min-height:100vh}
 .page.active{display:block}
 
-/* Centered card */
+/* Card */
 .menu-card{max-width:760px;margin:120px auto;background:linear-gradient(180deg,rgba(6,11,25,0.96),rgba(3,7,18,0.94));padding:28px;border-radius:18px;box-shadow:0 30px 80px rgba(0,0,0,0.7)}
 .menu-title{font-size:34px;color:#fff;margin-bottom:6px;letter-spacing:0.02em}
 .menu-subtitle{color:#cbd5e1;margin-bottom:10px}
@@ -37,6 +35,13 @@ input,select,textarea{width:100%;padding:10px 12px;border-radius:10px;border:non
 .hud{position:fixed;top:100px;left:18px;z-index:200;display:flex;flex-direction:column;gap:6px;color:#d1d5db}
 .leaderboard{position:fixed;right:24px;top:160px;z-index:200;background:rgba(10,14,25,0.9);padding:12px;border-radius:12px}
 
+/* Footer styling: copyright left, support right */
+.footer-inner{position:fixed;left:12px;right:12px;bottom:8px;display:flex;align-items:center;justify-content:space-between;pointer-events:auto;color:#9ca3af;z-index:320;padding:6px 12px}
+.footer-left{font-size:13px}
+.footer-right{font-size:13px}
+.support-link{color:#7dd3fc;text-decoration:none;font-weight:600;margin-left:6px}
+.brand{margin-left:8px;color:#9ca3af}
+
 /* Tranq overlay + shoot */
 .tranq-overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:300;pointer-events:none}
 .tranq-overlay-inner{background:rgba(3,7,18,0.88);padding:18px 22px;border-radius:12px;color:#fef3c7}
@@ -47,12 +52,10 @@ input,select,textarea{width:100%;padding:10px 12px;border-radius:10px;border:non
 .menu-howto ol{margin-left:16px; margin-top:12px; color:#cbd5e1}
 .menu-howto li{margin-bottom:8px}
 
-/* Smaller screens: hide large reserved left column and scale logo down */
+/* Responsive: hide left hero on small screens */
 @media (max-width:1099px){
-  .main-content { padding-left: 16px; padding-right:16px; }
-  .hts-logo-large { height:56px; max-height:56px; }
+  .left-hero { display:none; }
+  .main-content { padding-left: 16px; padding-right: 16px; }
   .menu-card { margin: 80px 12px; }
+  .left-hero-logo { display:none; }
 }
-
-/* Accessibility / footer */
-.footer-inner{position:fixed;left:0;right:0;bottom:8px;display:flex;justify-content:center;pointer-events:none;color:#9ca3af;z-index:220}
