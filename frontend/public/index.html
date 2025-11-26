@@ -8,12 +8,11 @@
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body class="holiday">
-  <header class="hts-header">
-    <!-- Large logo only (no text label) -->
+  <header class="hts-header" role="banner">
+    <!-- Single logo element with PNG -> SVG fallback to avoid duplicate images -->
     <a class="hts-logo-wrap" href="/" aria-label="Game Home">
-      <img id="siteLogoLarge" src="/logo.png" alt="Game logo" class="hts-logo-large" onerror="this.style.display='none'"/>
-      <!-- SVG fallback if logo.png missing -->
-      <img id="siteLogoSvg" src="/logo.svg" alt="Game logo" class="hts-logo-large" />
+      <img id="siteLogo" src="/logo.png" alt="Game logo" class="hts-logo-large"
+           onerror="this.onerror=null; this.src='/logo.svg';" />
     </a>
 
     <nav class="top-actions" aria-label="Top actions">
@@ -23,7 +22,7 @@
     </nav>
   </header>
 
-  <main>
+  <main class="main-content">
     <section id="pageLogin" class="page active">
       <main class="menu-card">
         <h1 class="menu-title">HIDE TO SURVIVE</h1>
@@ -121,7 +120,6 @@
 
   <!-- scripts -->
   <script src="/env.js"></script>
-  <!-- reliable modern three.js -->
   <script src="https://unpkg.com/three@0.152.2/build/three.min.js"></script>
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script src="/initThree.js"></script>
