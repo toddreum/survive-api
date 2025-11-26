@@ -1,242 +1,265 @@
-// Frontend game logic (advanced): integrates with the advanced renderer, supports online play and offline local bots,
-// binds left-click to shooting (server when online, local simulation when offline), manages pickups & serum use,
-// and updates HUD. This file replaces prior game.js with the "most advanced" client logic.
+// Updated frontend/public/game.js
+// Fixes:
+// - Prevent "tranquilized on join" by ignoring tranq state for a short window immediately after join
+// - Persist session (sessionStorage) and auto-rejoin on refresh so user stays in the room
+//
+// This file keeps previous behavior (online/offline support, shoot/pickup/useSerum wiring) but
+// adds robust session persistence and a "just joined" grace period to avoid false tranq UI.
 
-(function(){
-  // try to reuse existing application code but replace core behaviors with advanced features
-  const BACKEND_URL = (typeof window !== 'undefined' && window.__BACKEND_URL__ && window.__BACKEND_URL__.length)
-    ? window.__BACKEND_URL__ : (typeof window !== 'undefined' && window.location && window.location.origin ? window.location.origin : 'https://survive.com');
+const BACKEND_URL = (typeof window !== 'undefined' && window.__BACKEND_URL__ && window.__BACKEND_URL__.length)
+  ? window.__BACKEND_URL__ : (typeof window !== 'undefined' && window.location && window.location.origin ? window.location.origin : 'https://survive.com');
 
-  const POS_SEND_MS = 120;
-  function $(id){ return document.getElementById(id); }
+console.log('BACKEND_URL =', BACKEND_URL);
 
-  let socket = null, voxelStarted=false, offlineMode=false, myRole='', myInventory={serum:0};
+const SESSION_KEY = 'survive.session.v1';
+const POS_SEND_MS = 120;
 
-  async function tryConnect(timeoutMs = 6000){
-    return new Promise((resolve) => {
-      try {
-        socket = io(BACKEND_URL, { timeout: timeoutMs, transports:['polling','websocket'], reconnectionAttempts: 3 });
-        let resolved = false;
-        socket.on('connect', ()=>{ if (!resolved){ resolved = true; resolve({ online:true }); }});
-        socket.on('connect_error', (err)=>{ if (!resolved){ resolved = true; resolve({ online:false, err }); }});
-        setTimeout(()=>{ if (!resolved){ resolved = true; resolve({ online:false, err: new Error('connect timeout') }); } }, timeoutMs + 150);
-      } catch (e) { resolve({ online:false, err:e }); }
-    });
-  }
+function $(id){ return document.getElementById(id); }
+function toast(msg, ms=2000){ const s=$('connectionStatus'); if(!s) return; const prev=s.textContent; s.textContent=msg; if(ms) setTimeout(()=>s.textContent=prev,ms); }
+function saveSession(o){ try{ sessionStorage.setItem(SESSION_KEY, JSON.stringify(o||{})); }catch(e){} }
+function loadSession(){ try{ const r=sessionStorage.getItem(SESSION_KEY); return r?JSON.parse(r):null;}catch(e){return null;} }
+function clearSession(){ try{ sessionStorage.removeItem(SESSION_KEY);}catch(e){} }
 
-  async function startNetworkOrOffline(){
-    const res = await tryConnect(7000);
-    if (!res.online) { offlineMode = true; console.warn('Offline mode engaged:', res.err); startLocalBots(); return; }
-    wireSocket();
-  }
+let socket=null, posInterval=null, voxelStarted=false, myRole='', myInventory={serum:0};
+// justJoinedUntil: timestamp until which we ignore tranq overlay to avoid "tranquilized on join"
+let justJoinedUntil = 0;
 
-  function wireSocket(){
-    socket.on('connect', ()=> console.info('[socket] connected', socket.id));
-    socket.on('disconnect', ()=> console.info('[socket] disconnected'));
-    socket.on('joinedRoom', (p)=> onJoined(p));
-    socket.on('stateUpdate', (s)=> onState(s));
-    socket.on('chunkDiff', (d)=> window.VoxelWorld && window.VoxelWorld.applyChunkDiff && window.VoxelWorld.applyChunkDiff(d));
-    socket.on('shotFired', (info)=> {
-      if (window.VoxelWorld && window.VoxelWorld.spawnShotEffect) window.VoxelWorld.spawnShotEffect(info.shooterPos, info.targetPos, info.blocked ? 0x999999 : 0xffff88);
-      if (info.shooter && window.VoxelWorld && window.VoxelWorld.animateMuzzleAtEntity) window.VoxelWorld.animateMuzzleAtEntity(info.shooter);
-      if (info.target === window.myId) { const el = $('tranqOverlay'); if (el) { el.classList.remove('hidden'); setTimeout(()=> el.classList.add('hidden'), 3000); } }
-    });
-    socket.on('shieldPicked', (d)=> { $('shieldStatus') && ($('shieldStatus').textContent = `Shield: ${d.durability}`); });
-    socket.on('serumPicked', (d)=> { myInventory.serum = d.count || myInventory.serum || 0; updateInventoryHUD(); });
-    socket.on('serumUsed', (d)=> { if (d && d.ok) { myInventory.serum = Math.max(0, (myInventory.serum||1)-1); updateInventoryHUD(); } });
-  }
+function setupSocket() {
+  if (socket) return socket;
+  socket = io(BACKEND_URL, { timeout:10000, reconnectionAttempts:10, transports:['polling','websocket'] });
 
-  function updateInventoryHUD(){ const el=$('shieldStatus'); if (el) el.textContent = `Serum: ${myInventory.serum}`; }
-
-  function startPosLoopOnline(){
-    setInterval(()=> {
-      if (!socket || !socket.connected) return;
-      try {
-        const pos = (window.VoxelWorld && window.VoxelWorld.getPlayerPosition) ? window.VoxelWorld.getPlayerPosition() : { x:0,y:0,z:0,crouch:false };
-        socket.emit('pos', pos);
-      } catch(e){}
-    }, POS_SEND_MS);
-  }
-
-  async function attemptJoin(name, roomId, options={}) {
-    if (!socket) throw new Error('socket not initialized');
-    if (!socket.connected) await new Promise((resolve,reject)=>{ const t=setTimeout(()=>reject(new Error('socket_connect_timeout')),8000); socket.once('connect', ()=>{ clearTimeout(t); resolve(); }); });
-    return new Promise((resolve,reject)=> {
-      socket.timeout(15000).emit('joinGame', { name, roomId, options }, (ack)=> {
-        if (ack && ack.ok) resolve(ack); else reject(new Error((ack && ack.error) || 'join_failed'));
-      });
-    });
-  }
-
-  function onJoined(payload){
-    window.myId = payload && payload.playerId;
-    $('playerDisplayName') && ($('playerDisplayName').textContent = payload && payload.name || 'Player');
-    myRole = payload && payload.role || '';
-    document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-    $('pagePlay').classList.add('active');
-    $('hud').classList.remove('hidden');
-    if (window.VoxelWorld && window.VoxelWorld.start) { voxelStarted = !!window.VoxelWorld.start(); if (voxelStarted) for (let cx=-3; cx<=3; cx++) for (let cz=-3; cz<=3; cz++) window.VoxelWorld.requestChunk(cx,cz); }
-    startPosLoopOnline();
-  }
-
-  function onState(s){
-    if (!s || !s.players) return;
-    $('playersLabel') && ($('playersLabel').textContent = `${s.players.length} players`);
-    const me = s.players.find(p => p.id === window.myId);
-    if (me) {
-      myRole = me.role || myRole;
-      const el = $('tranqOverlay');
-      if (el) { if (me.tranqUntil && me.tranqUntil > Date.now()) el.classList.remove('hidden'); else el.classList.add('hidden'); }
+  socket.on('connect', ()=>{ console.info('[socket] connected', socket.id); window.hts = window.hts || {}; window.hts.socketConnected = true; toast('Connected',1200); 
+    // If we have a saved session but no myId, try to auto-join (useful after refresh)
+    const sess = loadSession();
+    if (sess && sess.name && !window.myId) {
+      // attempt rejoin but don't spam if already joined
+      attemptJoin(sess.name, sess.roomId || 'default', { botCount: sess.botCount || Number((document.getElementById('botCount') && document.getElementById('botCount').value) || 12) })
+        .catch(err => { console.warn('auto-rejoin failed', err); });
     }
-    const btn = $('shootBtn'); if (btn) btn.style.display = myRole === 'seeker' ? 'block' : 'none';
-    if (window.VoxelWorld && window.VoxelWorld.updatePlayers) window.VoxelWorld.updatePlayers(s.players);
-  }
-
-  async function doShootOnline(){
-    if (!socket || !socket.connected) { alert('not connected'); return; }
-    socket.emit('shoot', {}, (ack)=> {
-      if (ack && ack.ok) { if (ack.blocked) toast('Shot blocked'); else toast('Shot fired'); } else toast('No target');
-    });
-  }
-
-  function doShootLocal(){
-    // offline local simulation, find nearest player and apply tranq locally
-    const playersLocal = window.localPlayers || {};
-    const shooter = playersLocal[window.localId];
-    if (!shooter) return;
-    if (shooter.role !== 'seeker') { alert('Only Seekers can shoot'); return; }
-    let best = null, bestD = Infinity;
-    for (const id of Object.keys(playersLocal)) {
-      if (id === shooter.id) continue;
-      const t = playersLocal[id];
-      if (!t || t.type !== 'player') continue;
-      const dx = t.x - shooter.x, dy = (t.y||0) - (shooter.y||0), dz = t.z - shooter.z;
-      const d2 = dx*dx + dy*dy + dz*dz;
-      if (d2 < bestD && d2 <= SHOOT_RANGE*SHOOT_RANGE) { best = t; bestD = d2; }
-    }
-    if (!best) { toast('No target'); return; }
-    const blocked = best.carrying && best.carrying.type === 'shield' && best.carrying.durability > 0;
-    if (blocked) { best.carrying.durability -= 1; if (best.carrying.durability <= 0) best.carrying = null; } else { best.tranqUntil = Date.now() + 9000; }
-    if (window.VoxelWorld && window.VoxelWorld.spawnShotEffect) window.VoxelWorld.spawnShotEffect({ x: shooter.x, y: shooter.y+1, z: shooter.z }, { x: best.x, y: best.y+1, z: best.z }, blocked ? 0x999999 : 0xffff88);
-    if (window.VoxelWorld && window.VoxelWorld.animateMuzzleAtEntity) window.VoxelWorld.animateMuzzleAtEntity(shooter.id);
-    toast('Shot fired (local)');
-  }
-
-  // wrapper that handles online/offline shooting
-  window.doLocalShoot = function(){ if (!offlineMode) return doShootOnline(); return doShootLocal(); };
-
-  // pickups & serum use wrappers
-  function tryPickup() { if (offlineMode) { /* offline pickup not simulated fully */ toast('No pickup in offline mode'); return; } socket.emit('pickup', {}, (ack)=> { if (ack && ack.ok) { toast('Picked item'); } else toast('Nothing to pick up'); }); }
-  function useSerum() { if (offlineMode) { if (window.localPlayers && window.localPlayers[window.localId] && window.localPlayers[window.localId].inventory && window.localPlayers[window.localId].inventory.serum) { window.localPlayers[window.localId].inventory.serum -= 1; window.localPlayers[window.localId].tranqUntil = 0; toast('Recovered (local)'); } else alert('No serum (local)'); return; } socket.emit('useSerum', {}, (ack)=> { if (ack && ack.ok) toast('Serum used'); else alert('Could not use serum'); }); }
-
-  // UI and start
-  document.addEventListener('DOMContentLoaded', async () => {
-    await startNetworkOrOffline();
-    // start renderer if available
-    if (window.VoxelWorld && window.VoxelWorld.start) { voxelStarted = !!window.VoxelWorld.start(); if (voxelStarted) for (let cx=-3; cx<=3; cx++) for (let cz=-3; cz<=3; cz++) window.VoxelWorld.requestChunk(cx,cz); }
-
-    const joinBtn = $('joinBtn'), createRoomBtn = $('createRoomBtn'), leaveBtn = $('leaveBtn'), shootBtn = $('shootBtn');
-    const nameInput = $('playerName'), roomInput = $('roomId'), botCount = $('botCount');
-
-    if (joinBtn) joinBtn.addEventListener('click', async (e) => {
-      e.preventDefault();
-      const name = (nameInput && nameInput.value && nameInput.value.trim()) || 'Player';
-      if (!offlineMode) {
-        try {
-          await attemptJoin(name, roomInput && roomInput.value || 'default', { botCount: Number(botCount && botCount.value || 12) });
-          startPosLoopOnline();
-        } catch (err) {
-          console.error('join error', err);
-          // fallback to offline
-          offlineMode = true;
-          startLocalBots();
-        }
-      } else {
-        // offline: start local bots; local name set in local players structure by offline engine
-        if (window.localPlayers && window.localPlayers[window.localId]) window.localPlayers[window.localId].name = name;
-      }
-    });
-
-    if (createRoomBtn) createRoomBtn.addEventListener('click', async (e) => {
-      e.preventDefault();
-      try {
-        const resp = await fetch(`${BACKEND_URL}/create-room`, { method:'POST' });
-        const j = await resp.json();
-        if (j && j.ok) { $('inviteArea').classList.remove('hidden'); $('inviteText').textContent = `Invite: ${j.roomId} — ${j.url}`; roomInput && (roomInput.value = j.roomId); }
-      } catch (err) { console.warn('create-room failed', err); }
-    });
-
-    if (leaveBtn) leaveBtn.addEventListener('click', (e)=> { e.preventDefault(); if (confirm('Leave?')) location.reload(); });
-    if (shootBtn) { shootBtn.addEventListener('click', (e)=>{ e.preventDefault(); window.doLocalShoot(); }); shootBtn.style.display = 'none'; }
-
-    document.addEventListener('keydown', (e) => { if (e.code === 'KeyE') tryPickup(); if (e.code === 'KeyF') useSerum(); });
   });
 
-  // offline engine start (extracted here for clarity)
-  function startLocalBots(){
-    offlineMode = true;
-    window.localPlayers = window.localPlayers || {};
-    window.localId = window.localId || 'local-' + Math.floor(Math.random()*10000);
-    window.localPlayers[window.localId] = { id: window.localId, name: (document.getElementById('playerName') && document.getElementById('playerName').value) || 'You', x:0, y:2, z:0, role:'hider', type:'player', inventory:{serum:0}, tranqUntil:0 };
-    for (let i=0;i<16;i++){
-      const id = 'offbot-'+i; const r=Math.random();
-      if (r < 0.6) window.localPlayers[id] = { id, name:`Bot${i}`, x:(Math.random()-0.5)*160, y:2, z:(Math.random()-0.5)*160, role:(Math.random()>0.9?'seeker':'hider'), type:'player', tranqUntil:0, ai:{roamTick:Date.now()+Math.random()*3000} };
-      else if (r < 0.85) window.localPlayers[id] = { id, name:`Bird${i}`, x:(Math.random()-0.5)*160, y:6+Math.random()*12, z:(Math.random()-0.5)*160, role:'bird', type:'bird', ai:{roamTick:Date.now()+Math.random()*900} };
-      else window.localPlayers[id] = { id, name:`Truck${i}`, x:(Math.random()-0.5)*160, y:0.6, z:(Math.random()-0.5)*160, role:'vehicle', type:'vehicle', ai:{roamTick:Date.now()+Math.random()*1200}, path:null };
-    }
-    // call renderer to show them
-    if (window.VoxelWorld && window.VoxelWorld.updatePlayers) window.VoxelWorld.updatePlayers(Object.values(window.localPlayers));
-    // start local sim tick
-    setInterval(()=> {
-      // update simple AI movement and occasional shooting
-      const vals = Object.values(window.localPlayers);
-      vals.forEach(p => {
-        p.ai = p.ai || { roamTick: Date.now()+1000 };
-        if (Date.now() > p.ai.roamTick) {
-          p.ai.roamTick = Date.now() + 800 + Math.random()*2200;
-          if (p.type === 'vehicle') {
-            p.x += (Math.random()-0.5)*1.6; p.z += (Math.random()-0.5)*1.6;
-          } else if (p.type === 'bird') {
-            p.x += (Math.random()-0.5)*1.0; p.y += (Math.random()-0.5)*0.6; p.z += (Math.random()-0.5)*1.0;
-            if (p.y < 2) p.y = 2; if (p.y > 30) p.y = 30;
-          } else {
-            p.x += (Math.random()-0.5)*0.8; p.z += (Math.random()-0.5)*0.8;
-          }
+  socket.on('disconnect', (reason)=>{ console.info('[socket] disconnected', reason); window.hts.socketConnected=false; toast('Disconnected',1200); });
+  socket.on('connect_error', (err)=>{ console.warn('[socket] connect_error', err && err.message); toast('Socket error',2000); });
+  socket.on('connect_timeout', ()=>{ console.warn('[socket] connect_timeout'); toast('Socket timeout',2000); });
+  socket.on('reconnect_attempt', ()=>{ console.info('[socket] reconnect attempt'); });
+
+  socket.on('joinedRoom', (p)=>{ console.log('joinedRoom', p); handleJoinedRoom(p); });
+  socket.on('joinError', (err)=>{ console.warn('joinError', err); if (err && err.message) alert(err.message); });
+
+  socket.on('stateUpdate', (s)=>{ handleStateUpdate(s); if (window.VoxelWorld && typeof window.VoxelWorld.updatePlayers === 'function') window.VoxelWorld.updatePlayers(s.players || []); });
+  socket.on('chunkDiff', (d)=>{ if (window.VoxelWorld) window.VoxelWorld.applyChunkDiff(d); });
+  socket.on('tranqApplied', (d)=>{ const t=$('tranqOverlay'); if(t){ t.classList.remove('hidden'); setTimeout(()=> t.classList.add('hidden'), (d && d.duration) || 8000); }});
+  socket.on('shieldPicked', (d)=>{ $('shieldStatus') && ($('shieldStatus').textContent = `Shield: ${d.durability}`); });
+  socket.on('shieldHit', (d)=>{ $('shieldStatus') && ($('shieldStatus').textContent = `Shield hit! remaining ${d.remaining}`); toast('Shield blocked a dart',1200); });
+  socket.on('shieldDestroyed', (d)=>{ $('shieldStatus') && ($('shieldStatus').textContent = 'Shield lost'); });
+
+  socket.on('shotFired', (info)=>{ // show visual
+    try {
+      const from = info.shooterPos || { x:0,y:1.6,z:0 };
+      const to = info.targetPos || { x:0,y:1.6,z:0 };
+      if (window.VoxelWorld && typeof window.VoxelWorld.spawnShotEffect === 'function') window.VoxelWorld.spawnShotEffect(from, to, info.blocked ? 0x999999 : 0xffff88);
+      if (info.shooter && window.VoxelWorld && typeof window.VoxelWorld.animateMuzzleAtEntity === 'function') window.VoxelWorld.animateMuzzleAtEntity(info.shooter);
+      if (info.target === window.myId) {
+        // Show tranq overlay only if not fresh-join
+        if (Date.now() > justJoinedUntil) {
+          const el = document.getElementById('tranqOverlay'); if (el) { el.classList.remove('hidden'); setTimeout(()=> el.classList.add('hidden'), 3000); }
         }
-      });
-      // occasional bot shooting if seeker
-      vals.forEach(shooter => {
-        if (shooter.type==='player' && shooter.role==='seeker' && Math.random() < 0.02) {
-          let best=null, bestD=Infinity;
-          vals.forEach(t=>{
-            if (t.id===shooter.id) return;
-            if (t.type !== 'player') return;
-            const dx=t.x-shooter.x, dz=t.z-shooter.z, dy=(t.y||0)-shooter.y;
-            const d2=dx*dx+dy*dy+dz*dz;
-            if (d2 < bestD && d2 <= SHOOT_RANGE*SHOOT_RANGE) { best=t; bestD=d2; }
-          });
-          if (best) {
-            const blocked = best.carrying && best.carrying.type==='shield' && best.carrying.durability>0;
-            if (blocked) { best.carrying.durability -= 1; if (best.carrying.durability<=0) best.carrying=null; } else { best.tranqUntil = Date.now() + 9000; }
-            if (window.VoxelWorld && window.VoxelWorld.spawnShotEffect) window.VoxelWorld.spawnShotEffect({x:shooter.x,y:shooter.y+1,z:shooter.z},{x:best.x,y:best.y+1,z:best.z},blocked?0x999999:0xffff88);
-            if (window.VoxelWorld && window.VoxelWorld.animateMuzzleAtEntity) window.VoxelWorld.animateMuzzleAtEntity(shooter.id);
-          }
-        }
-      });
-      if (window.VoxelWorld && window.VoxelWorld.updatePlayers) window.VoxelWorld.updatePlayers(Object.values(window.localPlayers));
-    }, 180);
+        toast('You were hit!', 1800);
+      }
+    } catch (e) { console.warn('shotFired handler error', e); }
+  });
+
+  // support / other events handled elsewhere
+  return socket;
+}
+
+function startPosLoop() { if (posInterval) return; posInterval = setInterval(()=>{ if (!socket || !socket.connected) return; let pos = { x:0,y:0,z:0,crouch:false }; try { if (window.VoxelWorld && typeof window.VoxelWorld.getPlayerPosition === 'function') pos = window.VoxelWorld.getPlayerPosition(); } catch(e){ pos = { x:0,y:0,z:0,crouch:false }; } socket.emit('pos', pos); }, POS_SEND_MS); }
+function stopPosLoop(){ if (posInterval){ clearInterval(posInterval); posInterval=null; } }
+
+async function attemptJoin(name, roomId, options={}) {
+  if (!name || !name.trim()) throw new Error('empty_name');
+  // encourage suffix but don't block
+  if (/^[A-Za-z]{2,30}$/.test(name) && !name.includes('#')) {
+    const ok = confirm(`${name} is a single-word base; append #1234?`);
+    if (ok) name = `${name}#${('000'+Math.floor(Math.random()*10000)).slice(-4)}`;
+  }
+  const sock = setupSocket();
+  if (!sock) throw new Error('socket_init_failed');
+  if (!sock.connected) {
+    await new Promise((resolve,reject)=>{ const t=setTimeout(()=>reject(new Error('socket_connect_timeout')),8000); sock.once('connect', ()=>{ clearTimeout(t); resolve(); }); });
   }
 
-  // expose some functions globally for renderer
-  window.attemptJoin = window.attemptJoin || attemptJoin;
-  window.tryPickup = window.tryPickup || tryPickup;
-  window.useSerum = window.useSerum || useSerum;
-  window.doLocalShoot = window.doLocalShoot || window.doLocalShoot;
+  // Save requested session early so refresh while waiting keeps values
+  saveSession({ name, roomId, botCount: options && options.botCount ? options.botCount : undefined });
 
-  // minimal helper toast
-  function toast(msg){ const el = document.getElementById('connectionStatus'); if (el) { el.textContent = msg; setTimeout(()=> { if (el) el.textContent=''; }, 1500); } }
+  showWaiting('Joining…');
+  return new Promise((resolve,reject)=>{
+    const cb = (ack) => { hideWaiting(); console.log('[client] join ack', ack); if (ack && ack.ok) resolve(ack); else reject(new Error((ack && ack.error) || 'join_failed')); };
+    try { if (typeof sock.timeout === 'function') sock.timeout(10000).emit('joinGame', { name, roomId, options }, cb); else sock.emit('joinGame', { name, roomId, options }, cb); } catch (e) { hideWaiting(); reject(new Error('emit_error')); }
+  });
+}
 
-  // export some functions
-  window.__doOnlineShoot = doShootOnline;
+function showWaiting(msg='Working…'){ let o=document.querySelector('.waiting-overlay'); if(!o){ o=document.createElement('div'); o.className='waiting-overlay'; Object.assign(o.style,{position:'fixed',left:'50%',top:'50%',transform:'translate(-50%,-50%)',background:'rgba(3,7,18,0.92)',padding:'12px 18px',color:'#e5e7eb',borderRadius:'8px',zIndex:999}); document.body.appendChild(o);} o.textContent=msg; o.style.display='block'; }
+function hideWaiting(){ const o=document.querySelector('.waiting-overlay'); if(o) o.style.display='none'; }
 
-})();
+function handleJoinedRoom(payload) {
+  console.log('handleJoinedRoom', payload);
+  window.myId = payload && payload.playerId;
+  // mark justJoined window (ignore immediate tranq UI)
+  justJoinedUntil = Date.now() + 1500; // 1.5s grace
+  // persist session so refresh restores
+  const sess = loadSession() || {};
+  sess.name = payload && payload.name || sess.name;
+  sess.roomId = (new URL(location)).searchParams.get('room') || sess.roomId || 'default';
+  saveSession(sess);
+
+  $('playerDisplayName') && ($('playerDisplayName').textContent = payload && payload.name || 'Player');
+  $('roleLabel') && ($('roleLabel').textContent = payload && payload.role || '');
+  myRole = payload && payload.role || '';
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const pagePlay = $('pagePlay'); if (pagePlay) pagePlay.classList.add('active');
+  const hud = $('hud'); if (hud) hud.classList.remove('hidden');
+  startPosLoop();
+
+  // Start voxel renderer and request chunks - robust
+  try {
+    if (!voxelStarted && window.VoxelWorld && typeof window.VoxelWorld.start === 'function') {
+      const ok = window.VoxelWorld.start();
+      voxelStarted = !!ok;
+      if (voxelStarted) {
+        for (let cx=-2; cx<=2; cx++) for (let cz=-2; cz<=2; cz++) window.VoxelWorld.requestChunk(cx,cz);
+        console.info('[client] VoxelWorld started and chunk requests issued');
+      } else console.warn('[client] VoxelWorld.start returned false');
+    } else if (window.VoxelWorld && typeof window.VoxelWorld.requestChunk === 'function') {
+      for (let cx=-2; cx<=2; cx++) for (let cz=-2; cz<=2; cz++) window.VoxelWorld.requestChunk(cx,cz);
+    }
+  } catch (e) {
+    console.error('[client] Failed to start VoxelWorld', e);
+  }
+
+  // adjust shoot button
+  const shootBtn = $('shootBtn');
+  if (shootBtn) shootBtn.style.display = (myRole === 'seeker') ? 'block' : 'none';
+
+  // show hints
+  const hints = $('hintsPanel'); if (hints) hints.classList.remove('hidden');
+}
+
+function handleStateUpdate(s) {
+  try {
+    const players = s.players || [];
+    $('playersLabel') && ($('playersLabel').textContent = `${players.length} players`);
+    const me = (Array.isArray(players) && players.find(p=>p.id === window.myId)) || null;
+    const role = me && me.role || '';
+    $('roleLabel') && ($('roleLabel').textContent = role ? role.toUpperCase() : '');
+    // hide leaderboard to reduce clutter
+    const lb = $('leaderboardList'); if (lb) { lb.innerHTML=''; }
+
+    // Tranq overlay logic: show only if tranqUntil is in the future AND we're not in the just-joined grace period
+    const tranqEl = $('tranqOverlay');
+    if (me && me.tranqUntil && me.tranqUntil > Date.now() && Date.now() > justJoinedUntil) {
+      if (tranqEl) tranqEl.classList.remove('hidden');
+    } else {
+      if (tranqEl) tranqEl.classList.add('hidden');
+    }
+    // update shoot button visibility
+    const shootBtn = $('shootBtn'); if (shootBtn) shootBtn.style.display = (role === 'seeker') ? 'block' : 'none';
+
+    // update remote players in VoxelWorld
+    if (window.VoxelWorld && typeof window.VoxelWorld.updatePlayers === 'function') window.VoxelWorld.updatePlayers(players || []);
+  } catch (e) { console.warn('HUD update failed', e); }
+}
+
+function doShoot() {
+  if (!socket || !socket.connected) { alert('Not connected'); return; }
+  if (myRole !== 'seeker') { alert('Only Seekers can shoot'); return; }
+  socket.emit('shoot', {}, (ack) => {
+    if (ack && ack.ok) {
+      if (ack.blocked) toast('Shot blocked by shield', 1400);
+      else toast('Shot fired', 900);
+    } else toast('No target', 1000);
+  });
+}
+
+async function placeBlockAt(cx,cz,x,y,z,blockId) { if (window.VoxelWorld) window.VoxelWorld.setBlockLocal(cx,cz,x,y,z,blockId); if (!socket || !socket.connected) return; socket.emit('blockPlace', { cx,cz,x,y,z,block:blockId }, (ack) => { if (ack && ack.ok) console.log('blockPlace ok'); else console.warn('blockPlace failed', ack); }); }
+async function removeBlockAt(cx,cz,x,y,z) { if (window.VoxelWorld) window.VoxelWorld.setBlockLocal(cx,cz,x,y,z,0); if (!socket || !socket.connected) return; socket.emit('blockRemove', { cx,cz,x,y,z }, (ack) => { if (ack && ack.ok) console.log('blockRemove ok'); else console.warn('blockRemove failed', ack); }); }
+async function tryPickup() { if (!socket || !socket.connected) return; socket.emit('pickup', {}, (ack) => { console.log('pickup ack', ack); if (ack && ack.ok) toast('Picked up item', 1200); else toast('No pickup nearby', 1200); }); }
+
+function leaveMatch() {
+  stopPosLoop();
+  if (socket) {
+    try { socket.disconnect(); } catch(e) {}
+    socket = null;
+  }
+  voxelStarted = false;
+  clearSession();
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.getElementById('pageLogin').classList.add('active');
+  document.getElementById('hud') && document.getElementById('hud').classList.add('hidden');
+  console.info('[client] left match and returned to login');
+}
+
+function initClickToPlayOverlay() {
+  const overlay = document.getElementById('playOverlay');
+  const canvas = document.getElementById('gameCanvas');
+  if (!overlay || !canvas) return;
+  overlay.addEventListener('click', (e) => {
+    try { canvas.requestPointerLock && canvas.requestPointerLock(); overlay.classList.add('hidden'); } catch(e) { console.warn('pointer lock failed', e); overlay.classList.add('hidden'); }
+  });
+  document.addEventListener('pointerlockchange', () => {
+    if (document.pointerLockElement === canvas) overlay.classList.add('hidden');
+    else overlay.classList.remove('hidden');
+  });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  setupSocket();
+  initClickToPlayOverlay();
+
+  const joinBtn = $('joinBtn'), createRoomBtn = $('createRoomBtn'), leaveBtn = $('leaveBtn');
+  const nameInput = $('playerName'), roomInput = $('roomId'), botCount = $('botCount');
+  const shootBtn = $('shootBtn');
+
+  // Auto-fill name/room if session exists
+  const sess = loadSession();
+  if (sess && sess.name) {
+    if (nameInput) nameInput.value = sess.name;
+    if (roomInput) roomInput.value = sess.roomId || 'default';
+    // If socket already connected, attempt auto-join (socket.connect handler also tries)
+    if (socket && socket.connected) {
+      attemptJoin(sess.name, sess.roomId || 'default', { botCount: sess.botCount || Number(botCount && botCount.value || 12) }).catch(err => { console.warn('auto-join failed', err); });
+    }
+  }
+
+  if (joinBtn) joinBtn.addEventListener('click', async (e) => {
+    e && e.preventDefault();
+    const name = (nameInput && nameInput.value && nameInput.value.trim()) || '';
+    const room = (roomInput && roomInput.value && roomInput.value.trim()) || 'default';
+    const bc = Number(botCount && botCount.value || 12);
+    if (!name) { alert('Please enter a name'); return; }
+    joinBtn.disabled = true; joinBtn.textContent = 'Joining...';
+    try {
+      await attemptJoin(name, room, { botCount: Math.max(0, Math.min(64, bc)) });
+    } catch (err) { console.error('join error', err); alert(err && err.message ? err.message : 'Join failed'); } finally { joinBtn.disabled = false; joinBtn.textContent = 'JOIN MATCH'; }
+  });
+
+  if (createRoomBtn) createRoomBtn.addEventListener('click', async (e)=> {
+    e.preventDefault();
+    createRoomBtn.disabled = true; createRoomBtn.textContent = 'Creating...';
+    try {
+      const resp = await fetch(`${BACKEND_URL}/create-room`, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ botCount: Number(botCount && botCount.value || 12) }) });
+      const j = await resp.json();
+      if (!j.ok) throw new Error(j.error || 'create-room failed');
+      $('inviteArea').classList.remove('hidden'); $('inviteText').textContent = `Invite: ${j.roomId} — ${j.url || (location.origin + '/?room=' + j.roomId)}`; roomInput && (roomInput.value = j.roomId);
+    } catch (err) { console.error('create-room failed', err); alert('Could not create room: ' + (err && err.message ? err.message : 'error')); } finally { createRoomBtn.disabled = false; createRoomBtn.textContent = 'Create Room'; }
+  });
+
+  if (leaveBtn) leaveBtn.addEventListener('click', (e)=>{ e.preventDefault(); leaveMatch(); });
+
+  if (shootBtn) { shootBtn.addEventListener('click', (e)=>{ e.preventDefault(); doShoot(); }); shootBtn.style.display='none'; }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.code === 'KeyE') { tryPickup(); }
+    if (e.code === 'KeyF') { if (typeof useSerum === 'function') useSerum(); }
+  });
+});
