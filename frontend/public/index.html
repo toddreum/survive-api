@@ -180,13 +180,12 @@
       document.getElementById('navPlay').addEventListener('click', (e)=>{ e.preventDefault(); if (window.myId || (window.hts && window.hts.socketConnected)) showPage('pagePlay'); else { alert('Please JOIN MATCH first'); showPage('pageLogin'); } });
       document.getElementById('navContact').addEventListener('click', (e)=>{ e.preventDefault(); showPage('pageContact'); });
 
-      // support link opens contact page
       document.getElementById('supportLink').addEventListener('click', function(e){
         e.preventDefault();
         showPage('pageContact');
       });
 
-      // contact form send with success UI and close X (no setup hints)
+      // contact handlers
       const contactSendBtn = document.getElementById('contactSendBtn');
       const contactSuccess = document.getElementById('contactSuccess');
       const contactFormWrap = document.getElementById('contactFormWrap');
@@ -195,7 +194,6 @@
       const contactSuccessClose = document.getElementById('contactSuccessClose');
 
       if (contactClose) contactClose.addEventListener('click', (e)=>{ e.preventDefault(); showPage('pageLogin'); });
-
       if (contactSuccessClose) contactSuccessClose.addEventListener('click', (e)=>{ e.preventDefault(); contactSuccess.classList.add('hidden'); showPage('pageLogin'); });
 
       if (contactSendBtn) {
