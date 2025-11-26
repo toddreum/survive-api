@@ -1,8 +1,8 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Hide To Survive — Multiplayer Block Game</title>
+  <title>Hide To Survive — Photon Phase (Laser-Tag)</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <link rel="icon" href="/favicon.svg" />
   <link rel="stylesheet" href="/style.css" />
@@ -22,11 +22,11 @@
   </header>
 
   <main class="main-content" role="main">
-    <!-- Login / Join card -->
+    <!-- LOGIN / JOIN -->
     <section id="pageLogin" class="page active" aria-labelledby="loginTitle">
       <main class="menu-card" role="region" aria-label="Join menu">
         <h1 id="loginTitle" class="menu-title">HIDE TO SURVIVE</h1>
-        <p class="menu-subtitle">Fast-paced block-based hide-and-seek — multiplayer matches with shields, captures, and tactical play.</p>
+        <p class="menu-subtitle">Photon Phase — a laser-tag twist with Phase-chase. Tag opponents, build Charge, activate Phase to bypass walls.</p>
 
         <div class="menu-form">
           <label for="playerName">Name</label>
@@ -43,35 +43,37 @@
           </div>
 
           <label for="botCount">Bot Count</label>
-          <input id="botCount" type="number" min="0" max="64" value="12" />
+          <input id="botCount" type="number" min="0" max="64" value="8" />
 
           <div style="margin-top:12px">
             <button id="joinBtn" class="btn-primary">JOIN MATCH</button>
           </div>
 
-          <p class="hint">Hint: Click the canvas overlay to lock pointer. Use WASD or arrow keys + mouse. Q to place a block, R to remove, E to pick up shield.</p>
+          <p class="hint">Click the canvas to lock pointer. Move with WASD / arrow keys, look with mouse. E pick up, F use serum. Left-click to shoot.</p>
         </div>
       </main>
     </section>
 
-    <!-- How To Play -->
+    <!-- HOW TO PLAY - Photon Phase rules -->
     <section id="pageHow" class="page" aria-labelledby="howTitle">
       <main class="menu-card">
-        <h2 id="howTitle">HOW TO PLAY</h2>
+        <h2 id="howTitle">HOW TO PLAY — Photon Phase (Laser-Tag)</h2>
         <div class="menu-howto">
           <ol>
-            <li><strong>Objective</strong>: Hiders survive and find hiding places; Seekers use tranquilizer darts to catch Hiders.</li>
-            <li><strong>Controls</strong>: Move with WASD or arrow keys, look with mouse (click the game area to lock the pointer). Q place block, R remove, E pick up shields. Use the SHOOT button to fire a dart (if you're the Seeker).</li>
-            <li><strong>Shields</strong>: Shields block a few darts. Pick them up from the world and use them strategically.</li>
-            <li><strong>Maps</strong>: Worlds are composed of chunked block terrain — forests, cities, roads, and buildings offer many hiding places.</li>
-            <li><strong>NPCs</strong>: Birds, vehicles, and animals roam the world and provide dynamic cover and distraction.</li>
-            <li><strong>Tips</strong>: Crouch to hide behind low cover (Control or C). Use serum to recover from tranquilizers (F to use).</li>
+            <li><strong>Overview</strong>: Everyone is armed with a safe laser. Tag opponents to score points and build Charge.</li>
+            <li><strong>Scoring</strong>: Each successful tag gives +10 points and +1 Charge to the shooter.</li>
+            <li><strong>Charge &amp; Phase (Twist)</strong>: At 5 Charge you can activate Phase — you temporarily pass through walls for 6 seconds to pursue targets and earn bonus points. Use the Phase button when available.</li>
+            <li><strong>Stun &amp; Recovery</strong>: When tagged you are stunned for 2 seconds (can't shoot). There is a 5-second spawn protection after joining so you won't be immediately tagged.</li>
+            <li><strong>Hiding Spots</strong>: Buildings, bushes and vehicles provide cover. Toggle "Show Hides" to highlight probable hiding spots.</li>
+            <li><strong>Pickups</strong>: Shields absorb a tag. Serums remove stun and restore play.</li>
+            <li><strong>Game Modes</strong>: Timed match or first-to-X points. Admins can customize via server options.</li>
+            <li><strong>Novelty</strong>: Phase-chase — Phase enables wall traversal for aggressive pursuit, rewarding timing and map knowledge.</li>
           </ol>
         </div>
       </main>
     </section>
 
-    <!-- Contact page (linked from Support in the footer) -->
+    <!-- CONTACT / SUPPORT -->
     <section id="pageContact" class="page" aria-labelledby="contactTitle">
       <main class="menu-card contact-card">
         <button class="contact-close" id="contactClose" aria-label="Close contact form">✕</button>
@@ -103,32 +105,39 @@
       </main>
     </section>
 
-    <!-- Play area -->
+    <!-- PLAY AREA -->
     <section id="pagePlay" class="page" aria-label="Play area">
       <div id="playOverlay" class="click-to-play">Click here to play (locks pointer)</div>
       <canvas id="gameCanvas" aria-hidden="true"></canvas>
 
       <div id="hud" class="hud hidden" role="complementary">
-        <div id="playerDisplayName" class="hud-role"></div>
-        <div id="roleLabel" class="hud-role"></div>
-        <div id="playersLabel"></div>
-        <div id="connectionStatus" class="connection"></div>
-        <div id="shieldStatus" class="shield"></div>
-        <div style="margin-top:10px">
+        <div id="playerDisplayName" class="hud-role">Player</div>
+        <div id="roleLabel" class="hud-role">PLAYER</div>
+        <div id="playersLabel" class="hud-item">0 players</div>
+        <div id="scoreLabel" class="hud-item">Points: 0  Charge: 0</div>
+        <div id="connectionStatus" class="hud-item connection"></div>
+        <div id="shieldStatus" class="hud-item shield"></div>
+        <!-- Phase button and "Show Hides" will be added dynamically by game.js -->
+        <div style="margin-top:8px">
           <button id="leaveBtn" class="btn-secondary">Leave Match</button>
         </div>
       </div>
 
-      <aside id="leaderboard" class="leaderboard hidden" aria-label="Leaderboard"><h3>Leaderboard</h3><ul id="leaderboardList"></ul></aside>
+      <aside id="leaderboard" class="leaderboard hidden" aria-label="Leaderboard">
+        <h3>Leaderboard</h3>
+        <ul id="leaderboardList"></ul>
+      </aside>
 
-      <div id="tranqOverlay" class="tranq-overlay hidden"><div class="tranq-overlay-inner"><h2>TRANQUILIZED!</h2><p>Use a serum (F) to recover if you have one.</p></div></div>
+      <div id="tranqOverlay" class="tranq-overlay hidden">
+        <div class="tranq-overlay-inner"><h2>STUNNED</h2><p>You're stunned for a moment. Use a serum (F) if you have one.</p></div>
+      </div>
 
       <div id="hintsPanel" class="hints-panel hidden">
         <h4>Quick Hints</h4>
         <ul>
           <li>Click overlay to lock pointer, then move with WASD / arrow keys.</li>
-          <li>Look for shields (gold blocks) and serums (cyan) — shields block darts, serums heal you.</li>
-          <li>Use buildings, trees, and cars for cover. Hold Control or C to crouch.</li>
+          <li>Left-click to fire lasers. Tags give points and charge.</li>
+          <li>Reach Charge 5 to Activate Phase (temporary wall pass-through).</li>
         </ul>
       </div>
 
@@ -139,7 +148,8 @@
   <footer class="site-footer" role="contentinfo">
     <div class="footer-inner">
       <div class="footer-left">
-        <span class="copyright-symbol">©</span><span class="copyright-year">2025</span>
+        <span class="copyright-symbol">©</span>
+        <span class="copyright-year">2025</span>
         <a class="brand" href="https://survive.com" target="_blank" rel="noopener">Survive.com</a>
       </div>
 
@@ -164,6 +174,7 @@
         document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
         const el = document.getElementById(id); if (el) el.classList.add('active');
       }
+
       document.getElementById('navHow').addEventListener('click', (e)=>{ e.preventDefault(); showPage('pageHow'); });
       document.getElementById('navLogin').addEventListener('click', (e)=>{ e.preventDefault(); showPage('pageLogin'); });
       document.getElementById('navPlay').addEventListener('click', (e)=>{ e.preventDefault(); if (window.myId || (window.hts && window.hts.socketConnected)) showPage('pagePlay'); else { alert('Please JOIN MATCH first'); showPage('pageLogin'); } });
@@ -175,7 +186,7 @@
         showPage('pageContact');
       });
 
-      // contact form send with success UI and close X
+      // contact form send with success UI and close X (no setup hints)
       const contactSendBtn = document.getElementById('contactSendBtn');
       const contactSuccess = document.getElementById('contactSuccess');
       const contactFormWrap = document.getElementById('contactFormWrap');
@@ -205,7 +216,6 @@
             });
             const j = await resp.json();
             if (j && j.ok) {
-              // show success UI and allow close
               contactFormWrap.classList.add('hidden');
               contactSuccess.classList.remove('hidden');
               contactStatus.textContent = '';
