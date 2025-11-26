@@ -1,4 +1,3 @@
-// frontend/public/initVoxel.js
 // Robust voxel initializer — checks for THREE and WebGL, logs errors, and provides a friendly fallback UI.
 
 (function(){
@@ -82,7 +81,6 @@
     renderer.setSize(window.innerWidth, window.innerHeight);
   }
 
-  // create instanced chunk group
   function createChunkGroup(cx,cz, blocks) {
     const group = new THREE.Group();
     const box = new THREE.BoxGeometry(1,1,1);
