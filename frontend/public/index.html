@@ -9,18 +9,18 @@
 </head>
 <body class="holiday">
   <header class="hts-header" role="banner">
-    <!-- Single logo element with PNG -> SVG fallback to avoid duplicate images -->
-    <a class="hts-logo-wrap" href="/" aria-label="Game Home">
-      <img id="siteLogo" src="/logo.png" alt="Game logo" class="hts-logo-large"
-           onerror="this.onerror=null; this.src='/logo.svg';" />
-    </a>
-
     <nav class="top-actions" aria-label="Top actions">
       <button id="navLogin" class="nav-btn">Login</button>
       <button id="navHow" class="nav-btn">How To Play</button>
       <button id="navPlay" class="nav-btn">Play</button>
     </nav>
   </header>
+
+  <!-- Left hero (fixed) — large logo here so it doesn't overlap the card -->
+  <div class="left-hero" aria-hidden="true">
+    <img id="siteLogo" src="/logo.png" alt="Game logo" class="left-hero-logo"
+         onerror="this.onerror=null; this.src='/logo.svg';" />
+  </div>
 
   <main class="main-content">
     <section id="pageLogin" class="page active">
@@ -43,11 +43,11 @@
           </div>
 
           <label for="botCount">Bot Count</label>
-          <input id="botCount" type="number" min="0" max="16" value="4" />
+          <input id="botCount" type="number" min="0" max="32" value="4" />
 
           <button id="joinBtn" class="btn-primary" style="margin-top:12px;">JOIN MATCH</button>
           <div style="margin-top:8px;color:#9ca3af;font-size:13px;">
-            Hint: Click the canvas to lock pointer. Use WASD + mouse. Q to place block, R to remove, E to pick up shield. Press E to pickup shields.
+            Hint: Click the canvas to lock pointer. Use WASD + mouse. Q to place block, R to remove, E to pick up shield.
           </div>
         </div>
       </main>
@@ -75,16 +75,8 @@
             </li>
             <li><strong>Shooting & Tranquilizer</strong>: The Seeker's darts sedate Hiders (tranq). If the target has an active shield the dart is blocked; the shield loses durability. Sedated players are temporarily out until revived or time passes.</li>
             <li><strong>Block & World Interaction</strong>: Use Q to place a block and R to remove a block in front of you (useful for quick cover). Shields may appear as world blocks or pickups in the voxel landscape.</li>
-            <li><strong>Movement</strong>: WASD + mouse; click canvas to lock pointer. Jump with Space.</li>
-            <li><strong>Scoring</strong>:
-              <ul>
-                <li>Capturing a Seeker grants a large point bonus to the capturer.</li>
-                <li>Shooting an opponent grants modest points.</li>
-                <li>Survival time contributes small ongoing points for Hiders.</li>
-              </ul>
-            </li>
-            <li><strong>Maps & Travel</strong>: You can move freely across landscapes. We aim for multiple unique maps (city, forest, mall, bunker) with traversal options and varied sight-lines for tactical play.</li>
-            <li><strong>Fair play</strong>: This prototype uses client position updates for responsiveness. For public release we'll move collision/physics server-side and add anti-cheat measures.</li>
+            <li><strong>Movement</strong>: WASD + mouse; click canvas to lock pointer. Jump with Space (on supported browsers).</li>
+            <li><strong>Scoring</strong>: Captures and tranqs award points. Survival time yields small ongoing points.</li>
             <li><strong>Multiplayer tips</strong>: Test with multiple windows. Shields block a few hits — use them wisely. If you become Seeker, try keeping distance and using terrain to your advantage.</li>
           </ol>
         </div>
@@ -113,8 +105,8 @@
 
   <footer class="site-footer">
     <div class="footer-inner">
-      <span>© 2025</span>
-      <span class="footer-support"><a id="supportLink" href="#" class="support-link">Support</a></span>
+      <span class="footer-left">© 2025</span>
+      <span class="footer-right"><a id="supportLink" href="#" class="support-link">Support</a> — <span class="brand">Survive.com</span></span>
     </div>
   </footer>
 
@@ -133,6 +125,7 @@
       document.getElementById('navHow').addEventListener('click', (e)=>{ e.preventDefault(); showPage('pageHow'); });
       document.getElementById('navLogin').addEventListener('click', (e)=>{ e.preventDefault(); showPage('pageLogin'); });
       document.getElementById('navPlay').addEventListener('click', (e)=>{ e.preventDefault(); if (window.myId || (window.hts && window.hts.socketConnected)) showPage('pagePlay'); else { alert('Please JOIN MATCH first'); showPage('pageLogin'); } });
+      // nicer support link styling via JS fallback if wanted
     })();
   </script>
 </body>
