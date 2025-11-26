@@ -1,9 +1,26 @@
 // frontend/public/game.js
 // - Reads BACKEND_URL from env.js (window.__BACKEND_URL__) or falls back to same origin.
-// - Polling + websocket transports allowed (Render supports websockets).
+// - Polling + websocket transports allowed (Socket.IO).
 // - Handles create-room, joinGame, and support form POST to /support.
 
-const BACKEND_URL = (window.__BACKEND_URL__ && window.__BACKEND_URL__.length) ? window.__BACKEND_URL__ : window.location.origin;
+// normalized BACKEND_URL resolution
+let BACKEND_URL = 'https://survive.com';
+try {
+  if (typeof window !== 'undefined') {
+    if (window.__BACKEND_URL && window.__BACKEND_URL.length) {
+      BACKEND_URL = window.__BACKEND_URL;
+    } else if (window.BACKEND_URL && window.BACKEND_URL.length) {
+      BACKEND_URL = window.BACKEND_URL;
+    } else if (window.location && window.location.origin) {
+      BACKEND_URL = window.location.origin;
+    }
+  }
+} catch (e) {
+  /* ignore and keep default */
+}
+// strip trailing slash
+if (BACKEND_URL.endsWith('/')) BACKEND_URL = BACKEND_URL.slice(0, -1);
+
 console.log('BACKEND_URL =', BACKEND_URL);
 
 function $(id) { return document.getElementById(id); }
@@ -15,7 +32,15 @@ let socket = null;
 function setupSocket(){
   if (socket) return socket;
   try {
-    socket = io(BACKEND_URL, { transports: ['polling','websocket'], upgrade: true, timeout: 8000 });
+    // If socket.io client (io) is loaded via CDN (index.html includes it), this will work:
+    // Pass the backend origin so socket.io picks the correct scheme (wss if page is https).
+    socket = (typeof io !== 'undefined') ? io(BACKEND_URL, { transports: ['polling','websocket'], upgrade: true, timeout: 8000 }) : null;
+
+    if (!socket) {
+      console.warn('socket.io client not found (io). Ensure socket.io client script is loaded.');
+      return null;
+    }
+
     socket.on('connect', () => { console.info('[socket] connected', socket.id); $('connectionStatus').textContent = 'Connected'; });
     socket.on('disconnect', () => { console.warn('[socket] disconnected'); $('connectionStatus').textContent = 'Disconnected'; });
     socket.on('joinedRoom', (p) => { console.log('joinedRoom', p); toastStatus('Joined: ' + (p && p.name), 2500); });
