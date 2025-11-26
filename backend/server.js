@@ -1,10 +1,11 @@
 'use strict';
 /*
- Simple combined server:
+ Combined server:
  - Responds to GET /health
  - Provides POST /create-room and POST /support
  - Serves static frontend from ../frontend/public
  - Socket.IO for realtime joinGame -> joinedRoom
+ - CORS + socket.io CORS configured from FRONTEND_ORIGINS / FRONTEND_ORIGIN env
 */
 
 const express = require('express');
@@ -13,6 +14,7 @@ const path = require('path');
 const { Server } = require('socket.io');
 const { v4: uuidv4 } = require('uuid');
 const fs = require('fs').promises;
+const cors = require('cors');
 
 const app = express();
 app.disable('x-powered-by');
@@ -22,6 +24,41 @@ app.use(express.json({ limit: '256kb' }));
 const PORT = process.env.PORT || 3000;
 const DATA_FILE = process.env.DATA_FILE || path.resolve(__dirname, 'persist.json');
 const FRONTEND_DIR = path.resolve(__dirname, '..', 'frontend', 'public');
+
+// Helper: parse allowed origins from env
+function parseAllowedOrigins() {
+  const raw = process.env.FRONTEND_ORIGINS || process.env.FRONTEND_ORIGIN || '';
+  if (!raw) {
+    // sensible defaults for dev and production domain
+    return [
+      'http://localhost:3000',
+      'http://127.0.0.1:3000',
+      'https://survive.com',
+      'https://www.survive.com'
+    ];
+  }
+  return raw.split(',').map(s => s.trim()).filter(Boolean);
+}
+
+const ALLOWED_ORIGINS = parseAllowedOrigins();
+console.log('Allowed origins for CORS/socket.io:', ALLOWED_ORIGINS);
+
+// CORS options for Express
+function corsOptions() {
+  return {
+    origin: function(origin, callback) {
+      // allow non-browser requests with no origin (curl, mobile, etc)
+      if (!origin) return callback(null, true);
+      if (ALLOWED_ORIGINS.indexOf(origin) !== -1) return callback(null, true);
+      const msg = `CORS blocked: origin ${origin} not in allow list`;
+      console.warn(msg);
+      return callback(new Error(msg), false);
+    },
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    credentials: true
+  };
+}
+app.use(cors(corsOptions()));
 
 // Simple health check
 app.get('/health', (req, res) => {
@@ -44,7 +81,10 @@ app.post('/create-room', async (req, res) => {
     store.invites[code] = { createdAt: Date.now() };
     await fs.mkdir(path.dirname(DATA_FILE), { recursive: true });
     await fs.writeFile(DATA_FILE, JSON.stringify(store, null, 2), 'utf8');
-    const url = `${req.protocol}://${req.get('host')}/?room=${encodeURIComponent(code)}`;
+
+    // Build a user-facing invite URL. Prefer FRONTEND_URL env if set.
+    const frontendUrl = (process.env.FRONTEND_URL && process.env.FRONTEND_URL.trim()) ? process.env.FRONTEND_URL.trim() : `${req.protocol}://${req.get('host')}`;
+    const url = `${frontendUrl}/?room=${encodeURIComponent(code)}`;
     res.json({ ok: true, roomId: code, url });
   } catch (err) {
     console.error('/create-room error', err);
@@ -83,7 +123,14 @@ app.post('/support', async (req, res) => {
 
 // --- Socket.IO setup (simple) ---
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: '*' } });
+
+const io = new Server(server, {
+  cors: {
+    origin: ALLOWED_ORIGINS,
+    methods: ['GET', 'POST'],
+    credentials: true
+  }
+});
 
 io.on('connection', (socket) => {
   console.log('socket connected', socket.id);
