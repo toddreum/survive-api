@@ -1,10 +1,7 @@
-// Robust client game logic for Photon Phase (Laser-Tag) mode
-// - Fixes join flow: uses server 'joinedRoom' event as the canonical success signal instead of relying solely on socket.timeout ack.
-// - Provides clearer join failure handling, re-enables the Join button reliably, and shows helpful messages.
-// - Keeps offline local-bots fallback and integrates with renderer safely.
-// - Ensures CHARGE_TO_PHASE is defined and used safely in HUD updates.
-//
-// Replace frontend/public/game.js with this file and hard-refresh the page.
+// Replace frontend/public/game.js with this file.
+// This slightly extended copy of the robust client contains the startJoinFlow fix and explicit
+// protection against UI navigation while in-game. It also exposes window.openProfile and
+// ensures UI elements are enabled/disabled correctly during join failures.
 
 (function () {
   const BACKEND_URL = (typeof window !== 'undefined' && window.__BACKEND_URL__ && window.__BACKEND_URL__.length)
@@ -13,17 +10,15 @@
   const SESSION_KEY = 'survive.session.v1';
   const POS_SEND_MS = 120;
   const DEFAULT_BOT_COUNT = 8;
-  const CHARGE_TO_PHASE = 5; // ensure defined before HUD uses it
+  const CHARGE_TO_PHASE = 5;
 
   function $ (id) { return document.getElementById(id); }
   function toast (msg, ms = 1800) { const el = $('connectionStatus'); if (!el) return; const prev = el.textContent; el.textContent = msg; if (ms) setTimeout(() => el.textContent = prev, ms); }
 
-  // session helpers
   function saveSession(obj) { try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(obj || {})); } catch (e) {} }
   function loadSession() { try { const s = sessionStorage.getItem(SESSION_KEY); return s ? JSON.parse(s) : null; } catch (e) { return null; } }
   function clearSession() { try { sessionStorage.removeItem(SESSION_KEY); } catch (e) {} }
 
-  // state
   let socket = null;
   let offlineMode = false;
   let localTick = null;
@@ -33,7 +28,6 @@
   let posLoopTimer = null;
   let pendingJoinTimer = null;
 
-  // connect / wire
   async function tryConnect(timeout = 7000) {
     return new Promise((resolve) => {
       try {
@@ -56,14 +50,14 @@
     if (!socket) return;
     socket.on('connect', () => { console.info('[socket] connected', socket.id); toast('Connected'); });
     socket.on('disconnect', () => { console.info('[socket] disconnected'); toast('Disconnected'); });
+    // Set permanent handlers
     socket.off('joinedRoom'); socket.on('joinedRoom', (p) => handleJoined(p));
     socket.off('stateUpdate'); socket.on('stateUpdate', (s) => handleState(s));
     socket.off('playerHit'); socket.on('playerHit', (info) => handlePlayerHit(info));
     socket.off('phaseActivated'); socket.on('phaseActivated', (info) => {
       if (!info) return;
       if (info.id === myId) {
-        myPhaseActive = true;
-        window._myPhaseActive = true;
+        myPhaseActive = true; window._myPhaseActive = true;
         setTimeout(() => { myPhaseActive = false; window._myPhaseActive = false; updateHUD(); }, info.duration || 6000);
         updateHUD();
       } else {
@@ -74,29 +68,18 @@
     });
     socket.off('chunkDiff'); socket.on('chunkDiff', (d) => { if (window.VoxelWorld && typeof window.VoxelWorld.applyChunkDiff === 'function') window.VoxelWorld.applyChunkDiff(d); });
     socket.off('shieldPicked'); socket.on('shieldPicked', (d) => { if (d && d.durability) $('shieldStatus') && ($('shieldStatus').textContent = `Shield: ${d.durability}`); });
-    socket.off('serumPicked'); socket.on('serumPicked', (d) => { /* optional HUD */ });
   }
 
   async function startNetwork() {
-    const result = await tryConnect();
-    if (!result.online) {
-      console.warn('Network offline, starting local mode', result.err);
-      offlineMode = true;
-      startLocalBots();
-      return;
-    }
+    const r = await tryConnect();
+    if (!r.online) { offlineMode = true; startLocalBots(); return; }
     offlineMode = false;
     wireSocket();
   }
 
-  // Join workflow (safe): emit joinGame and rely on 'joinedRoom' event as canonical success.
-  // Use a timeout fallback to report friendly failure and re-enable UI.
+  // canonical join flow using joinedRoom event, with friendly timeout / error handling
   function startJoinFlow(name, room, botCount) {
-    if (!socket) {
-      toast('Not connected; cannot join');
-      return Promise.reject(new Error('not_connected'));
-    }
-    // Safety: ensure clean previous timer
+    if (!socket) { return Promise.reject(new Error('not_connected')); }
     if (pendingJoinTimer) { clearTimeout(pendingJoinTimer); pendingJoinTimer = null; }
 
     return new Promise((resolve, reject) => {
@@ -106,53 +89,32 @@
         if (resolved) return;
         resolved = true;
         clearTimeout(pendingJoinTimer); pendingJoinTimer = null;
-        // remove temporary listener
-        // Note: handleJoined will also be called by the permanent listener; we don't remove wireSocket's handler here.
         resolve(payload);
       }
 
-      // ephemeral fallback listener in case server sends 'joinedRoom' quickly (we also have a permanent handler)
       socket.once('joinedRoom', onJoinedOnce);
 
-      // emit joinGame (no socket.timeout to avoid false timeout). Server should emit joinedRoom on success.
       try {
         socket.emit('joinGame', { name, roomId: room, options: { botCount } }, (ack) => {
-          // The server may call ack; if ack indicates failure, we handle below via timeout/failure.
           if (ack && ack.ok) {
-            // do nothing here — we'll get joinedRoom event; but if server uses ack only, treat ack as success.
-            if (!resolved) {
-              resolved = true;
-              clearTimeout(pendingJoinTimer); pendingJoinTimer = null;
-              resolve(ack);
-            }
+            if (!resolved) { resolved = true; clearTimeout(pendingJoinTimer); pendingJoinTimer = null; resolve(ack); }
           } else if (ack && !ack.ok) {
-            // Immediate explicit failure from server
-            if (!resolved) {
-              resolved = true;
-              clearTimeout(pendingJoinTimer); pendingJoinTimer = null;
-              reject(new Error(ack.error || 'join_failed'));
-            }
+            if (!resolved) { resolved = true; clearTimeout(pendingJoinTimer); pendingJoinTimer = null; reject(new Error(ack.error || 'join_failed')); }
           }
         });
       } catch (e) {
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(pendingJoinTimer); pendingJoinTimer = null;
-          reject(e);
-        }
+        if (!resolved) { resolved = true; clearTimeout(pendingJoinTimer); pendingJoinTimer = null; reject(e); }
       }
 
-      // fallback timeout: if no joinedRoom or ack-ok within 10s, fail gracefully
       pendingJoinTimer = setTimeout(() => {
         if (resolved) return;
         resolved = true;
-        try { socket.off('joinedRoom', onJoinedOnce); } catch(e) {}
+        try { socket.off('joinedRoom', onJoinedOnce); } catch(e){}
         reject(new Error('join_timeout'));
       }, 10000);
     });
   }
 
-  // Join button handler that uses startJoinFlow and manages UI state robustly
   async function onJoinClick() {
     const name = ($('playerName') && $('playerName').value && $('playerName').value.trim()) || '';
     const room = ($('roomId') && $('roomId').value && $('roomId').value.trim()) || 'default';
@@ -163,7 +125,6 @@
     try {
       if (!socket) await startNetwork();
       if (offlineMode) {
-        // offline mode: just create local players and continue
         startLocalBots();
         if (window.localPlayers && window.localPlayers[window.localId]) window.localPlayers[window.localId].name = name;
         if (window.VoxelWorld && typeof window.VoxelWorld.updatePlayers === 'function') window.VoxelWorld.updatePlayers(Object.values(window.localPlayers));
@@ -172,14 +133,10 @@
         $('hud').classList.remove('hidden');
       } else {
         try {
-          const result = await startJoinFlow(name, room, Math.max(0, Math.min(64, bc)));
-          // success path handled in handleJoined (which the server will emit); but if startJoinFlow resolved with ack payload, handle minimal UI update:
-          if (result && result.ok) {
-            // if ack contains roomId etc, handle; but real server will emit joinedRoom event and handleJoined will run.
-            // do nothing special here — handleJoined manages UI.
-          }
+          await startJoinFlow(name, room, Math.max(0, Math.min(64, bc)));
+          // joinedRoom handler will run and set up UI
         } catch (err) {
-          console.warn('join failed', err && err.message ? err.message : err);
+          console.warn('join failed', err);
           alert('Join failed: ' + (err && err.message ? err.message : 'join_failed'));
         }
       }
@@ -187,12 +144,10 @@
       console.error('join flow error', outerErr);
       alert('Join failed: ' + (outerErr && outerErr.message ? outerErr.message : 'join_error'));
     } finally {
-      // always ensure join button is re-enabled
       joinBtn.disabled = false; joinBtn.textContent = 'JOIN MATCH';
     }
   }
 
-  // Offline/local bots functions
   function startLocalBots() {
     offlineMode = true;
     window.localPlayers = window.localPlayers || {};
@@ -205,9 +160,7 @@
     }
     if (window.VoxelWorld && typeof window.VoxelWorld.updatePlayers === 'function') window.VoxelWorld.updatePlayers(Object.values(window.localPlayers));
     if (!localTick) localTick = setInterval(localSimTick, 180);
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    $('pagePlay').classList.add('active');
-    $('hud').classList.remove('hidden');
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active')); $('pagePlay').classList.add('active'); $('hud').classList.remove('hidden');
   }
 
   function localSimTick(){
@@ -236,7 +189,6 @@
     if (window.VoxelWorld && typeof window.VoxelWorld.updatePlayers === 'function') window.VoxelWorld.updatePlayers(Object.values(window.localPlayers));
   }
 
-  // server event handlers
   function handleJoined(payload) {
     try {
       myId = payload && payload.playerId;
@@ -305,7 +257,6 @@
     }, POS_SEND_MS);
   }
 
-  // UI actions that call server / local sim
   async function onCreateRoomClick() {
     try {
       $('createRoomBtn').disabled = true; $('createRoomBtn').textContent = 'Creating...';
@@ -338,9 +289,7 @@
       return;
     }
     if (!socket || !socket.connected) { toast('Not connected'); return; }
-    socket.emit('shoot', {}, (ack) => {
-      if (ack && ack.ok) {} else if (ack && ack.error === 'stunned') { toast('You are stunned'); } else {}
-    });
+    socket.emit('shoot', {}, (ack) => { if (ack && ack.ok) {} else if (ack && ack.error === 'stunned') { toast('You are stunned'); } else {} });
   }
 
   function onPickup() {
@@ -387,7 +336,6 @@
     }
   }
 
-  // init
   document.addEventListener('DOMContentLoaded', async () => {
     const joinBtn = $('joinBtn'), createRoomBtn = $('createRoomBtn'), leaveBtn = $('leaveBtn'), shootBtn = $('shootBtn');
     if (joinBtn) joinBtn.addEventListener('click', onJoinClick);
@@ -405,7 +353,8 @@
     }
   });
 
-  // exports for console/testing
+  // expose helpers
+  window.openProfile = function(){ if (myId) { document.querySelectorAll('.page').forEach(p => p.classList.remove('active')); $('pagePlay').classList.add('active'); } else { document.querySelectorAll('.page').forEach(p => p.classList.remove('active')); $('pageLogin').classList.add('active'); } };
   window.doLocalShoot = doShoot;
   window.attemptJoin = (name, room, opts) => startJoinFlow(name, room, opts && opts.botCount ? opts.botCount : DEFAULT_BOT_COUNT);
   window.useSerum = onUseSerum;
