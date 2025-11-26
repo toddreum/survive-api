@@ -1,177 +1,317 @@
-// Robust voxel initializer — checks for THREE and WebGL, logs errors, and provides a friendly fallback UI.
+// Block-based renderer with third-person camera, player labels, gun models, crouch handling,
+// remote entities, shot effects, and simple hiding-spot friendly geometry.
+//
+// Exposes window.VoxelWorld API:
+//  - start()
+//  - requestChunk(cx,cz)
+//  - applyChunkDiff(diff)
+//  - setBlockLocal(cx,cz,x,y,z,block)
+//  - getPlayerPosition() -> { x,y,z, crouch }
+//  - getCamera()
+//  - updatePlayers(list)
+//  - spawnShotEffect(fromPos, toPos, color)
+//  - animateMuzzleAt(entityId)
+//
+// Notes:
+// - Local third-person player model is visible and labeled with your name.
+// - Remote players show labels and respond to shotFired events by showing muzzle/recoil.
+// - Crouch state should be sent by client in pos updates and will adjust local camera height.
 
 (function(){
   if (window.VoxelWorld) return;
 
+  // Block constants
   const CHUNK_SIZE = 16, CHUNK_HEIGHT = 32;
-  const BLOCK_AIR = 0, BLOCK_GRASS = 1, BLOCK_DIRT = 2, BLOCK_STONE = 3, BLOCK_SHIELD = 4;
-  const blockColors = { [BLOCK_GRASS]: 0x4CAF50, [BLOCK_DIRT]: 0x8B5A2B, [BLOCK_STONE]: 0x8A8A8A, [BLOCK_SHIELD]: 0xFFD700 };
+  const BLOCK_AIR = 0, BLOCK_GRASS = 1, BLOCK_DIRT = 2, BLOCK_STONE = 3, BLOCK_SHIELD = 4, BLOCK_WOOD = 5, BLOCK_LEAF = 6, BLOCK_BUILDING = 7, BLOCK_ROAD = 8;
+  const blockColors = {
+    [BLOCK_GRASS]: 0x2d6b3a,
+    [BLOCK_DIRT]: 0x6b4a2a,
+    [BLOCK_STONE]: 0x8a8a8a,
+    [BLOCK_SHIELD]: 0xffd24d,
+    [BLOCK_WOOD]: 0x6b3a1a,
+    [BLOCK_LEAF]: 0x3fbf4a,
+    [BLOCK_BUILDING]: 0x4b5563,
+    [BLOCK_ROAD]: 0x2b2b2b
+  };
 
-  let scene, camera, renderer, clock, playerMesh;
-  const chunks = {}; // key -> { group, blocks, cx, cz }
+  let scene, camera, renderer, clock;
+  let playerModel;                 // visible local character model
+  let playerPos = { x:0, y:0, z:0, crouch:false };
+  let playerYaw = 0, playerPitch = 0;
+  const chunks = {};
+  const entitiesGroup = new THREE.Group();
+  const remoteEntities = {}; // id -> { ent, target, labelSprite, gun }
 
-  function overlayMessage(text) {
+  // overlay for errors
+  function overlayMessage(text){
     let o = document.getElementById('voxelErrorOverlay');
     if (!o) {
-      o = document.createElement('div');
-      o.id = 'voxelErrorOverlay';
-      Object.assign(o.style, {
-        position: 'fixed', inset: '0', display:'flex', alignItems:'center', justifyContent:'center',
-        background: 'rgba(0,0,0,0.6)', color: '#fff', zIndex: 9999, fontSize: '18px', textAlign:'center', padding:'24px'
-      });
+      o = document.createElement('div'); o.id = 'voxelErrorOverlay';
+      Object.assign(o.style, { position:'fixed', inset:'0', display:'flex', alignItems:'center', justifyContent:'center', background:'rgba(0,0,0,0.6)', color:'#fff', zIndex:10000, fontSize:'18px', padding:'20px' });
       document.body.appendChild(o);
     }
-    o.textContent = text;
-    o.style.display = 'flex';
+    o.textContent = text; o.style.display = 'flex';
+  }
+  function hideOverlay(){ const o=document.getElementById('voxelErrorOverlay'); if (o) o.style.display='none'; }
+
+  function canUseWebGL(){
+    try { const c=document.createElement('canvas'); return !!(window.WebGLRenderingContext && (c.getContext('webgl') || c.getContext('experimental-webgl'))); } catch(e){ return false; }
   }
 
-  function hideOverlay() {
-    const o = document.getElementById('voxelErrorOverlay');
-    if (o) o.style.display = 'none';
-  }
-
-  function canUseWebGL() {
-    try {
-      const canvas = document.createElement('canvas');
-      return !!(window.WebGLRenderingContext && (canvas.getContext('webgl') || canvas.getContext('experimental-webgl')));
-    } catch (e) {
-      return false;
-    }
-  }
-
-  function initRenderer() {
-    if (typeof THREE === 'undefined') {
-      throw new Error('three.js not found (THREE is undefined). Check script tag order and CDN.');
-    }
-    if (!canUseWebGL()) {
-      throw new Error('WebGL not available in this browser.');
-    }
+  function initRenderer(){
+    if (typeof THREE === 'undefined') throw new Error('three.js missing');
+    if (!canUseWebGL()) throw new Error('WebGL not available');
     const canvas = document.getElementById('gameCanvas');
-    renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer = new THREE.WebGLRenderer({ canvas, antialias:true });
     renderer.setPixelRatio(window.devicePixelRatio || 1);
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.outputEncoding = THREE.sRGBEncoding;
     renderer.setClearColor(0x000000, 1);
   }
 
-  function initScene() {
-    scene = new THREE.Scene();
-    clock = new THREE.Clock();
-    camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+  function createBlock(x,y,z,color){
+    const g = new THREE.BoxGeometry(1,1,1);
+    const m = new THREE.MeshStandardMaterial({ color });
+    const mesh = new THREE.Mesh(g,m);
+    mesh.position.set(x,y,z);
+    return mesh;
+  }
+
+  function createBlockCharacter(colorHex, name){
+    const group = new THREE.Group();
+    // legs
+    const legL = createBlock(-0.22,0,0,0x333333);
+    const legR = createBlock(0.22,0,0,0x333333);
+    // torso
+    const torso = createBlock(0,1,0,colorHex);
+    torso.scale.set(1.0,1.3,0.6);
+    // head
+    const head = createBlock(0,2.3,0,0xffe0b2);
+    head.scale.set(0.9,0.9,0.9);
+
+    // attach name label sprite
+    const labelCanvas = document.createElement('canvas');
+    labelCanvas.width = 256; labelCanvas.height = 64;
+    const ctx = labelCanvas.getContext('2d');
+    ctx.fillStyle = 'rgba(255,255,255,0.95)';
+    ctx.font = '24px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(name || 'Player', 128, 42);
+    const tex = new THREE.CanvasTexture(labelCanvas);
+    const spriteMat = new THREE.SpriteMaterial({ map: tex, depthTest: false, depthWrite: false });
+    const sprite = new THREE.Sprite(spriteMat);
+    sprite.scale.set(3.0, 0.9, 1);
+    sprite.position.set(0, 3.0, 0);
+
+    group.add(legL, legR, torso, head, sprite);
+    group.userData._labelCanvas = labelCanvas; // keep for updates
+    return group;
+  }
+
+  function initScene(){
+    scene = new THREE.Scene(); clock = new THREE.Clock();
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 2000);
     camera.position.set(0,4,8);
 
     const hemi = new THREE.HemisphereLight(0xbfe6ff, 0x080820, 0.6); scene.add(hemi);
     const dir = new THREE.DirectionalLight(0xffffff, 0.9); dir.position.set(5,10,7); scene.add(dir);
 
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(200,200), new THREE.MeshStandardMaterial({ color:0x071022 }));
-    ground.rotation.x = -Math.PI/2; ground.position.y = 0; scene.add(ground);
+    // distant ground
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(2000,2000), new THREE.MeshStandardMaterial({ color:0x02060a }));
+    ground.rotation.x = -Math.PI/2; ground.position.y = -1; scene.add(ground);
 
-    const geo = new THREE.CapsuleGeometry(0.4,1.2,4,8);
-    const mat = new THREE.MeshStandardMaterial({ color: 0xffcc66 });
-    playerMesh = new THREE.Mesh(geo, mat); playerMesh.position.set(0,1.6,0); scene.add(playerMesh);
+    // local visible model (third-person)
+    playerModel = createBlockCharacter(0xffcc66, (window.sessionStorage && JSON.parse(sessionStorage.getItem('survive.session.v1')||'{}').name) || 'You');
+    playerModel.position.set(0,1.0,0);
+    scene.add(playerModel);
+
+    entitiesGroup.name = 'entitiesGroup';
+    scene.add(entitiesGroup);
 
     window.addEventListener('resize', onResize);
     onResize();
   }
 
-  function onResize(){
-    if (!camera || !renderer) return;
-    camera.aspect = window.innerWidth/window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-  }
+  function onResize(){ if (!camera || !renderer) return; camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); }
 
-  function createChunkGroup(cx,cz, blocks) {
+  // Create chunk geometry naively (block per mesh) - simple and reliable
+  function createChunkGroup(cx,cz, blocks){
     const group = new THREE.Group();
-    const box = new THREE.BoxGeometry(1,1,1);
-    const types = {};
     for (let x=0;x<CHUNK_SIZE;x++){
       for (let z=0;z<CHUNK_SIZE;z++){
         for (let y=0;y<CHUNK_HEIGHT;y++){
           const v = blocks[(y*CHUNK_SIZE + z)*CHUNK_SIZE + x];
           if (v && v !== BLOCK_AIR) {
-            if (!types[v]) types[v] = [];
-            types[v].push({ x: cx*CHUNK_SIZE + x + 0.5, y: y + 0.5, z: cz*CHUNK_SIZE + z + 0.5 });
+            const col = blockColors[v] || 0xffffff;
+            const cube = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshStandardMaterial({ color: col }));
+            cube.position.set(cx*CHUNK_SIZE + x + 0.5, y + 0.5, cz*CHUNK_SIZE + z + 0.5);
+            group.add(cube);
           }
         }
       }
     }
-    Object.keys(types).forEach(k => {
-      const places = types[k];
-      const mat = new THREE.MeshStandardMaterial({ color: blockColors[k] || 0xffffff });
-      const inst = new THREE.InstancedMesh(box, mat, places.length);
-      const dummy = new THREE.Object3D();
-      let i=0;
-      for (const p of places) { dummy.position.set(p.x,p.y,p.z); dummy.updateMatrix(); inst.setMatrixAt(i++, dummy.matrix); }
-      inst.instanceMatrix.needsUpdate = true;
-      group.add(inst);
-    });
     return group;
   }
 
-  async function requestChunk(cx,cz) {
+  async function requestChunk(cx,cz){
     const key = `${cx},${cz}`; if (chunks[key]) return;
     try {
       const resp = await fetch(`/chunk?cx=${cx}&cz=${cz}`);
       if (!resp.ok) throw new Error('chunk request failed: ' + resp.status);
-      const j = await resp.json();
-      if (!j.ok) throw new Error('chunk response ok:false');
-      const group = createChunkGroup(cx,cz, j.blocks);
+      const j = await resp.json(); if (!j.ok) throw new Error('chunk response ok:false');
+      const group = createChunkGroup(cx,cz,j.blocks);
       group.name = `chunk-${cx}-${cz}`;
       scene.add(group);
       chunks[key] = { group, blocks: j.blocks, cx, cz };
-      console.info('[voxel] chunk loaded', cx, cz);
+      console.info('[world] chunk', cx, cz, 'loaded');
     } catch (e) {
-      console.warn('[voxel] requestChunk failed', e);
-      overlayMessage('Could not load chunk data. Check server connectivity. ' + e.message);
-      setTimeout(()=> hideOverlay(), 4500);
+      console.warn('[world] requestChunk failed', e);
+      overlayMessage('Could not load chunk data: ' + e.message);
+      setTimeout(()=>hideOverlay(), 3500);
     }
   }
 
-  function applyChunkDiff(diff) {
+  function applyChunkDiff(diff){
     const key = `${diff.cx},${diff.cz}`; const ch = chunks[key];
     if (!ch) return;
-    for (const e of diff.edits) { ch.blocks[(e.y*CHUNK_SIZE + e.z)*CHUNK_SIZE + e.x] = e.block; }
+    for (const e of diff.edits) ch.blocks[(e.y*CHUNK_SIZE + e.z)*CHUNK_SIZE + e.x] = e.block;
     scene.remove(ch.group);
-    const newGroup = createChunkGroup(diff.cx,diff.cz,ch.blocks);
+    const newGroup = createChunkGroup(diff.cx, diff.cz, ch.blocks);
     newGroup.name = ch.group.name; scene.add(newGroup); ch.group = newGroup;
   }
 
-  function setBlockLocal(cx,cz,x,y,z,block) {
+  function setBlockLocal(cx,cz,x,y,z,block){
     const key = `${cx},${cz}`; const ch = chunks[key]; if (!ch) return false;
     ch.blocks[(y*CHUNK_SIZE + z)*CHUNK_SIZE + x] = block;
     scene.remove(ch.group); ch.group = createChunkGroup(cx,cz,ch.blocks); scene.add(ch.group);
     return true;
   }
 
-  function setupControls() {
+  // Remote entity management
+  function ensureRemoteEntity(id, info){
+    if (!remoteEntities[id]) {
+      const ent = createBlockCharacter(0x99ff99, info.name || 'Player');
+      ent.position.set(info.x || 0, (info.y||0)+0.5, info.z || 0);
+      // simple gun block attached to entity for muzzle flash
+      const gun = createBlock(0.6, 1.1, 0, 0x222222);
+      gun.scale.set(0.6,0.2,0.2);
+      ent.add(gun);
+      entitiesGroup.add(ent);
+      remoteEntities[id] = { ent, target: { x:ent.position.x, y:ent.position.y, z:ent.position.z }, gun };
+    }
+    return remoteEntities[id];
+  }
+
+  function removeRemoteEntity(id){
+    const r = remoteEntities[id]; if (!r) return;
+    entitiesGroup.remove(r.ent);
+    delete remoteEntities[id];
+  }
+
+  function updateRemoteEntities(list){
+    const ids = new Set();
+    for (const p of list) {
+      ids.add(p.id);
+      if (p.id === (window.myId || '')) continue;
+      const r = ensureRemoteEntity(p.id, p);
+      r.target.x = p.x || 0; r.target.y = (p.y||0)+0.5; r.target.z = p.z || 0;
+      // change color by role/type
+      const color = p.role === 'seeker' ? 0xff6666 : (p.type==='animal'?0x8b4513:(p.type==='vehicle'?0x4444ff:0x99ff99));
+      r.ent.traverse(obj => { if (obj.isMesh && obj.material) obj.material.color.setHex(color); });
+      // update label text canvas
+      const canvas = r.ent.userData && r.ent.userData._labelCanvas || (r.ent.children.find(c=>c.type==='Sprite') && r.ent.children.find(c=>c.type==='Sprite').material.map && r.ent.children.find(c=>c.type==='Sprite').material.map.image);
+      if (canvas && typeof(canvas.getContext) === 'function') {
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0,0,canvas.width,canvas.height);
+        ctx.fillStyle = 'rgba(255,255,255,0.95)'; ctx.font = '20px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText(p.name || 'Player', canvas.width/2, 42);
+        const sp = r.ent.children.find(c => c.type === 'Sprite');
+        if (sp) { sp.material.map.needsUpdate = true; }
+      }
+    }
+    for (const id of Object.keys(remoteEntities)) if (!ids.has(id)) removeRemoteEntity(id);
+  }
+
+  // spawn a visible shot tracer from fromPos to toPos
+  function spawnShotEffect(fromPos, toPos, color=0xffff88){
+    const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.12,8,8), new THREE.MeshStandardMaterial({ color }));
+    sphere.position.set(fromPos.x, fromPos.y, fromPos.z);
+    scene.add(sphere);
+    const duration = 600;
+    const start = Date.now();
+    (function tick(){
+      const t = (Date.now() - start) / duration;
+      if (t >= 1) { try { scene.remove(sphere); sphere.geometry.dispose(); sphere.material.dispose(); } catch(e){} return; }
+      sphere.position.lerpVectors(new THREE.Vector3(fromPos.x, fromPos.y, fromPos.z), new THREE.Vector3(toPos.x, toPos.y, toPos.z), t);
+      requestAnimationFrame(tick);
+    })();
+  }
+
+  // animate remote muzzle flash or local gun recoil
+  function animateMuzzleAtEntity(entityId){
+    const r = remoteEntities[entityId];
+    if (!r) return;
+    // flash: small bright cube in front of gun
+    const flash = new THREE.Mesh(new THREE.BoxGeometry(0.4,0.2,0.2), new THREE.MeshStandardMaterial({ color: 0xfff1a8, emissive: 0xfff1a8 }));
+    flash.position.set(r.ent.position.x + 0.9, r.ent.position.y + 1.0, r.ent.position.z);
+    scene.add(flash);
+    setTimeout(()=>{ try{ scene.remove(flash); flash.geometry.dispose(); flash.material.dispose(); }catch(e){} }, 120);
+  }
+
+  // third-person camera follow
+  function updateCameraFollow(){
+    const offsetBack = 5.0;
+    const height = playerPos.crouch ? 1.4 : 2.2;
+    const back = new THREE.Vector3(Math.sin(playerYaw), 0, Math.cos(playerYaw)).normalize();
+    const desired = new THREE.Vector3(playerPos.x, playerPos.y + height, playerPos.z).addScaledVector(back, offsetBack);
+    camera.position.lerp(desired, 0.22);
+    camera.lookAt(new THREE.Vector3(playerPos.x, playerPos.y + (playerPos.crouch ? 0.9 : 1.6), playerPos.z));
+  }
+
+  function setupControls(){
     const canvas = document.getElementById('gameCanvas');
-    const move = { f:false,b:false,l:false,r:false };
-    let yaw = 0, pitch = 0;
-    document.addEventListener('keydown', (e)=>{ if (e.code==='KeyW') move.f=true; if (e.code==='KeyS') move.b=true; if (e.code==='KeyA') move.l=true; if (e.code==='KeyD') move.r=true; });
-    document.addEventListener('keyup', (e)=>{ if (e.code==='KeyW') move.f=false; if (e.code==='KeyS') move.b=false; if (e.code==='KeyA') move.l=false; if (e.code==='KeyD') move.r=false; });
-    canvas.addEventListener('click', ()=> canvas.requestPointerLock && canvas.requestPointerLock());
-    function onMouseMove(e){ const mx = e.movementX || 0, my = e.movementY || 0; yaw -= mx*0.002; pitch -= my*0.002; pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch)); camera.rotation.set(pitch,yaw,0); }
+    const keys = { f:false,b:false,l:false,r:false };
+    function kd(e){ if (e.code==='KeyW'||e.code==='ArrowUp') keys.f=true; if (e.code==='KeyS'||e.code==='ArrowDown') keys.b=true; if (e.code==='KeyA'||e.code==='ArrowLeft') keys.l=true; if (e.code==='KeyD'||e.code==='ArrowRight') keys.r=true; if (e.code==='ControlLeft'||e.code==='KeyC') playerPos.crouch = true; }
+    function ku(e){ if (e.code==='KeyW'||e.code==='ArrowUp') keys.f=false; if (e.code==='KeyS'||e.code==='ArrowDown') keys.b=false; if (e.code==='KeyA'||e.code==='ArrowLeft') keys.l=false; if (e.code==='KeyD'||e.code==='ArrowRight') keys.r=false; if (e.code==='ControlLeft'||e.code==='KeyC') playerPos.crouch = false; }
+    document.addEventListener('keydown', kd); document.addEventListener('keyup', ku);
+    canvas.addEventListener('click', ()=>canvas.requestPointerLock && canvas.requestPointerLock());
+    function onMouseMove(e){ const mx=e.movementX||0, my=e.movementY||0; playerYaw -= mx*0.0025; playerPitch = (playerPitch||0) - my*0.0025; playerPitch = Math.max(-Math.PI/3, Math.min(Math.PI/3, playerPitch)); }
+
     document.addEventListener('pointerlockchange', ()=>{ if (document.pointerLockElement===canvas) document.addEventListener('mousemove', onMouseMove); else document.removeEventListener('mousemove', onMouseMove); });
-    function update(dt){ const speed = 6; const dir = new THREE.Vector3(); camera.getWorldDirection(dir); dir.y = 0; dir.normalize(); const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0,1,0), dir).normalize(); const mv = new THREE.Vector3(); if (move.f) mv.addScaledVector(dir, speed*dt); if (move.b) mv.addScaledVector(dir, -speed*dt); if (move.l) mv.addScaledVector(right, -speed*dt); if (move.r) mv.addScaledVector(right, speed*dt); camera.position.add(mv); playerMesh.position.copy(camera.position); playerMesh.position.y = 1.6; }
+
+    function update(dt){
+      const speed = playerPos.crouch ? 2.2 : 6;
+      const forward = new THREE.Vector3(Math.sin(playerYaw), 0, Math.cos(playerYaw)).normalize();
+      const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0,1,0), forward).normalize();
+      const mv = new THREE.Vector3();
+      if (keys.f) mv.addScaledVector(forward, speed*dt);
+      if (keys.b) mv.addScaledVector(forward, -speed*dt);
+      if (keys.l) mv.addScaledVector(right, -speed*dt);
+      if (keys.r) mv.addScaledVector(right, speed*dt);
+      playerPos.x += mv.x; playerPos.z += mv.z;
+
+      // update local model for crouch: move lower
+      playerModel.position.set(playerPos.x, playerPos.y + (playerPos.crouch ? 0.6 : 1.0), playerPos.z);
+      updateCameraFollow();
+
+      // smooth remote entities
+      for (const id of Object.keys(remoteEntities)){
+        const r = remoteEntities[id];
+        r.ent.position.x += (r.target.x - r.ent.position.x) * Math.min(1, dt*6);
+        r.ent.position.y += (r.target.y - r.ent.position.y) * Math.min(1, dt*6);
+        r.ent.position.z += (r.target.z - r.ent.position.z) * Math.min(1, dt*6);
+      }
+    }
+
     function animate(){ requestAnimationFrame(animate); const dt = Math.min(0.05, clock.getDelta()); update(dt); renderer.render(scene,camera); }
     animate();
   }
 
-  function start() {
-    try {
-      console.info('[voxel] starting...');
-      hideOverlay();
-      initRenderer();
-      initScene();
-      setupControls();
-      console.info('[voxel] initialized successfully');
-      return true;
-    } catch (err) {
-      console.error('[voxel] initialization failed:', err);
-      overlayMessage('Graphics initialization failed — ' + err.message + '. Try a different browser or check server console.');
-      return false;
-    }
+  function getCamera(){ return camera; }
+  function getPlayerPosition(){ return { x: playerPos.x, y: playerPos.y, z: playerPos.z, crouch: !!playerPos.crouch }; }
+
+  function start(){
+    try { initRenderer(); initScene(); setupControls(); console.info('[world] started'); return true; } catch(e) { console.error('[world] start error', e); overlayMessage('Graphics init failed: ' + e.message); return false; }
   }
 
   window.VoxelWorld = {
@@ -179,9 +319,13 @@
     requestChunk,
     applyChunkDiff,
     setBlockLocal,
-    getPlayerPosition: ()=> camera ? { x: camera.position.x, y: camera.position.y, z: camera.position.z } : {x:0,y:0,z:0},
-    BLOCKS: { AIR:BLOCK_AIR, GRASS:BLOCK_GRASS, DIRT:BLOCK_DIRT, STONE:BLOCK_STONE, SHIELD:BLOCK_SHIELD }
+    getPlayerPosition,
+    getCamera,
+    updatePlayers: updateRemoteEntities,
+    spawnShotEffect,
+    animateMuzzleAtEntity,
+    BLOCKS: { AIR:BLOCK_AIR, GRASS:BLOCK_GRASS, DIRT:BLOCK_DIRT, STONE:BLOCK_STONE, SHIELD:BLOCK_SHIELD, WOOD:BLOCK_WOOD, LEAF:BLOCK_LEAF, BUILDING:BLOCK_BUILDING, ROAD:BLOCK_ROAD }
   };
 
-  console.info('[voxel] script loaded; VoxelWorld API available');
+  console.info('[world] VoxelWorld API available (block-based)');
 })();
