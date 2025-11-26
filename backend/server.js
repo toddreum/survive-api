@@ -1,7 +1,9 @@
 'use strict';
 /*
-Prototype server: chunk REST endpoint, socket.io gameplay (join, pos, shoot, pickup, blockPlace, blockRemove),
-capture & shield mechanics integrated. In-memory chunk store (prototype).
+Server with bots:
+- chunk REST endpoint
+- socket.io gameplay (join, pos, shoot, pickup, blockPlace, blockRemove)
+- simple in-memory bots that wander, pick shields, and sometimes shoot
 */
 
 const express = require('express');
@@ -16,6 +18,7 @@ const app = express();
 app.disable('x-powered-by');
 app.use(express.json({ limit: '256kb' }));
 
+// CONFIG
 const PORT = process.env.PORT || 3000;
 const DATA_FILE = process.env.DATA_FILE || path.resolve(__dirname, 'persist.json');
 const FRONTEND_DIR = path.resolve(__dirname, '..', 'frontend', 'public');
@@ -47,10 +50,9 @@ app.use(cors({
   credentials: true
 }));
 
-// Health
+// Health and create-room/support (same as before)
 app.get('/health', (req, res) => res.json({ status: 'ok', now: Date.now() }));
 
-// Create-room
 app.post('/create-room', async (req, res) => {
   try {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -74,7 +76,6 @@ app.post('/create-room', async (req, res) => {
   }
 });
 
-// Support
 app.post('/support', async (req, res) => {
   try {
     const body = req.body || {};
@@ -108,6 +109,7 @@ const BLOCK_AIR = 0, BLOCK_GRASS = 1, BLOCK_DIRT = 2, BLOCK_STONE = 3, BLOCK_SHI
 
 function chunkKey(cx, cz) { return `${cx},${cz}`; }
 function index3(x,y,z) { return (y*CHUNK_SIZE + z)*CHUNK_SIZE + x; }
+
 function ensureChunk(cx, cz) {
   const key = chunkKey(cx,cz);
   if (chunks[key]) return chunks[key];
@@ -125,7 +127,7 @@ function ensureChunk(cx, cz) {
       }
     }
   }
-  // occasional shield block
+  // occasional shield block per chunk (demo)
   if (Math.random() > 0.8) {
     const sx = Math.floor(Math.random()*CHUNK_SIZE), sz = Math.floor(Math.random()*CHUNK_SIZE), sy = 10;
     arr[index3(sx,sy,sz)] = BLOCK_SHIELD;
@@ -133,6 +135,7 @@ function ensureChunk(cx, cz) {
   chunks[key] = arr;
   return arr;
 }
+
 function getBlock(cx,cz,x,y,z){
   const ch = ensureChunk(cx,cz);
   if (x<0||x>=CHUNK_SIZE||z<0||z>=CHUNK_SIZE||y<0||y>=CHUNK_HEIGHT) return BLOCK_AIR;
@@ -145,7 +148,7 @@ function setBlock(cx,cz,x,y,z,block){
   return true;
 }
 
-// GET /chunk?cx=&cz=
+// chunk endpoint
 app.get('/chunk', (req,res) => {
   const cx = parseInt(req.query.cx||'0',10);
   const cz = parseInt(req.query.cz||'0',10);
@@ -157,11 +160,11 @@ app.get('/chunk', (req,res) => {
   }
 });
 
-// --- Socket.IO + gameplay ---
+// --- Socket.IO + gameplay state ---
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: ALLOWED_ORIGINS, methods: ['GET','POST'], credentials: true } });
 
-const players = {}; // socket.id => player
+const players = {}; // socket.id or 'bot-N' => player state
 const CAPTURE_DISTANCE = 3.0;
 const CAPTURE_HOLD_MS = 800;
 const POS_PRUNE_MS = 30000;
@@ -173,10 +176,111 @@ const SHOOT_RANGE = 30;
 function sanitizedPlayersList() {
   return Object.values(players).map(p => ({
     id: p.id, name: p.name, x:p.x, y:p.y, z:p.z, role:p.role, score:p.score,
+    isBot: !!p.isBot,
     carrying: p.carrying ? { type:p.carrying.type, durability:p.carrying.durability } : null
   }));
 }
 
+// --- Simple bot system ---
+const botCountDefault = 4;
+let botCounter = 0;
+function spawnBots(count) {
+  for (let i=0;i<count;i++){
+    botCounter++;
+    const id = `bot-${botCounter}`;
+    players[id] = {
+      id,
+      name: `Bot${botCounter}`,
+      x: (Math.random()-0.5)*20,
+      y: 2,
+      z: (Math.random()-0.5)*20,
+      role: (Math.random()>0.9) ? 'seeker' : 'hider',
+      score: 0,
+      carrying: null,
+      lastSeen: Date.now(),
+      isBot: true,
+      aiState: { target: null, roamTick: Date.now() + Math.random()*2000 }
+    };
+    console.log('[server] spawned bot', id, 'role=', players[id].role);
+  }
+}
+
+// bot AI: simple wandering, pickup shields, seeking/shooting
+function updateBots(now) {
+  for (const id of Object.keys(players)) {
+    const p = players[id];
+    if (!p.isBot) continue;
+    // simple roam: pick random direction occasionally
+    if (!p.aiState) p.aiState = { target:null, roamTick: now + 2000 };
+    if (now > p.aiState.roamTick) {
+      p.aiState.roamTick = now + 1500 + Math.random()*3000;
+      p.aiState.vel = { x: (Math.random()-0.5)*0.6, z: (Math.random()-0.5)*0.6 };
+    }
+    // move
+    if (p.aiState && p.aiState.vel) {
+      p.x += p.aiState.vel.x;
+      p.z += p.aiState.vel.z;
+    }
+    // occasionally try pickup nearby shield blocks (simulate pickup)
+    if (Math.random() < 0.01) {
+      // find shield blocks nearby
+      const cx = Math.floor(p.x / CHUNK_SIZE), cz = Math.floor(p.z / CHUNK_SIZE);
+      for (let dx=-1;dx<=1;dx++){
+        for (let dz=-1;dz<=1;dz++){
+          const chx = cx+dx, chz = cz+dz;
+          const ch = ensureChunk(chx,chz);
+          for (let x=0;x<CHUNK_SIZE;x++){
+            for (let z=0;z<CHUNK_SIZE;z++){
+              for (let y=0;y<CHUNK_HEIGHT;y++){
+                const val = ch[index3(x,y,z)];
+                if (val === BLOCK_SHIELD) {
+                  // pick it up
+                  ch[index3(x,y,z)] = BLOCK_AIR;
+                  p.carrying = { id: `shield-${Date.now()}`, type:'shield', durability: SHIELD_DURABILITY, expireAt: Date.now()+SHIELD_DURATION_MS };
+                  io.emit('chunkDiff', { cx: chx, cz: chz, edits: [{ x,y,z,block: BLOCK_AIR }] });
+                  io.emit('stateUpdate', { players: sanitizedPlayersList() });
+                  console.log('[server] bot', id, 'picked shield');
+                  x = CHUNK_SIZE; z = CHUNK_SIZE; y = CHUNK_HEIGHT; dx = dz = 2; // break out
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    // seekers sometimes shoot nearest non-bot player
+    if (p.role === 'seeker' && Math.random() < 0.02) {
+      let best = null, bestD2 = Infinity;
+      for (const pid of Object.keys(players)) {
+        if (pid === id) continue;
+        const other = players[pid];
+        if (!other) continue;
+        const dx = other.x - p.x, dy = other.y - p.y, dz = other.z - p.z;
+        const d2 = dx*dx + dy*dy + dz*dz;
+        if (d2 < bestD2 && d2 <= SHOOT_RANGE*SHOOT_RANGE) { best = other; bestD2 = d2; }
+      }
+      if (best) {
+        // apply tranq if no shield
+        if (best.carrying && best.carrying.type === 'shield' && best.carrying.durability > 0) {
+          best.carrying.durability -= 1;
+          io.to(best.id).emit('shieldHit', { by: p.id, remaining: best.carrying.durability });
+          console.log('[server][bot] shieldHit on', best.id, 'by', p.id);
+          if (best.carrying.durability <= 0) {
+            best.carrying = null;
+            io.to(best.id).emit('shieldDestroyed', { reason:'durability' });
+          }
+        } else {
+          best.lastHitAt = Date.now();
+          io.to(best.id).emit('tranqApplied', { id: best.id, duration: 8000 });
+          console.log('[server][bot] tranq applied from', p.id, 'to', best.id);
+        }
+      }
+    }
+    p.lastSeen = Date.now();
+  }
+}
+
+// --- Socket handlers + gameplay ---
 io.on('connection', (socket) => {
   console.log('[server] socket connected', socket.id);
 
@@ -194,16 +298,19 @@ io.on('connection', (socket) => {
       const p = players[socket.id];
       p.id = socket.id;
       p.name = name || 'Player';
-      p.x = p.x || 0; p.y = p.y || 2; p.z = p.z || 0;
+      p.x = p.x || (Math.random()-0.5)*10;
+      p.y = p.y || 2;
+      p.z = p.z || (Math.random()-0.5)*10;
       p.role = p.role || 'hider';
       p.score = p.score || 0;
       p.carrying = p.carrying || null;
       p.lastSeen = Date.now(); p.lastHitAt = p.lastHitAt || 0; p.proximityStart = null;
+      p.isBot = false;
       const roomId = (payload && payload.roomId) || 'default';
+      console.log('[server] player joined', p.id, 'name=', p.name);
       if (typeof ack === 'function') ack({ ok:true, roomId });
       socket.emit('joinedRoom', { roomId, playerId: socket.id, name: p.name, role: p.role });
       io.emit('stateUpdate', { players: sanitizedPlayersList() });
-      console.log('[server] joinedRoom emitted to', socket.id);
     } catch (e) {
       console.error('[server] joinGame error', e);
       if (typeof ack === 'function') ack({ ok:false, error:'Server error' });
@@ -333,16 +440,31 @@ io.on('connection', (socket) => {
   });
 });
 
-// Server tick
+// server tick: prune players, bot updates, capture checks, broadcasts
 setInterval(() => {
   try {
     const now = Date.now();
+
+    // prune stale non-bot players
     for (const id of Object.keys(players)) {
       if (!players[id].lastSeen || (now - players[id].lastSeen > POS_PRUNE_MS)) {
-        console.log('[server] pruning player', id);
-        delete players[id];
+        // keep bots running; only prune real sockets
+        if (!players[id].isBot) {
+          console.log('[server] pruning player', id);
+          delete players[id];
+        }
       }
     }
+
+    // ensure we have some bots (spawn if none)
+    const botCount = Math.max(0, botCountDefault);
+    const existingBots = Object.values(players).filter(p => p.isBot).length;
+    if (existingBots < botCount) spawnBots(botCount - existingBots);
+
+    // update bots
+    updateBots(now);
+
+    // capture checks
     const pls = Object.values(players);
     const seekers = pls.filter(p => p.role === 'seeker');
     for (const seeker of seekers) {
@@ -359,8 +481,9 @@ setInterval(() => {
             hider.role = 'seeker';
             hider.score = (hider.score || 0) + 200;
             hider.proximityStart = null;
-            io.to(prevSeekerId).emit('captured', { by: hider.id, newRole: 'hider' });
-            io.to(hider.id).emit('becameSeeker', { newRole: 'seeker', score: hider.score });
+            // send events (bots won't receive socket emits)
+            if (!players[prevSeekerId].isBot) io.to(prevSeekerId).emit('captured', { by: hider.id, newRole: 'hider' });
+            if (!players[hider.id].isBot) io.to(hider.id).emit('becameSeeker', { newRole: 'seeker', score: hider.score });
             io.emit('stateUpdate', { players: sanitizedPlayersList() });
             console.log('[server] playerCaptured', prevSeekerId, 'by', hider.id);
             seeker.lastHitAt = Date.now(); hider.lastHitAt = Date.now();
@@ -370,6 +493,7 @@ setInterval(() => {
         }
       }
     }
+
     io.emit('stateUpdate', { players: sanitizedPlayersList() });
   } catch (e) {
     console.error('[server] tick error', e);
