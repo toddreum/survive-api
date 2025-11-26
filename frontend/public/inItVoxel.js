@@ -1,33 +1,88 @@
-// Voxel world client: requests /chunk?cx=&cz= and renders simple instanced block meshes.
-// Exposes VoxelWorld.start(), requestChunk(cx,cz), applyChunkDiff(diff), setBlockLocal(...), getPlayerPosition()
+// frontend/public/initVoxel.js
+// Robust voxel initializer — checks for THREE and WebGL, logs errors, and provides a friendly fallback UI.
 
 (function(){
   if (window.VoxelWorld) return;
+
   const CHUNK_SIZE = 16, CHUNK_HEIGHT = 32;
   const BLOCK_AIR = 0, BLOCK_GRASS = 1, BLOCK_DIRT = 2, BLOCK_STONE = 3, BLOCK_SHIELD = 4;
   const blockColors = { [BLOCK_GRASS]: 0x4CAF50, [BLOCK_DIRT]: 0x8B5A2B, [BLOCK_STONE]: 0x8A8A8A, [BLOCK_SHIELD]: 0xFFD700 };
+
   let scene, camera, renderer, clock, playerMesh;
-  const chunks = {}; // key -> { group, blocks }
+  const chunks = {}; // key -> { group, blocks, cx, cz }
+
+  function overlayMessage(text) {
+    let o = document.getElementById('voxelErrorOverlay');
+    if (!o) {
+      o = document.createElement('div');
+      o.id = 'voxelErrorOverlay';
+      Object.assign(o.style, {
+        position: 'fixed', inset: '0', display:'flex', alignItems:'center', justifyContent:'center',
+        background: 'rgba(0,0,0,0.6)', color: '#fff', zIndex: 9999, fontSize: '18px', textAlign:'center', padding:'24px'
+      });
+      document.body.appendChild(o);
+    }
+    o.textContent = text;
+    o.style.display = 'flex';
+  }
+
+  function hideOverlay() {
+    const o = document.getElementById('voxelErrorOverlay');
+    if (o) o.style.display = 'none';
+  }
+
+  function canUseWebGL() {
+    try {
+      const canvas = document.createElement('canvas');
+      return !!(window.WebGLRenderingContext && (canvas.getContext('webgl') || canvas.getContext('experimental-webgl')));
+    } catch (e) {
+      return false;
+    }
+  }
+
   function initRenderer() {
+    if (typeof THREE === 'undefined') {
+      throw new Error('three.js not found (THREE is undefined). Check script tag order and CDN.');
+    }
+    if (!canUseWebGL()) {
+      throw new Error('WebGL not available in this browser.');
+    }
     const canvas = document.getElementById('gameCanvas');
     renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     renderer.setPixelRatio(window.devicePixelRatio || 1);
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.setClearColor(0x000000, 1);
   }
+
   function initScene() {
     scene = new THREE.Scene();
     clock = new THREE.Clock();
     camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
     camera.position.set(0,4,8);
+
     const hemi = new THREE.HemisphereLight(0xbfe6ff, 0x080820, 0.6); scene.add(hemi);
     const dir = new THREE.DirectionalLight(0xffffff, 0.9); dir.position.set(5,10,7); scene.add(dir);
-    const g = new THREE.Mesh(new THREE.PlaneGeometry(200,200), new THREE.MeshStandardMaterial({ color:0x071022 })); g.rotation.x = -Math.PI/2; g.position.y = 0; scene.add(g);
+
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(200,200), new THREE.MeshStandardMaterial({ color:0x071022 }));
+    ground.rotation.x = -Math.PI/2; ground.position.y = 0; scene.add(ground);
+
     const geo = new THREE.CapsuleGeometry(0.4,1.2,4,8);
     const mat = new THREE.MeshStandardMaterial({ color: 0xffcc66 });
     playerMesh = new THREE.Mesh(geo, mat); playerMesh.position.set(0,1.6,0); scene.add(playerMesh);
-    window.addEventListener('resize', ()=>{ camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
+
+    window.addEventListener('resize', onResize);
+    onResize();
   }
+
+  function onResize(){
+    if (!camera || !renderer) return;
+    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  }
+
+  // create instanced chunk group
   function createChunkGroup(cx,cz, blocks) {
     const group = new THREE.Group();
     const box = new THREE.BoxGeometry(1,1,1);
@@ -55,31 +110,42 @@
     });
     return group;
   }
+
   async function requestChunk(cx,cz) {
     const key = `${cx},${cz}`; if (chunks[key]) return;
     try {
-      const resp = await fetch(`/chunk?cx=${cx}&cz=${cz}`); const j = await resp.json();
-      if (!j.ok) return;
+      const resp = await fetch(`/chunk?cx=${cx}&cz=${cz}`);
+      if (!resp.ok) throw new Error('chunk request failed: ' + resp.status);
+      const j = await resp.json();
+      if (!j.ok) throw new Error('chunk response ok:false');
       const group = createChunkGroup(cx,cz, j.blocks);
       group.name = `chunk-${cx}-${cz}`;
       scene.add(group);
       chunks[key] = { group, blocks: j.blocks, cx, cz };
-      console.log('[voxel] chunk loaded', cx,cz);
-    } catch (e) { console.warn('[voxel] chunk request failed', e); }
+      console.info('[voxel] chunk loaded', cx, cz);
+    } catch (e) {
+      console.warn('[voxel] requestChunk failed', e);
+      overlayMessage('Could not load chunk data. Check server connectivity. ' + e.message);
+      setTimeout(()=> hideOverlay(), 4500);
+    }
   }
+
   function applyChunkDiff(diff) {
-    const key = `${diff.cx},${diff.cz}`; const ch = chunks[key]; if (!ch) return;
+    const key = `${diff.cx},${diff.cz}`; const ch = chunks[key];
+    if (!ch) return;
     for (const e of diff.edits) { ch.blocks[(e.y*CHUNK_SIZE + e.z)*CHUNK_SIZE + e.x] = e.block; }
     scene.remove(ch.group);
     const newGroup = createChunkGroup(diff.cx,diff.cz,ch.blocks);
     newGroup.name = ch.group.name; scene.add(newGroup); ch.group = newGroup;
   }
+
   function setBlockLocal(cx,cz,x,y,z,block) {
     const key = `${cx},${cz}`; const ch = chunks[key]; if (!ch) return false;
     ch.blocks[(y*CHUNK_SIZE + z)*CHUNK_SIZE + x] = block;
     scene.remove(ch.group); ch.group = createChunkGroup(cx,cz,ch.blocks); scene.add(ch.group);
     return true;
   }
+
   function setupControls() {
     const canvas = document.getElementById('gameCanvas');
     const move = { f:false,b:false,l:false,r:false };
@@ -93,7 +159,31 @@
     function animate(){ requestAnimationFrame(animate); const dt = Math.min(0.05, clock.getDelta()); update(dt); renderer.render(scene,camera); }
     animate();
   }
-  function start() { try{ initRenderer(); initScene(); setupControls(); console.info('[voxel] initialized'); return true;}catch(e){console.warn('[voxel] init failed', e); return false;} }
-  window.VoxelWorld = { start, requestChunk, applyChunkDiff, setBlockLocal, getPlayerPosition: ()=> camera ? { x: camera.position.x, y: camera.position.y, z: camera.position.z } : {x:0,y:0,z:0}, BLOCKS:{AIR:BLOCK_AIR,GRASS:BLOCK_GRASS,DIRT:BLOCK_DIRT,STONE:BLOCK_STONE,SHIELD:BLOCK_SHIELD} };
-  window.getPlayerPosition = function(){ return window.VoxelWorld.getPlayerPosition(); };
+
+  function start() {
+    try {
+      console.info('[voxel] starting...');
+      hideOverlay();
+      initRenderer();
+      initScene();
+      setupControls();
+      console.info('[voxel] initialized successfully');
+      return true;
+    } catch (err) {
+      console.error('[voxel] initialization failed:', err);
+      overlayMessage('Graphics initialization failed — ' + err.message + '. Try a different browser or check server console.');
+      return false;
+    }
+  }
+
+  window.VoxelWorld = {
+    start,
+    requestChunk,
+    applyChunkDiff,
+    setBlockLocal,
+    getPlayerPosition: ()=> camera ? { x: camera.position.x, y: camera.position.y, z: camera.position.z } : {x:0,y:0,z:0},
+    BLOCKS: { AIR:BLOCK_AIR, GRASS:BLOCK_GRASS, DIRT:BLOCK_DIRT, STONE:BLOCK_STONE, SHIELD:BLOCK_SHIELD }
+  };
+
+  console.info('[voxel] script loaded; VoxelWorld API available');
 })();
