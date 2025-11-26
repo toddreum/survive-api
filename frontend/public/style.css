@@ -66,3 +66,12 @@ body.holiday .hts-logo-wrap { box-shadow: 0 10px 40px rgba(0,120,80,0.08); borde
 .home-snow { position: fixed; inset: 0; pointer-events: none; z-index: 110; background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="6" height="6"><circle cx="3" cy="3" r="1" fill="%23ffffff" fill-opacity="0.06"/></svg>'); opacity: 0.8; mix-blend-mode: screen; }
 
 .menu-footnote { font-size:13px; color:#9ca3af; margin-top:8px; }
+
+/* Voxel hotbar */
+#hotbar { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); display:flex; gap:8px; z-index:100; }
+.hotbar-slot { width:48px; height:48px; background:rgba(0,0,0,0.5); border:2px solid rgba(255,255,255,0.3); display:flex; align-items:center; justify-content:center; color:#fff; font-weight:bold; cursor:pointer; border-radius:4px; }
+.hotbar-slot:hover { background:rgba(0,0,0,0.7); }
+.hotbar-slot.selected { border-color:#f97316; box-shadow:0 0 8px rgba(249,115,22,0.5); }
+
+/* Shield status in HUD */
+#shieldStatus { color:#7dd3fc; font-weight:600; }

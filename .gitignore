@@ -1,0 +1,9 @@
+node_modules/
+*.log
+.DS_Store
+persist.json
+backend/persist.json
+.env
+.env.local
+package-lock.json
+backend/package-lock.json

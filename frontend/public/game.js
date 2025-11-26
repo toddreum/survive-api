@@ -40,8 +40,24 @@ function setupPollingSocket(){
     socket.on('disconnect', (reason) => { console.info('[socket] disconnected', reason); window.hts = window.hts || {}; window.hts.socketConnected = false; });
     socket.on('joinedRoom', (p) => { try { handleJoinedRoom && handleJoinedRoom(p); } catch(e){ console.warn('joinedRoom handler missing', e);} });
     socket.on('joinError', (err) => { console.warn('joinError', err); alert(err && err.message ? err.message : 'Join failed'); });
-    socket.on('stateUpdate', (snap) => { window.currentSnapshot = snap; });
+    socket.on('stateUpdate', (snap) => { window.currentSnapshot = snap; updateHUD(snap); });
     socket.on('tranqApplied', ({id,duration}) => { if (id === window.myId){ $('tranqOverlay') && $('tranqOverlay').classList.remove('hidden'); setTimeout(()=> $('tranqOverlay') && $('tranqOverlay').classList.add('hidden'), duration || 8000); }});
+    
+    // Voxel events
+    socket.on('chunkData', (chunk) => { if (typeof window.onChunkData === 'function') window.onChunkData(chunk); });
+    socket.on('blockUpdate', (data) => { console.log('blockUpdate', data); });
+    
+    // Capture/shield events
+    socket.on('becameSeeker', () => { toast('You are now the Seeker!', 3000); updateRole('seeker'); });
+    socket.on('captured', () => { toast('You were captured!', 3000); updateRole('hider'); });
+    socket.on('shieldPickedUp', (data) => { toast('Shield picked up!', 2000); updateShieldHUD(data.durability); });
+    socket.on('shieldHit', (data) => { toast('Shield hit!', 1500); updateShieldHUD(data.durability); });
+    socket.on('shieldDestroyed', () => { toast('Shield destroyed!', 2000); updateShieldHUD(0); });
+    socket.on('shieldSpawned', (shield) => { console.log('Shield spawned', shield); });
+    socket.on('shieldRemoved', (data) => { console.log('Shield removed', data.itemId); });
+    
+    // Make socket globally accessible
+    window.socket = socket;
     return socket;
   } catch (err) {
     console.error('setupPollingSocket failed', err);
@@ -100,11 +116,79 @@ function handleJoinedRoom(payload) {
     document.getElementById('pagePlay') && document.getElementById('pagePlay').classList.add('active');
     // show HUD
     document.getElementById('hud') && document.getElementById('hud').classList.remove('hidden');
-    // optional: initThree() if you have a three.js init function
-    try { if (typeof initThree === 'function') initThree(); } catch (e) { console.warn('initThree failed', e); }
+    // Initialize voxel renderer
+    try { 
+      if (typeof initVoxel === 'function') initVoxel(); 
+      else if (typeof initThree === 'function') initThree(); 
+    } catch (e) { console.warn('initVoxel/initThree failed', e); }
+    
+    // Start position emit loop
+    startPosEmitLoop();
+    
     toast('Joined ' + (payload && payload.roomId));
   } catch (e) {
     console.warn('handleJoinedRoom failed', e);
+  }
+}
+
+// Helper: update HUD with state snapshot
+function updateHUD(snap) {
+  if (!snap || !snap.players) return;
+  const myPlayer = snap.players.find(p => p.id === window.myId);
+  if (myPlayer) {
+    updateRole(myPlayer.role);
+    updateShieldHUD(myPlayer.hasShield ? 3 : 0);
+  }
+  $('playersLabel') && ($('playersLabel').textContent = `Players: ${snap.players.length}`);
+}
+
+// Helper: update role display
+function updateRole(role) {
+  const roleLabel = $('roleLabel');
+  if (roleLabel) {
+    roleLabel.textContent = role === 'seeker' ? 'Role: SEEKER' : 'Role: HIDER';
+    roleLabel.style.color = role === 'seeker' ? '#f97316' : '#7dd3fc';
+  }
+}
+
+// Helper: update shield HUD
+function updateShieldHUD(durability) {
+  let shieldEl = $('shieldStatus');
+  if (!shieldEl) {
+    const hud = $('hud');
+    if (hud) {
+      shieldEl = document.createElement('div');
+      shieldEl.id = 'shieldStatus';
+      shieldEl.className = 'hud-row';
+      hud.appendChild(shieldEl);
+    }
+  }
+  if (shieldEl) {
+    if (durability > 0) {
+      shieldEl.textContent = `Shield: ${durability}`;
+      shieldEl.style.color = '#7dd3fc';
+    } else {
+      shieldEl.textContent = '';
+    }
+  }
+}
+
+// Helper: start position emit loop
+let posEmitInterval = null;
+function startPosEmitLoop() {
+  if (posEmitInterval) clearInterval(posEmitInterval);
+  posEmitInterval = setInterval(() => {
+    if (socket && socket.connected && typeof getPlayerPosition === 'function') {
+      const pos = getPlayerPosition();
+      socket.emit('pos', pos);
+    }
+  }, 100); // 10 Hz
+}
+
+function stopPosEmitLoop() {
+  if (posEmitInterval) {
+    clearInterval(posEmitInterval);
+    posEmitInterval = null;
   }
 }
 
