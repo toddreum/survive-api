@@ -1,27 +1,18 @@
-/* Centered layout, much larger logo, responsive, improved footer */
+/* Core styles with footer alignment and contact form close/success UI */
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;font-family:Inter,system-ui,Arial;background:radial-gradient(circle at 20% 10%,#021224 0,#000 60%);color:#e5e7eb}
 
-/* header (logo top-left + nav top-right) */
+/* header */
 .hts-header{position:fixed;top:8px;left:8px;right:8px;display:flex;justify-content:space-between;align-items:center;z-index:600;padding:6px}
-.logo-link img{
-  height:200px;             /* large desktop logo */
-  max-height:200px;
-  display:block;
-  margin-left:8px;
-  filter:drop-shadow(0 8px 24px rgba(0,0,0,0.6));
-  object-fit:contain;
-}
+.logo-link img{height:200px;max-height:200px;display:block;margin-left:8px;filter:drop-shadow(0 8px 24px rgba(0,0,0,0.6));object-fit:contain}
 .top-actions{display:flex;gap:8px;align-items:center;margin-right:12px}
 .nav-btn{background:rgba(255,255,255,0.06);color:#e5e7eb;padding:8px 12px;border-radius:999px;border:none;cursor:pointer;box-shadow:0 6px 16px rgba(0,0,0,0.45)}
 
-/* main content centered */
+/* main card */
 .main-content{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
 .page{display:none;width:100%;max-width:1100px}
 .page.active{display:block}
-
-/* Card centered and visually balanced */
-.menu-card{width:100%;max-width:760px;margin:160px auto 0 auto;background:linear-gradient(180deg,rgba(6,11,25,0.96),rgba(3,7,18,0.94));padding:28px;border-radius:18px;box-shadow:0 30px 80px rgba(0,0,0,0.7)}
+.menu-card{width:100%;max-width:760px;margin:160px auto 0 auto;background:linear-gradient(180deg,rgba(6,11,25,0.96),rgba(3,7,18,0.94));padding:28px;border-radius:18px;box-shadow:0 30px 80px rgba(0,0,0,0.7);position:relative}
 .menu-title{font-size:34px;color:#fff;margin-bottom:6px}
 .menu-subtitle{color:#cbd5e1;margin-bottom:10px}
 .row{display:flex;gap:8px;align-items:center}
@@ -29,36 +20,41 @@ html,body{height:100%;font-family:Inter,system-ui,Arial;background:radial-gradie
 .menu-form label{display:block;font-size:12px;color:#9ca3af;margin-top:12px}
 input,select,textarea{width:100%;padding:10px 12px;border-radius:10px;border:none;background:rgba(255,255,255,0.02);color:#e5e7eb}
 
+/* contact close button and success box */
+.contact-close{position:absolute;right:12px;top:12px;background:transparent;border:none;color:#cbd5e1;font-size:18px;padding:6px;cursor:pointer}
+.contact-close:hover{color:#fff}
+.support-success{display:flex;align-items:center;gap:12px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.12);padding:10px;border-radius:8px;margin-bottom:12px}
+.support-success.hidden{display:none}
+.support-success-close{margin-left:auto;background:transparent;border:none;color:#cbd5e1;font-size:16px;cursor:pointer}
+
 /* buttons */
 .btn-primary{background-image:linear-gradient(90deg,#f97316,#facc15);padding:12px 18px;border-radius:999px;border:none;color:#111;font-weight:700;cursor:pointer}
 .btn-secondary{background:rgba(255,255,255,0.04);padding:8px 10px;border-radius:10px;border:none;color:#e5e7eb}
 
-/* click-to-play overlay */
+/* play overlay / canvas */
 .click-to-play{position:fixed;left:0;top:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#e5e7eb;font-size:20px;z-index:250;pointer-events:auto;background:linear-gradient(transparent, rgba(0,0,0,0.18))}
 .click-to-play.hidden{display:none}
 
-/* hud/leaderboard and canvas */
+/* canvas */
 #gameCanvas{position:fixed;inset:0;z-index:0;width:100%;height:100%;display:block;background:#000}
 .hud{position:fixed;top:90px;right:12px;z-index:610;display:flex;flex-direction:column;gap:8px;color:#d1d5db}
 .leaderboard{position:fixed;left:12px;bottom:90px;z-index:610;background:rgba(10,14,25,0.9);padding:12px;border-radius:12px}
 
-/* Footer styling: left shows 2 ©, right shows support & brand */
+/* footer layout: left copyright+year+brand, right support link */
 .site-footer{position:fixed;left:0;right:0;bottom:10px;z-index:700;pointer-events:none}
-.footer-inner{
-  display:flex;justify-content:space-between;align-items:center;padding:10px 28px;color:#9ca3af;pointer-events:auto;font-size:14px;
-}
+.footer-inner{display:flex;justify-content:space-between;align-items:center;padding:10px 28px;color:#9ca3af;pointer-events:auto;font-size:14px}
 .footer-left{display:flex;align-items:center;gap:8px;color:#cbd5e1}
-.footer-left .copyright-symbol{
-  display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:rgba(255,255,255,0.03);color:#fff;font-size:12px;box-shadow:0 2px 8px rgba(0,0,0,0.45);
-}
-.footer-left .copyright-year{margin-left:6px;color:#9ca3af}
+.footer-left .copyright-symbol{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:rgba(255,255,255,0.03);color:#fff;font-size:12px;box-shadow:0 2px 8px rgba(0,0,0,0.45)}
+.footer-left .copyright-year{margin-left:4px;color:#9ca3af}
+.footer-left .brand{margin-left:10px;color:#cbd5e1;text-decoration:none;font-weight:600}
+
+/* support on the far right */
 .footer-right{display:flex;align-items:center;gap:12px}
 .support-link{color:#00E6FF;text-decoration:none;font-weight:700;padding:6px 8px;border-radius:8px;background:rgba(0,230,255,0.03);transition:all .12s ease}
 .support-link:hover{ transform:translateY(-2px); box-shadow:0 8px 18px rgba(0,230,255,0.06); }
 .footer-sep{color:#7c8798;margin:0 8px}
-.brand{color:#cbd5e1;text-decoration:none;font-weight:600}
 
-/* tranq overlay + shoot */
+/* tranq + hints + shoot */
 .tranq-overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:600;pointer-events:none}
 .tranq-overlay-inner{background:rgba(3,7,18,0.88);padding:18px 22px;border-radius:12px;color:#fef3c7}
 .shoot-btn{position:fixed;right:20px;bottom:20px;width:84px;height:84px;border-radius:50%;background:radial-gradient(circle at 30% 0,#f97316 0,#b91c1c 55%);border:none;color:#fff;z-index:620;display:none}
