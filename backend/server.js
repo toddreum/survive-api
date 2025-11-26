@@ -32,30 +32,53 @@ const BLOCK_AIR = 0, BLOCK_GRASS = 1, BLOCK_DIRT = 2, BLOCK_STONE = 3, BLOCK_SHI
 function index3(x,y,z){ return (y*CHUNK_SIZE + z)*CHUNK_SIZE + x; }
 const chunks = {};
 function chunkKey(cx,cz){ return `${cx},${cz}`; }
+
 function ensureChunk(cx,cz){
-  const k = chunkKey(cx,cz);
-  if (chunks[k]) return chunks[k];
+  const key = chunkKey(cx,cz);
+  if (chunks[key]) return chunks[key];
+  // deterministic-ish PRNG per chunk
+  let seed = Math.abs(Math.floor(Math.sin(cx*73856093 ^ cz*19349663) * 1000000)) % 100000;
+  function rand(){ seed = (seed * 9301 + 49297) % 233280; return seed / 233280; }
+
   const arr = new Int8Array(CHUNK_SIZE*CHUNK_HEIGHT*CHUNK_SIZE).fill(BLOCK_AIR);
-  // simple terrain
-  for (let x=0;x<CHUNK_SIZE;x++) for (let z=0;z<CHUNK_SIZE;z++){
-    const h = 5 + Math.floor(Math.sin((cx*CHUNK_SIZE + x)*0.12)*2 + Math.cos((cz*CHUNK_SIZE + z)*0.12)*2);
-    for (let y=0;y<CHUNK_HEIGHT;y++){
-      if (y===h) arr[index3(x,y,z)] = BLOCK_GRASS;
-      else if (y<h && y>h-4) arr[index3(x,y,z)] = BLOCK_DIRT;
-      else if (y < h-4) arr[index3(x,y,z)] = BLOCK_STONE;
+  for (let x=0;x<CHUNK_SIZE;x++){
+    for (let z=0;z<CHUNK_SIZE;z++){
+      const worldX = cx*CHUNK_SIZE + x, worldZ = cz*CHUNK_SIZE + z;
+      const h = 5 + Math.floor(Math.sin(worldX*0.12)*2 + Math.cos(worldZ*0.12)*2);
+      for (let y=0;y<CHUNK_HEIGHT;y++){
+        if (y === h) arr[index3(x,y,z)] = BLOCK_GRASS;
+        else if (y < h && y > h-4) arr[index3(x,y,z)] = BLOCK_DIRT;
+        else if (y < h-4) arr[index3(x,y,z)] = BLOCK_STONE;
+      }
+      if (rand() > 0.78) arr[index3(x, h+1, z)] = BLOCK_BUSH;
+      if (rand() > 0.985) arr[index3(x, h+1, z)] = BLOCK_SHIELD;
+      if (rand() > 0.992) arr[index3(x, h+1, z)] = BLOCK_SERUM;
+      if (rand() > 0.9 && (Math.abs(cx+cz) % 3 === 0)) arr[index3(x,h,z)] = BLOCK_ROAD;
+      if (rand() > 0.94) {
+        const bW = 2 + Math.floor(rand()*3), bH = 2 + Math.floor(rand()*3);
+        for (let bx=Math.max(0,x-1); bx<Math.min(CHUNK_SIZE,x+bW); bx++){
+          for (let bz=Math.max(0,z-1); bz<Math.min(CHUNK_SIZE,z+2); bz++){
+            for (let by=h+1; by<=h+bH; by++) arr[index3(bx,by,bz)] = BLOCK_BUILDING;
+          }
+        }
+      }
     }
-    if (Math.random()>0.9) arr[index3(Math.floor(Math.random()*CHUNK_SIZE), h+1, Math.floor(Math.random()*CHUNK_SIZE))] = BLOCK_SHIELD;
-    if (Math.random()>0.99) arr[index3(Math.floor(Math.random()*CHUNK_SIZE), h+1, Math.floor(Math.random()*CHUNK_SIZE))] = BLOCK_SERUM;
-    if (Math.random()>0.85) arr[index3(x,h+1,z)] = BLOCK_BUSH;
   }
-  chunks[k] = arr;
+  chunks[key] = arr;
   return arr;
 }
 
-app.get('/chunk', (req,res)=>{
+app.get('/chunk', (req,res) => {
   const cx = parseInt(req.query.cx||'0',10), cz = parseInt(req.query.cz||'0',10);
-  try { const ch = ensureChunk(cx,cz); res.json({ ok:true, cx, cz, size:CHUNK_SIZE, height:CHUNK_HEIGHT, blocks:Array.from(ch) }); }
-  catch(e){ console.error('chunk err', e); res.status(500).json({ ok:false }); }
+  try { const ch = ensureChunk(cx,cz); res.json({ ok:true, cx, cz, size: CHUNK_SIZE, height: CHUNK_HEIGHT, blocks: Array.from(ch) }); }
+  catch (e) { console.error('chunk error', e); res.status(500).json({ ok:false, error:'chunk error' }); }
+});
+
+// create-room helper
+app.post('/create-room', (req,res) => {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let code='';
+  for (let i=0;i<6;i++) code += chars[Math.floor(Math.random()*chars.length)];
+  res.json({ ok:true, roomId: code, url: `${req.protocol}://${req.get('host')}/?room=${code}` });
 });
 
 // --- Game state ---
@@ -84,7 +107,12 @@ function spawnBots(n){
   for (let i=0;i<n;i++){
     botCounter++;
     const id = `bot-${botCounter}`;
-    players[id] = { id, name: `Bot${botCounter}`, x:(Math.random()-0.5)*120, y:2, z:(Math.random()-0.5)*120, role:'player', points:0, charge:0, isBot:true, type:'player', lastSeen:Date.now(), spawnTime: Date.now(), ai:{ roamTick:Date.now()+Math.random()*2000 } };
+    players[id] = {
+      id, name: `Bot${botCounter}`,
+      x:(Math.random()-0.5)*120, y:2, z:(Math.random()-0.5)*120,
+      role:'player', points:0, charge:0, canPhase:false, phaseActive:false,
+      carrying:null, isBot:true, type:'player', lastSeen:Date.now(), spawnTime: Date.now(), ai:{ roamTick:Date.now()+Math.random()*2000 }
+    };
   }
 }
 
@@ -98,9 +126,8 @@ function updateBots(now){
       p.x += (Math.random()-0.5)*1.0;
       p.z += (Math.random()-0.5)*1.0;
       p.lastSeen = now;
-      // occasional bot shooting (skip spawn-protected or stunned)
-      if (Math.random() < 0.03 && !(p.stunnedUntil && p.stunnedUntil > now)) {
-        // attempt to find nearest target that is not spawn-protected
+      // occasional bot shooting (skip stunned/spawn-protected)
+      if (Math.random() < 0.035 && !(p.stunnedUntil && p.stunnedUntil > now)) {
         let best = null, bestD = Infinity;
         for (const tid of Object.keys(players)){
           if (tid === id) continue;
@@ -111,10 +138,7 @@ function updateBots(now){
           if (d2 < bestD && d2 <= SHOOT_RANGE*SHOOT_RANGE) { best = t; bestD = d2; }
         }
         if (best) {
-          // apply hit
-          const shooter = p;
-          const target = best;
-          // blocked by shield? check carrying
+          const shooter = p, target = best;
           const blocked = target.carrying && target.carrying.type === 'shield' && target.carrying.durability > 0;
           if (blocked) {
             target.carrying.durability -= 1; if (target.carrying.durability <= 0) target.carrying = null;
@@ -124,7 +148,6 @@ function updateBots(now){
             shooter.charge = (shooter.charge||0) + 1;
             if (shooter.charge >= CHARGE_TO_PHASE) shooter.canPhase = true;
           }
-          // broadcast event for visuals
           io.emit('playerHit', { shooter: shooter.id, target: target.id, shooterPos:{x:shooter.x,y:shooter.y+1,z:shooter.z}, targetPos:{x:target.x,y:target.y+1,z:target.z}, blocked: !!blocked, shooterPoints: shooter.points||0, shooterCharge: shooter.charge||0 });
         }
       }
@@ -150,7 +173,7 @@ function isLineObstructed(from, to) {
   return false;
 }
 
-// socket handlers
+// sockets
 io.on('connection', (socket) => {
   console.log('[server] conn', socket.id);
 
@@ -160,7 +183,7 @@ io.on('connection', (socket) => {
       players[socket.id] = players[socket.id] || {};
       const p = players[socket.id];
       p.id = socket.id; p.name = name; p.x = p.x || (Math.random()-0.5)*10; p.y = p.y || 2; p.z = p.z || (Math.random()-0.5)*10;
-      p.role = 'player'; p.points = p.points || 0; p.charge = p.charge || 0; p.canPhase = !!p.canPhase; p.phaseActive = !!p.phaseActive;
+      p.role = 'player'; p.points = p.points || 0; p.charge = p.charge || 0; p.canPhase = !!p.canPhase; p.phaseActive = false;
       p.carrying = p.carrying || null; p.isBot = false; p.type='player'; p.lastSeen = Date.now();
       p.spawnTime = Date.now(); p.stunnedUntil = 0;
       if (payload && payload.options && typeof payload.options.botCount === 'number') {
@@ -179,12 +202,10 @@ io.on('connection', (socket) => {
     p.x = Number(pos.x) || p.x; p.y = Number(pos.y) || p.y; p.z = Number(pos.z) || p.z; p.crouch = !!pos.crouch; p.lastSeen = Date.now();
   });
 
-  // all players can shoot
   socket.on('shoot', (payload, ack) => {
     try {
       const shooter = players[socket.id]; if (!shooter) { if (typeof ack === 'function') ack({ ok:false }); return; }
       if (shooter.stunnedUntil && shooter.stunnedUntil > Date.now()) { if (typeof ack === 'function') ack({ ok:false, error:'stunned' }); return; }
-      // find nearest visible target (respecting phase)
       let candidate = null, bestD = Infinity;
       for (const id of Object.keys(players)){
         if (id === socket.id) continue;
@@ -197,7 +218,6 @@ io.on('connection', (socket) => {
           const from = { x: shooter.x, y: shooter.y + 1.0, z: shooter.z };
           const to = { x: t.x, y: t.y + 1.0, z: t.z };
           let obstructed = isLineObstructed(from, to);
-          // if shooter has phaseActive, they can bypass obstruction
           if (shooter.phaseActive) obstructed = false;
           if (!obstructed){ candidate = t; bestD = d; }
         }
@@ -217,7 +237,6 @@ io.on('connection', (socket) => {
     } catch(e){ console.error('shoot err', e); if (typeof ack === 'function') ack({ ok:false, error:'server' }); }
   });
 
-  // use Phase ability
   socket.on('usePhase', (payload, ack) => {
     try {
       const p = players[socket.id]; if (!p) { if (typeof ack === 'function') ack({ ok:false }); return; }
@@ -231,7 +250,7 @@ io.on('connection', (socket) => {
 
   socket.on('pickup', (payload, ack) => {
     try {
-      const p = players[socket.id]; if (!p) { if (typeof ack === 'function') ack({ ok:false }); return; }
+      const p = players[socket.id]; if (!p) { if (typeof ack==='function') ack({ ok:false }); return; }
       const cx = Math.floor(p.x / CHUNK_SIZE), cz = Math.floor(p.z / CHUNK_SIZE);
       let picked = null;
       for (let dx=-1; dx<=1 && !picked; dx++){
