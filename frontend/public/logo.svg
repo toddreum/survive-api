@@ -1,0 +1,5 @@
+<!-- fallback logo.svg (used only if /logo.png missing) -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 80" width="240" height="48">
+  <rect width="100%" height="100%" rx="12" fill="#061E33"/>
+  <text x="24" y="50" font-family="Inter, Arial, sans-serif" font-weight="700" font-size="34" fill="#00E6FF">SURVIVE</text>
+</svg>
