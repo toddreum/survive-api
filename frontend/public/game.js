@@ -1,214 +1,157 @@
-// frontend/public/game.js
-// Polling-first socket.io client and join/create flow.
-// Uses window.__BACKEND_URL__ (env.js) or falls back to window.location.origin.
+// Client: join, ack, pos emits, voxel integration, block events, shoot, pickup, HUD updates.
 
-const BACKEND_URL = (typeof window !== 'undefined' && window.__BACKEND_URL__ && window.__BACKEND_URL__.length) ? window.__BACKEND_URL__ : (typeof window !== 'undefined' && window.location && window.location.origin ? window.location.origin : 'https://survive.com');
+const BACKEND_URL = (typeof window !== 'undefined' && window.__BACKEND_URL__ && window.__BACKEND_URL__.length)
+  ? window.__BACKEND_URL__ : (typeof window !== 'undefined' && window.location && window.location.origin ? window.location.origin : 'https://survive.com');
 
 console.log('BACKEND_URL =', BACKEND_URL);
 
-// small helpers
+const SESSION_KEY = 'survive.session.v1';
+const POS_SEND_MS = 150;
+
 function $(id){ return document.getElementById(id); }
-function toast(msg, ms=2500){ const el = $('connectionStatus'); if(!el) return; const prev = el.textContent; el.textContent = msg; setTimeout(()=>el.textContent = prev, ms); }
-function show(el){ if(!el) return; el.classList.remove('hidden'); el.classList.add('active'); }
-function hide(el){ if(!el) return; el.classList.add('hidden'); el.classList.remove('active'); }
+function toast(msg, ms=2000){ const s=$('connectionStatus'); if(!s) return; const prev=s.textContent; s.textContent=msg; if(ms) setTimeout(()=>s.textContent=prev,ms); }
+function saveSession(o){ try{ sessionStorage.setItem(SESSION_KEY, JSON.stringify(o||{})); }catch(e){} }
+function loadSession(){ try{ const r=sessionStorage.getItem(SESSION_KEY); return r?JSON.parse(r):null;}catch(e){return null;} }
+function clearSession(){ try{ sessionStorage.removeItem(SESSION_KEY);}catch(e){} }
 
-// client-side single-word name detection
-function isSingleWordAlpha(name){
-  if(!name || typeof name !== 'string') return false;
-  const base = name.split('#')[0].trim();
-  return /^[A-Za-z]{2,30}$/.test(base) && !name.includes('#');
+let socket=null, posInterval=null, voxelStarted=false;
+
+function setupSocket() {
+  if (socket) return socket;
+  socket = io(BACKEND_URL, { transports:['polling'], upgrade:false, timeout:7000, reconnectionAttempts:6 });
+  socket.on('connect', ()=>{ console.info('[socket] connected', socket.id); window.hts = window.hts || {}; window.hts.socketConnected = true; toast('Connected',1200); });
+  socket.on('disconnect', ()=>{ console.info('[socket] disconnected'); window.hts.socketConnected=false; toast('Disconnected',1200); });
+  socket.on('joinedRoom', (p)=>{ console.log('joinedRoom', p); handleJoinedRoom(p); });
+  socket.on('joinError', (err)=>{ console.warn('joinError', err); if (err && err.message) alert(err.message); });
+  socket.on('stateUpdate', (s)=>{ updateHUDFromState(s); });
+  socket.on('chunkDiff', (d)=>{ console.log('chunkDiff', d); if (window.VoxelWorld) window.VoxelWorld.applyChunkDiff(d); });
+  socket.on('tranqApplied', (d)=>{ const t=$('tranqOverlay'); if(t){ t.classList.remove('hidden'); setTimeout(()=> t.classList.add('hidden'), (d && d.duration) || 8000); }});
+  socket.on('shieldPicked', (d)=>{ $('shieldStatus') && ($('shieldStatus').textContent = `Shield: ${d.durability}`); });
+  socket.on('shieldHit', (d)=>{ $('shieldStatus') && ($('shieldStatus').textContent = `Shield hit! remaining ${d.remaining}`); toast('Shield blocked a dart',1200); });
+  socket.on('shieldDestroyed', (d)=>{ $('shieldStatus') && ($('shieldStatus').textContent = 'Shield lost'); });
+  return socket;
 }
 
-// waiting overlay helpers
-function showWaiting(msg='Working…'){ let o=document.querySelector('.waiting-overlay'); if(!o){ o=document.createElement('div'); o.className='waiting-overlay'; Object.assign(o.style,{position:'fixed',left:'50%',top:'50%',transform:'translate(-50%,-50%)',background:'rgba(3,7,18,0.92)',padding:'12px 18px',color:'#e5e7eb',borderRadius:'8px',zIndex:999}); document.body.appendChild(o); } o.textContent = msg; o.style.display='block'; }
-function hideWaiting(){ const o=document.querySelector('.waiting-overlay'); if(o) o.style.display='none'; }
+function startPosLoop() { if (posInterval) return; posInterval = setInterval(()=>{ if (!socket || !socket.connected) return; let pos = { x:0,y:0,z:0 }; try { if (typeof getPlayerPosition === 'function') pos = getPlayerPosition(); } catch(e) { pos = { x:0,y:0,z:0 }; } socket.emit('pos', pos); }, POS_SEND_MS); }
+function stopPosLoop(){ if (posInterval){ clearInterval(posInterval); posInterval=null; } }
 
-// Polling-only socket setup (safe for proxies)
-let socket = null;
-function setupPollingSocket(){
-  if(socket) return socket;
-  try {
-    socket = io(BACKEND_URL, {
-      transports: ['polling'],
-      upgrade: false,
-      reconnectionAttempts: 6,
-      timeout: 7000
-    });
-
-    socket.on('connect', () => { toast('Connected'); console.info('[socket] connected', socket.id); window.hts = window.hts || {}; window.hts.socketConnected = true; });
-    socket.on('connect_error', (err) => { console.warn('[socket] connect_error', err && err.message); window.hts = window.hts || {}; window.hts.socketConnected = false; });
-    socket.on('disconnect', (reason) => { console.info('[socket] disconnected', reason); window.hts = window.hts || {}; window.hts.socketConnected = false; });
-    socket.on('joinedRoom', (p) => { try { handleJoinedRoom && handleJoinedRoom(p); } catch(e){ console.warn('joinedRoom handler missing', e);} });
-    socket.on('joinError', (err) => { console.warn('joinError', err); alert(err && err.message ? err.message : 'Join failed'); });
-    socket.on('stateUpdate', (snap) => { window.currentSnapshot = snap; });
-    socket.on('tranqApplied', ({id,duration}) => { if (id === window.myId){ $('tranqOverlay') && $('tranqOverlay').classList.remove('hidden'); setTimeout(()=> $('tranqOverlay') && $('tranqOverlay').classList.add('hidden'), duration || 8000); }});
-    return socket;
-  } catch (err) {
-    console.error('setupPollingSocket failed', err);
-    return null;
-  }
-}
-
-// join flow: enforce name rule client-side, wait for server event
-async function attemptJoin(name, roomId, options = {}) {
-  // client-side name enforcement: single-word alpha must have # suffix or user can auto-append
-  if (isSingleWordAlpha(name) && !name.includes('#')) {
-    const ok = confirm(`${name} is a single-word name. Single-word bases require a # suffix (e.g., ${name}#1234).\n\nPress OK to append a random suffix and continue, Cancel to edit your name.`);
+async function attemptJoin(name, roomId, options={}) {
+  if (!name || !name.trim()) throw new Error('empty_name');
+  if (/^[A-Za-z]{2,30}$/.test(name) && !name.includes('#')) {
+    const ok = confirm(`${name} is a single-word base; append #1234?`);
     if (!ok) throw new Error('name_requires_suffix');
-    name = `${name}#${('000' + Math.floor(Math.random()*10000)).slice(-4)}`;
+    name = `${name}#${('000'+Math.floor(Math.random()*10000)).slice(-4)}`;
   }
-
-  const sock = setupPollingSocket();
-  if(!sock) throw new Error('socket_init_failed');
-
-  // ensure connected with timeout
-  if(!sock.connected){
-    try {
-      await new Promise((resolve, reject) => {
-        const t = setTimeout(()=> reject(new Error('socket_connect_timeout')), 6000);
-        sock.once('connect', ()=> { clearTimeout(t); resolve(); });
-      });
-    } catch (err) {
-      console.warn('socket connect failed', err);
-      throw new Error('socket_connect_failed');
-    }
+  const sock = setupSocket();
+  if (!sock) throw new Error('socket_init_failed');
+  if (!sock.connected) {
+    await new Promise((resolve,reject)=>{ const t=setTimeout(()=>reject(new Error('socket_connect_timeout')),6000); sock.once('connect', ()=>{ clearTimeout(t); resolve(); }); });
   }
-
   showWaiting('Joining…');
-  sock.emit('joinGame', { name, roomId, options });
-
-  return new Promise((resolve, reject) => {
-    const to = setTimeout(()=> { hideWaiting(); reject(new Error('join_timeout')); }, 8000);
-    function onJoined(payload){ clearTimeout(to); sock.off('joinError', onError); hideWaiting(); resolve(payload); }
-    function onError(err){ clearTimeout(to); sock.off('joinedRoom', onJoined); hideWaiting(); reject(err); }
-    sock.once('joinedRoom', onJoined);
-    sock.once('joinError', onError);
+  return new Promise((resolve,reject)=>{
+    const cb = (ack) => { hideWaiting(); console.log('[client] join ack', ack); if (ack && ack.ok) resolve(ack); else reject(new Error((ack && ack.error) || 'join_failed')); };
+    try { if (typeof sock.timeout === 'function') sock.timeout(8000).emit('joinGame', { name, roomId, options }, cb); else sock.emit('joinGame', { name, roomId, options }, cb); } catch (e) { hideWaiting(); reject(new Error('emit_error')); }
   });
 }
 
-// joinedRoom UI handler
+function showWaiting(msg='Working…'){ let o=document.querySelector('.waiting-overlay'); if(!o){ o=document.createElement('div'); o.className='waiting-overlay'; Object.assign(o.style,{position:'fixed',left:'50%',top:'50%',transform:'translate(-50%,-50%)',background:'rgba(3,7,18,0.92)',padding:'12px 18px',color:'#e5e7eb',borderRadius:'8px',zIndex:999}); document.body.appendChild(o);} o.textContent=msg; o.style.display='block'; }
+function hideWaiting(){ const o=document.querySelector('.waiting-overlay'); if(o) o.style.display='none'; }
+
 function handleJoinedRoom(payload) {
-  try {
-    console.log('handleJoinedRoom', payload);
-    window.myId = payload && payload.playerId;
-    // show HUD, switch to play page
-    $('playerDisplayName') && ($('playerDisplayName').textContent = payload && payload.name || 'Player');
-    $('roleLabel') && ($('roleLabel').textContent = '');
-    $('playersLabel') && ($('playersLabel').textContent = '');
-    // switch pages
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    document.getElementById('pagePlay') && document.getElementById('pagePlay').classList.add('active');
-    // show HUD
-    document.getElementById('hud') && document.getElementById('hud').classList.remove('hidden');
-    // optional: initThree() if you have a three.js init function
-    try { if (typeof initThree === 'function') initThree(); } catch (e) { console.warn('initThree failed', e); }
-    toast('Joined ' + (payload && payload.roomId));
-  } catch (e) {
-    console.warn('handleJoinedRoom failed', e);
+  console.log('handleJoinedRoom', payload);
+  window.myId = payload && payload.playerId;
+  saveSession({ name: payload && payload.name, roomId: (new URL(location)).searchParams.get('room') || 'default' });
+  $('playerDisplayName') && ($('playerDisplayName').textContent = payload && payload.name || 'Player');
+  $('roleLabel') && ($('roleLabel').textContent = payload && payload.role || '');
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const pagePlay = $('pagePlay'); if (pagePlay) pagePlay.classList.add('active');
+  const hud = $('hud'); if (hud) hud.classList.remove('hidden');
+  startPosLoop();
+  if (!voxelStarted && window.VoxelWorld) {
+    window.VoxelWorld.start();
+    voxelStarted = true;
+    for (let cx=-2; cx<=2; cx++) for (let cz=-2; cz<=2; cz++) window.VoxelWorld.requestChunk(cx,cz);
   }
 }
 
-// DOM wiring
+function updateHUDFromState(s) {
+  try {
+    const players = s.players || [];
+    $('playersLabel') && ($('playersLabel').textContent = `${players.length} players`);
+    const lb = $('leaderboardList'); if (lb) { lb.innerHTML=''; players.sort((a,b)=> (b.score||0)-(a.score||0)).slice(0,6).forEach(p=>{ const li=document.createElement('li'); li.textContent = `${p.name} — ${p.score||0}`; lb.appendChild(li); }); }
+  } catch (e) { console.warn('HUD update failed', e); }
+}
+
+function doShoot() { if (!socket || !socket.connected) { alert('Not connected'); return; } socket.emit('shoot', {}, (ack) => { console.log('shoot ack', ack); if (ack && ack.ok && ack.target) toast('Shot hit: ' + ack.target, 2000); else toast('No target in range', 1200); }); }
+
+async function placeBlockAt(cx,cz,x,y,z,blockId) { if (window.VoxelWorld) window.VoxelWorld.setBlockLocal(cx,cz,x,y,z,blockId); if (!socket || !socket.connected) return; socket.emit('blockPlace', { cx,cz,x,y,z,block:blockId }, (ack) => { if (ack && ack.ok) console.log('blockPlace ok'); else console.warn('blockPlace failed', ack); }); }
+async function removeBlockAt(cx,cz,x,y,z) { if (window.VoxelWorld) window.VoxelWorld.setBlockLocal(cx,cz,x,y,z,0); if (!socket || !socket.connected) return; socket.emit('blockRemove', { cx,cz,x,y,z }, (ack) => { if (ack && ack.ok) console.log('blockRemove ok'); else console.warn('blockRemove failed', ack); }); }
+async function tryPickup() { if (!socket || !socket.connected) return; socket.emit('pickup', {}, (ack) => { console.log('pickup ack', ack); if (ack && ack.ok) toast('Picked up shield', 1200); else toast('No shield nearby', 1200); }); }
+
 document.addEventListener('DOMContentLoaded', () => {
-  setupPollingSocket();
+  setupSocket();
+  const joinBtn = $('joinBtn'), createRoomBtn = $('createRoomBtn'), copyInviteBtn = $('copyInviteBtn');
+  const nameInput = $('playerName'), roomInput = $('roomId'), botCount = $('botCount');
+  const shootBtn = $('shootBtn');
 
-  const joinBtn = $('joinBtn');
-  const nameInput = $('playerName');
-  const roomInput = $('roomId');
-  const botCount = $('botCount');
-  const createRoomBtn = $('createRoomBtn');
-  const inviteArea = $('inviteArea');
-  const inviteText = $('inviteText');
-  const copyInviteBtn = $('copyInviteBtn');
-  const autoJoinCheckbox = $('autoJoinCheckbox');
+  const sess = (function(){ try{ const r=sessionStorage.getItem(SESSION_KEY); return r?JSON.parse(r):null; }catch(e){return null;} })();
+  if (sess && sess.name) {
+    if (nameInput) nameInput.value = sess.name;
+    if (roomInput) roomInput.value = sess.roomId || 'default';
+    attemptJoin(sess.name, sess.roomId || 'default').catch(err => { console.warn('auto-join failed', err); });
+  }
 
-  // Defensive nav fallback wiring (ensures nav buttons work)
-  const navLogin = $('navLogin'), navHow = $('navHow'), navPlay = $('navPlay');
-  const pageLogin = $('pageLogin'), pageHow = $('pageHow'), pagePlay = $('pagePlay');
-  if(navLogin) navLogin.addEventListener('click', (e)=>{ e.preventDefault(); pageLogin.classList.add('active'); pageHow.classList.remove('active'); pagePlay.classList.remove('active'); });
-  if(navHow) navHow.addEventListener('click', (e)=>{ e.preventDefault(); pageHow.classList.add('active'); pageLogin.classList.remove('active'); pagePlay.classList.remove('active'); });
-  if(navPlay) navPlay.addEventListener('click', (e)=>{ e.preventDefault(); if(window.myId) { pagePlay.classList.add('active'); pageLogin.classList.remove('active'); pageHow.classList.remove('active'); try{ if(typeof initThree === 'function') initThree(); }catch(_){} } else { toast('Please JOIN MATCH first'); pageLogin.classList.add('active'); pageHow.classList.remove('active'); pagePlay.classList.remove('active'); } });
+  if (joinBtn) joinBtn.addEventListener('click', async (e) => {
+    e && e.preventDefault();
+    const name = (nameInput && nameInput.value && nameInput.value.trim()) || '';
+    const room = (roomInput && roomInput.value && roomInput.value.trim()) || 'default';
+    if (!name) { alert('Please enter a name'); return; }
+    joinBtn.disabled = true; joinBtn.textContent = 'Joining...';
+    try { await attemptJoin(name, room, {}); } catch (err) { console.error('join error', err); alert(err && err.message ? err.message : 'Join failed'); } finally { joinBtn.disabled = false; joinBtn.textContent = 'JOIN MATCH'; }
+  });
 
-  if(joinBtn){
-    joinBtn.addEventListener('click', async (ev) => {
-      ev && ev.preventDefault();
-      const name = (nameInput && nameInput.value && nameInput.value.trim()) || 'Player';
-      const room = (roomInput && roomInput.value && roomInput.value.trim()) || 'default';
-      const bots = Math.max(0, Math.min(16, Number(botCount && botCount.value || 4)));
-      joinBtn.disabled = true; joinBtn.textContent = 'Joining...';
-      try {
-        await attemptJoin(name, room, { botCount: bots });
-        // joinedRoom handler will update UI
-      } catch (err) {
-        console.error('join error', err);
-        if (err && err.message === 'name_requires_suffix') {
-          alert('Please edit your name to include a # suffix or allow the auto-suffix.');
-        } else if (err && err.message === 'socket_connect_failed') {
-          alert('Could not connect to server; please check backend is running.');
-        } else if (err && err.message === 'join_timeout') {
-          alert('join_timeout — server did not respond. Check server logs.');
-        } else {
-          alert(err && err.message ? err.message : 'Join failed');
+  if (createRoomBtn) createRoomBtn.addEventListener('click', async (e)=> {
+    e.preventDefault();
+    createRoomBtn.disabled = true; createRoomBtn.textContent = 'Creating...';
+    try {
+      const resp = await fetch(`${BACKEND_URL}/create-room`, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ botCount: Number(botCount && botCount.value || 4) }) });
+      const j = await resp.json();
+      if (!j.ok) throw new Error(j.error || 'create-room failed');
+      document.getElementById('inviteArea').classList.remove('hidden');
+      document.getElementById('inviteText').textContent = `Invite: ${j.roomId} — ${j.url || (location.origin + '/?room=' + j.roomId)}`;
+      roomInput && (roomInput.value = j.roomId);
+    } catch (err) { console.error('create-room failed', err); alert('Could not create room: ' + (err && err.message ? err.message : 'error')); } finally { createRoomBtn.disabled = false; createRoomBtn.textContent = 'Create Room'; }
+  });
+
+  if (shootBtn) { shootBtn.addEventListener('click', (e)=>{ e.preventDefault(); doShoot(); }); shootBtn.style.display='block'; }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.code === 'KeyE') { tryPickup(); }
+    if (e.code === 'KeyQ') {
+      if (window.VoxelWorld) {
+        const cam = window.VoxelWorld.getCamera ? window.VoxelWorld.getCamera() : null;
+        if (cam) {
+          const dir = new THREE.Vector3(); cam.getWorldDirection(dir);
+          const pos = cam.position.clone().addScaledVector(dir, 3);
+          const bx = Math.floor(pos.x), by = Math.floor(pos.y), bz = Math.floor(pos.z);
+          const cx = Math.floor(bx / 16), cz = Math.floor(bz / 16);
+          const lx = bx - cx*16, lz = bz - cz*16, ly = by;
+          placeBlockAt(cx,cz,lx,ly,lz,1);
         }
-      } finally {
-        joinBtn.disabled = false; joinBtn.textContent = 'JOIN MATCH';
       }
-    });
-  }
-
-  if(createRoomBtn){
-    createRoomBtn.addEventListener('click', async (e) => {
-      e.preventDefault();
-      createRoomBtn.disabled = true; createRoomBtn.textContent = 'Creating...';
-      try {
-        const resp = await fetch(`${BACKEND_URL}/create-room`, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ botCount: Number(botCount && botCount.value || 4) }) });
-        const j = await resp.json();
-        if (!j.ok) throw new Error(j.error || 'create-room failed');
-        inviteArea && inviteArea.classList.remove('hidden');
-        inviteText && (inviteText.textContent = `Invite: ${j.roomId} — ${j.url || (location.origin + '/?room=' + j.roomId)}`);
-        if (copyInviteBtn) copyInviteBtn.onclick = async ()=>{ try{ await navigator.clipboard.writeText(j.url || (location.origin + '/?room=' + j.roomId)); toast('Copied'); } catch(e){ toast('Copy failed'); } };
-        roomInput && (roomInput.value = j.roomId);
-        if (autoJoinCheckbox && autoJoinCheckbox.checked) joinBtn && joinBtn.click();
-      } catch (err) {
-        console.error('create-room failed', err);
-        alert('Could not create room: ' + (err && err.message ? err.message : 'error'));
-      } finally {
-        createRoomBtn.disabled = false; createRoomBtn.textContent = 'Create Room';
-      }
-    });
-  }
-
-  // Support modal wiring (same as earlier)
-  const supportLink = $('supportLink'), supportModal = $('supportModal'), supportForm = $('supportForm'), supportCancel = $('supportCancel'), supportResult = $('supportResult');
-  if (supportLink && supportModal && supportForm && supportCancel) {
-    supportLink.addEventListener('click', (ev) => { ev.preventDefault(); supportModal.classList.remove('hidden'); supportResult.textContent = ''; setTimeout(()=> $('supName') && $('supName').focus(), 50); });
-    supportCancel.addEventListener('click', (ev) => { ev.preventDefault(); supportModal.classList.add('hidden'); supportForm.reset(); supportResult.textContent = ''; });
-    supportForm.addEventListener('submit', async (ev) => {
-      ev.preventDefault();
-      supportResult.style.color = '#9ca3af'; supportResult.textContent = 'Sending…';
-      const payload = {
-        name: $('supName').value.trim(),
-        email: $('supEmail').value.trim(),
-        subject: $('supSubject').value.trim(),
-        message: $('supMessage').value.trim()
-      };
-      try {
-        const res = await fetch(`${BACKEND_URL}/support`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-        const txt = await res.text();
-        let j = null;
-        try { j = txt ? JSON.parse(txt) : null; } catch(e){}
-        if (res.ok && j && j.ok) {
-          supportResult.style.color = '#7dd3fc'; supportResult.textContent = 'Thanks — your message was sent.';
-          setTimeout(()=> { supportModal.classList.add('hidden'); supportForm.reset(); supportResult.textContent=''; }, 1400);
-        } else {
-          supportResult.style.color = '#fca5a5'; supportResult.textContent = (j && j.error) ? ('Error: ' + j.error) : (txt || 'Unknown server response');
+    }
+    if (e.code === 'KeyR') {
+      if (window.VoxelWorld) {
+        const cam = window.VoxelWorld.getCamera ? window.VoxelWorld.getCamera() : null;
+        if (cam) {
+          const dir = new THREE.Vector3(); cam.getWorldDirection(dir);
+          const pos = cam.position.clone().addScaledVector(dir, 3);
+          const bx = Math.floor(pos.x), by = Math.floor(pos.y), bz = Math.floor(pos.z);
+          const cx = Math.floor(bx / 16), cz = Math.floor(bz / 16);
+          const lx = bx - cx*16, lz = bz - cz*16, ly = by;
+          removeBlockAt(cx,cz,lx,ly,lz);
         }
-      } catch (err) {
-        console.error('support submit error', err);
-        supportResult.style.color = '#fca5a5'; supportResult.textContent = 'Network error — please try again later.';
       }
-    });
-    supportModal.addEventListener('click', (ev) => { if (ev.target === supportModal) { supportModal.classList.add('hidden'); supportForm.reset(); supportResult.textContent=''; } });
-    document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') { supportModal.classList.add('hidden'); supportForm.reset(); supportResult.textContent=''; }});
-  }
+    }
+  });
 });
