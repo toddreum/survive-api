@@ -1,6 +1,4 @@
-// frontend/public/env.js
-// Ensure production frontend does NOT force localhost as the backend.
-// Defaults to current page origin (works on Render and locally).
+// runtime env helper — set BACKEND_URL to current origin by default
 (function() {
   try {
     if (typeof window !== 'undefined') {
