@@ -1,5 +1,4 @@
-// Client: join, ack, pos emits, voxel integration, block events, shoot, pickup, HUD updates.
-// This version ensures VoxelWorld.start is invoked robustly.
+// Client: join + botCount, start voxel robustly, support Leave Match, click-to-play overlay integration.
 
 const BACKEND_URL = (typeof window !== 'undefined' && window.__BACKEND_URL__ && window.__BACKEND_URL__.length)
   ? window.__BACKEND_URL__ : (typeof window !== 'undefined' && window.location && window.location.origin ? window.location.origin : 'https://survive.com');
@@ -19,7 +18,7 @@ let socket=null, posInterval=null, voxelStarted=false;
 
 function setupSocket() {
   if (socket) return socket;
-  socket = io(BACKEND_URL, { transports:['polling'], upgrade:false, timeout:7000, reconnectionAttempts:6 });
+  socket = io(BACKEND_URL, { timeout: 7000, reconnectionAttempts: 6 });
   socket.on('connect', ()=>{ console.info('[socket] connected', socket.id); window.hts = window.hts || {}; window.hts.socketConnected = true; toast('Connected',1200); });
   socket.on('disconnect', ()=>{ console.info('[socket] disconnected'); window.hts.socketConnected=false; toast('Disconnected',1200); });
   socket.on('joinedRoom', (p)=>{ console.log('joinedRoom', p); handleJoinedRoom(p); });
@@ -36,6 +35,7 @@ function setupSocket() {
 function startPosLoop() { if (posInterval) return; posInterval = setInterval(()=>{ if (!socket || !socket.connected) return; let pos = { x:0,y:0,z:0 }; try { if (typeof getPlayerPosition === 'function') pos = getPlayerPosition(); } catch(e) { pos = { x:0,y:0,z:0 }; } socket.emit('pos', pos); }, POS_SEND_MS); }
 function stopPosLoop(){ if (posInterval){ clearInterval(posInterval); posInterval=null; } }
 
+// attemptJoin now sends botCount in payload so server can spawn requested bots
 async function attemptJoin(name, roomId, options={}) {
   if (!name || !name.trim()) throw new Error('empty_name');
   if (/^[A-Za-z]{2,30}$/.test(name) && !name.includes('#')) {
@@ -69,7 +69,7 @@ function handleJoinedRoom(payload) {
   const hud = $('hud'); if (hud) hud.classList.remove('hidden');
   startPosLoop();
 
-  // Robust VoxelWorld start (ensures start is called and logs status)
+  // start voxel renderer and request nearby chunks
   try {
     if (!voxelStarted && window.VoxelWorld && typeof window.VoxelWorld.start === 'function') {
       const ok = window.VoxelWorld.start();
@@ -89,40 +89,77 @@ function handleJoinedRoom(payload) {
   }
 }
 
+// HUD update
 function updateHUDFromState(s) {
   try {
     const players = s.players || [];
     $('playersLabel') && ($('playersLabel').textContent = `${players.length} players`);
-    const lb = $('leaderboardList'); if (lb) { lb.innerHTML=''; players.sort((a,b)=> (b.score||0)-(a.score||0)).slice(0,6).forEach(p=>{ const li=document.createElement('li'); li.textContent = `${p.name} — ${p.score||0}`; lb.appendChild(li); }); }
+    const lb = $('leaderboardList'); if (lb) { lb.innerHTML=''; players.sort((a,b)=> (b.score||0)-(a.score||0)).slice(0,6).forEach(p=>{ const li=document.createElement('li'); li.textContent = `${p.name} ${p.isBot? '(bot)':''} — ${p.score||0}`; lb.appendChild(li); }); }
   } catch (e) { console.warn('HUD update failed', e); }
 }
 
 function doShoot() { if (!socket || !socket.connected) { alert('Not connected'); return; } socket.emit('shoot', {}, (ack) => { console.log('shoot ack', ack); if (ack && ack.ok && ack.target) toast('Shot hit: ' + ack.target, 2000); else toast('No target in range', 1200); }); }
 
+// optimistic local block place + server event
 async function placeBlockAt(cx,cz,x,y,z,blockId) { if (window.VoxelWorld) window.VoxelWorld.setBlockLocal(cx,cz,x,y,z,blockId); if (!socket || !socket.connected) return; socket.emit('blockPlace', { cx,cz,x,y,z,block:blockId }, (ack) => { if (ack && ack.ok) console.log('blockPlace ok'); else console.warn('blockPlace failed', ack); }); }
 async function removeBlockAt(cx,cz,x,y,z) { if (window.VoxelWorld) window.VoxelWorld.setBlockLocal(cx,cz,x,y,z,0); if (!socket || !socket.connected) return; socket.emit('blockRemove', { cx,cz,x,y,z }, (ack) => { if (ack && ack.ok) console.log('blockRemove ok'); else console.warn('blockRemove failed', ack); }); }
 async function tryPickup() { if (!socket || !socket.connected) return; socket.emit('pickup', {}, (ack) => { console.log('pickup ack', ack); if (ack && ack.ok) toast('Picked up shield', 1200); else toast('No shield nearby', 1200); }); }
 
+// Leave match: disconnect and show login
+function leaveMatch() {
+  stopPosLoop();
+  if (socket) {
+    try { socket.disconnect(); } catch(e) {}
+    socket = null;
+  }
+  voxelStarted = false;
+  clearSession();
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.getElementById('pageLogin').classList.add('active');
+  document.getElementById('hud') && document.getElementById('hud').classList.add('hidden');
+  console.info('[client] left match and returned to login');
+}
+
+// click-to-play overlay behavior (pointerlock request)
+function initClickToPlayOverlay() {
+  const overlay = document.getElementById('playOverlay');
+  const canvas = document.getElementById('gameCanvas');
+  if (!overlay || !canvas) return;
+  overlay.addEventListener('click', (e) => {
+    try { canvas.requestPointerLock && canvas.requestPointerLock(); overlay.classList.add('hidden'); } catch(e) { console.warn('pointer lock failed', e); overlay.classList.add('hidden'); }
+  });
+  // hide overlay when pointerlock enters
+  document.addEventListener('pointerlockchange', () => {
+    if (document.pointerLockElement === canvas) overlay.classList.add('hidden');
+    else overlay.classList.remove('hidden');
+  });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   setupSocket();
-  const joinBtn = $('joinBtn'), createRoomBtn = $('createRoomBtn'), copyInviteBtn = $('copyInviteBtn');
+  initClickToPlayOverlay();
+
+  const joinBtn = $('joinBtn'), createRoomBtn = $('createRoomBtn'), leaveBtn = $('leaveBtn');
   const nameInput = $('playerName'), roomInput = $('roomId'), botCount = $('botCount');
   const shootBtn = $('shootBtn');
 
-  const sess = (function(){ try{ const r=sessionStorage.getItem(SESSION_KEY); return r?JSON.parse(r):null; }catch(e){return null;} })();
+  const sess = loadSession();
   if (sess && sess.name) {
     if (nameInput) nameInput.value = sess.name;
     if (roomInput) roomInput.value = sess.roomId || 'default';
-    attemptJoin(sess.name, sess.roomId || 'default').catch(err => { console.warn('auto-join failed', err); });
+    attemptJoin(sess.name, sess.roomId || 'default', { botCount: sess.botCount || Number(botCount && botCount.value || 4) }).catch(err => { console.warn('auto-join failed', err); });
   }
 
   if (joinBtn) joinBtn.addEventListener('click', async (e) => {
     e && e.preventDefault();
     const name = (nameInput && nameInput.value && nameInput.value.trim()) || '';
     const room = (roomInput && roomInput.value && roomInput.value.trim()) || 'default';
+    const bc = Number(botCount && botCount.value || 4);
     if (!name) { alert('Please enter a name'); return; }
     joinBtn.disabled = true; joinBtn.textContent = 'Joining...';
-    try { await attemptJoin(name, room, {}); } catch (err) { console.error('join error', err); alert(err && err.message ? err.message : 'Join failed'); } finally { joinBtn.disabled = false; joinBtn.textContent = 'JOIN MATCH'; }
+    try {
+      await attemptJoin(name, room, { botCount: Math.max(0, Math.min(32, bc)) });
+    } catch (err) { console.error('join error', err); alert(err && err.message ? err.message : 'Join failed'); } finally { joinBtn.disabled = false; joinBtn.textContent = 'JOIN MATCH'; }
   });
 
   if (createRoomBtn) createRoomBtn.addEventListener('click', async (e)=> {
@@ -137,6 +174,8 @@ document.addEventListener('DOMContentLoaded', () => {
       roomInput && (roomInput.value = j.roomId);
     } catch (err) { console.error('create-room failed', err); alert('Could not create room: ' + (err && err.message ? err.message : 'error')); } finally { createRoomBtn.disabled = false; createRoomBtn.textContent = 'Create Room'; }
   });
+
+  if (leaveBtn) leaveBtn.addEventListener('click', (e)=>{ e.preventDefault(); leaveMatch(); });
 
   if (shootBtn) { shootBtn.addEventListener('click', (e)=>{ e.preventDefault(); doShoot(); }); shootBtn.style.display='block'; }
 
