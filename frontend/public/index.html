@@ -2,37 +2,37 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Survive.com — Hide To Survive</title>
+  <title>Survive Voxel Prototype — Hide To Survive</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <meta name="description" content="Hide To Survive — neon hide and seek" />
+  <link rel="icon" href="/favicon.svg" />
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body class="holiday">
   <header class="hts-header">
     <a class="hts-logo-wrap" href="/" aria-label="Survive.com">
-      <img id="siteLogo" src="/logo.png" alt="Survive.com logo" class="hts-logo-img" onerror="this.onerror=null; this.src='/logo.svg';" />
+      <!-- Inline SVG fallback -->
+      <svg width="180" height="48" viewBox="0 0 400 80" xmlns="http://www.w3.org/2000/svg" role="img">
+        <rect width="100%" height="100%" rx="10" fill="#061E33" />
+        <text x="22" y="50" font-family="Inter, Arial, sans-serif" font-weight="700" font-size="34" fill="#00E6FF">SURVIVE</text>
+      </svg>
+      <img id="siteLogo" src="/logo.png" alt="Survive.com logo" class="hts-logo-img" style="height:48px; display:none;" onload="this.style.display='block'" onerror="this.style.display='none'"/>
     </a>
   </header>
 
-  <nav class="main-nav" aria-label="Main navigation">
+  <nav class="main-nav">
     <button id="navLogin" class="nav-btn">Login</button>
     <button id="navHow" class="nav-btn">How To Play</button>
     <button id="navPlay" class="nav-btn">Play</button>
-    <button id="navEnd" class="nav-btn hidden">End Game</button>
-    <button id="navLogout" class="nav-btn hidden">Logout</button>
   </nav>
 
-  <!-- Pages -->
   <section id="pageLogin" class="page active">
     <main class="menu-card">
       <h1 class="menu-title">HIDE TO SURVIVE</h1>
-      <p class="menu-subtitle">Fast-paced 3D neon hide-and-seek—tranquilizer-gun style. Hide, or be put to sleep!</p>
+      <p class="menu-subtitle">Fast-paced voxel hide-and-seek prototype.</p>
 
       <div class="menu-form">
         <label for="playerName">Name</label>
         <input id="playerName" type="text" placeholder="Player" maxlength="30" />
-
-        <div id="nameHint" class="menu-footnote">Single-word names (letters only) — coming soon on the paid option. Use a # suffix (e.g., Todd#1234) for now.</div>
 
         <label for="roomId">Room (optional)</label>
         <div style="display:flex; gap:8px; align-items:center;">
@@ -43,37 +43,13 @@
         <div id="inviteArea" class="invite-area hidden">
           <span id="inviteText"></span>
           <button id="copyInviteBtn" class="btn-primary small">Copy</button>
-          <label style="margin-left:8px;"><input type="checkbox" id="autoJoinCheckbox"> Auto-join</label>
         </div>
-
-        <label for="mapSelect">Map</label>
-        <select id="mapSelect">
-          <option value="city">City Block</option>
-          <option value="forest">Forest</option>
-          <option value="mall">Abandoned Mall</option>
-          <option value="bunker">Bunker</option>
-          <option value="night">Night Neon</option>
-          <option value="christmas_market">Christmas Market (Holiday)</option>
-        </select>
 
         <label for="botCount">Bot Count</label>
         <input id="botCount" type="number" min="0" max="16" value="4" />
 
-        <div style="display:flex; gap:8px; align-items:center; margin-top:12px;">
-          <button id="purchaseBtn" class="btn-primary" style="display:none; width:auto;">Purchase name</button>
-          <div id="purchaseStatus" class="menu-footnote" style="color:#9ca3af;"></div>
-        </div>
-
-        <div style="margin-top:12px; display:flex; gap:8px; align-items:center;">
-          <label for="gfxQuality" class="menu-footnote" style="margin-right:8px; color:#cbd5e1;">Graphics:</label>
-          <select id="gfxQuality" style="padding:8px 10px; border-radius:8px; background:#020617; color:#e5e7eb;">
-            <option value="high">High</option>
-            <option value="medium" selected>Medium</option>
-            <option value="low">Low</option>
-          </select>
-        </div>
-
         <button id="joinBtn" class="btn-primary" style="margin-top:12px;">JOIN MATCH</button>
+        <div style="margin-top:8px;color:#9ca3af;font-size:13px;">Hint: Click the canvas to lock pointer. Use WASD + mouse. Q to place block, R to remove, E to pick up shield.</div>
       </div>
     </main>
   </section>
@@ -81,42 +57,25 @@
   <section id="pageHow" class="page">
     <main class="menu-card">
       <h2>HOW TO PLAY</h2>
-      <div class="menu-howto">
-        <ol>
-          <li>Join a room. Use a # suffix for single-word names for now (e.g., Todd#1234).</li>
-          <li>When a round starts one player is the Seeker. Hiders have hide time to tuck away.</li>
-          <li>Seeker uses tranquilizer darts (right-click/SHOOT) to sedate Hiders. Each hit stacks: slow → heavy slow → collapse.</li>
-          <li>Pick glowing Serum Orbs to immediately remove sedation.</li>
-          <li>Bot decoys may appear; they can distract the Seeker and help Hiders.</li>
-          <li>By default, when a Seeker fully tags a Hider, the tagged Hider becomes the next Seeker (swap-on-tag).</li>
-        </ol>
-      </div>
+      <p>Hiders pick up shields to block darts. If a hider reaches the seeker and holds proximity they capture the seeker and take the gun.</p>
     </main>
   </section>
 
   <section id="pagePlay" class="page">
     <canvas id="gameCanvas"></canvas>
 
-    <div id="buyNameBanner" class="buy-banner hidden">
-      <span id="buyNameText"></span>
-      <button id="buyNameBtn" class="btn-primary small">Buy Base</button>
+    <div id="hud" class="hud hidden">
+      <div id="playerDisplayName"></div>
+      <div id="roleLabel"></div>
+      <div id="playersLabel"></div>
+      <div id="connectionStatus">Not connected</div>
+      <div id="shieldStatus"></div>
     </div>
 
-    <div id="hud" class="hud hidden" aria-live="polite">
-      <div class="hud-row"><span id="playerDisplayName" class="hud-role"></span></div>
-      <div class="hud-row"><span id="roleLabel" class="hud-role"></span></div>
-      <div class="hud-row"><span id="timerLabel"></span></div>
-      <div class="hud-row"><span id="playersLabel"></span></div>
-      <div class="hud-row" id="connectionStatus" style="font-size:0.8rem;color:#9ca3af;"></div>
-    </div>
-
-    <aside id="leaderboard" class="leaderboard hidden"><h3>Leaderboard</h3><ul id="leaderboardList"></ul></aside>
-
-    <div id="crosshair" class="crosshair"></div>
-
-    <div id="tranqOverlay" class="tranq-overlay hidden"><div class="tranq-overlay-inner"><h2>TRANQUILIZED!</h2><p>Find a Serum Orb to recover.</p></div></div>
+    <div id="tranqOverlay" class="tranq-overlay hidden"><div class="tranq-overlay-inner"><h2>TRANQUILIZED!</h2></div></div>
 
     <button id="shootBtn" class="shoot-btn">SHOOT</button>
+    <aside id="leaderboard" class="leaderboard"><h3>Leaderboard</h3><ul id="leaderboardList"></ul></aside>
   </section>
 
   <footer class="site-footer">
@@ -126,56 +85,20 @@
     </div>
   </footer>
 
-  <!-- Support Modal -->
-  <div id="supportModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="supportTitle">
-    <div class="modal-inner">
-      <h3 id="supportTitle">Contact Support</h3>
-      <form id="supportForm">
-        <label for="supName">Your name</label>
-        <input id="supName" name="name" type="text" placeholder="Your name" required />
-
-        <label for="supEmail">Your email</label>
-        <input id="supEmail" name="email" type="email" placeholder="you@example.com" required />
-
-        <label for="supSubject">Subject</label>
-        <input id="supSubject" name="subject" type="text" placeholder="Short subject" required />
-
-        <label for="supMessage">Message</label>
-        <textarea id="supMessage" name="message" rows="6" placeholder="Describe the issue..." required></textarea>
-
-        <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">
-          <button type="button" id="supportCancel" class="btn-secondary">Cancel</button>
-          <button type="submit" id="supportSend" class="btn-primary">Send</button>
-        </div>
-
-        <div id="supportResult" class="menu-footnote" style="margin-top:8px; color:#9ca3af;"></div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Libs -->
   <script src="/env.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r127/three.min.js"></script>
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-
-  <!-- App script -->
+  <script src="/initThree.js"></script>
+  <script src="/initVoxel.js"></script>
   <script src="/game.js"></script>
 
-  <!-- Defensive nav fallback -->
   <script>
     (function () {
       function $(id){ return document.getElementById(id); }
-      function showPage(el){ if(!el) return; document.querySelectorAll('.page').forEach(p=>p.classList.remove('active')); el.classList.add('active'); }
-      try {
-        const navHow = $('navHow'), navLogin = $('navLogin'), navPlay = $('navPlay');
-        if (navHow && !navHow.dataset.wired) { navHow.addEventListener('click', (e) => { e.preventDefault(); showPage($('pageHow')); }); navHow.dataset.wired = '1'; }
-        if (navLogin && !navLogin.dataset.wired) { navLogin.addEventListener('click', (e) => { e.preventDefault(); showPage($('pageLogin')); }); navLogin.dataset.wired = '1'; }
-        if (navPlay && !navPlay.dataset.wired) { navPlay.addEventListener('click', (e) => {
-            e.preventDefault();
-            if (window.myId || (window.hts && window.hts.socketConnected)) showPage($('pagePlay'));
-            else { alert('Please JOIN MATCH first'); showPage($('pageLogin')); }
-          }); navPlay.dataset.wired = '1'; }
-      } catch (err) { console.warn('fallback nav wiring failed', err); }
+      function showPage(id) { document.querySelectorAll('.page').forEach(p=>p.classList.remove('active')); const el = document.getElementById(id); if (el) el.classList.add('active'); }
+      document.getElementById('navHow').addEventListener('click', (e)=>{ e.preventDefault(); showPage('pageHow'); });
+      document.getElementById('navLogin').addEventListener('click', (e)=>{ e.preventDefault(); showPage('pageLogin'); });
+      document.getElementById('navPlay').addEventListener('click', (e)=>{ e.preventDefault(); showPage('pagePlay'); });
     })();
   </script>
 </body>
