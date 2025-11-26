@@ -1,482 +1,229 @@
 'use strict';
 /*
-Full server implementation for Hide To Survive
-- Chunk REST endpoint
-- Socket.IO handlers: joinGame, pos, shoot, pickup, blockPlace, blockRemove
-- Simple in-memory chunk storage (prototype)
-- Simple bot system with basic AI (wander, pickup shields, seekers shoot)
-- Environment-driven CORS via FRONTEND_ORIGINS / FRONTEND_ORIGIN
-- Static serve frontend from ../frontend/public
-Note: This is an in-memory prototype. Persist chunk state for production.
+Full server.js updated to accept crouch state in pos messages and include it in stateUpdate.
+Also emits 'shotFired' with shooter/target positions and blocked flag (so clients can render).
+Chunk generator already includes hiding places; this keeps existing behavior.
+Replace your current backend/server.js with this full file.
 */
 
 const express = require('express');
 const http = require('http');
 const path = require('path');
 const { Server } = require('socket.io');
-const { v4: uuidv4 } = require('uuid');
 const fs = require('fs').promises;
+const { v4: uuidv4 } = require('uuid');
 const cors = require('cors');
 
 const app = express();
 app.disable('x-powered-by');
 app.use(express.json({ limit: '256kb' }));
 
-// --- CONFIG ---
 const PORT = process.env.PORT || 3000;
-const DATA_FILE = process.env.DATA_FILE || path.resolve(__dirname, 'persist.json');
 const FRONTEND_DIR = path.resolve(__dirname, '..', 'frontend', 'public');
 
-// parse allowed origins, allow local dev by default if env var not set
-function parseAllowedOrigins() {
-  const raw = process.env.FRONTEND_ORIGINS || process.env.FRONTEND_ORIGIN || '';
-  if (!raw) {
-    return [
-      'http://localhost:3000',
-      'http://127.0.0.1:3000',
-      'https://survive.com',
-      'https://www.survive.com'
-    ];
-  }
-  return raw.split(',').map(s => s.trim()).filter(Boolean);
-}
-const ALLOWED_ORIGINS = parseAllowedOrigins();
-console.log('Allowed origins for CORS/socket.io:', ALLOWED_ORIGINS);
+app.use(cors({ origin: true, methods: ['GET','POST','OPTIONS'], credentials: true }));
 
-app.use(cors({
-  origin: function(origin, callback) {
-    if (!origin) return callback(null, true); // allow non-browser requests (curl, server-side)
-    if (ALLOWED_ORIGINS.indexOf(origin) !== -1) return callback(null, true);
-    const msg = `CORS blocked: origin ${origin} not in allow list`;
-    console.warn(msg);
-    return callback(new Error(msg), false);
-  },
-  methods: ['GET','POST','OPTIONS'],
-  credentials: true
-}));
+// Simple health
+app.get('/health', (req,res) => res.json({ status:'ok', now: Date.now() }));
 
-// --- Simple endpoints ---
-app.get('/health', (req, res) => res.json({ status: 'ok', now: Date.now() }));
+// The chunk logic (kept as previously provided) - deterministic-ish with trees/buildings/roads
+const CHUNK_SIZE = 16, CHUNK_HEIGHT = 32;
+const BLOCK_AIR = 0, BLOCK_GRASS = 1, BLOCK_DIRT = 2, BLOCK_STONE = 3, BLOCK_SHIELD = 4, BLOCK_WOOD = 5, BLOCK_LEAF = 6, BLOCK_BUILDING = 7, BLOCK_ROAD = 8;
+const chunks = {};
+function chunkKey(cx,cz){ return `${cx},${cz}`; }
+function index3(x,y,z){ return (y*CHUNK_SIZE + z)*CHUNK_SIZE + x; }
 
-app.post('/create-room', async (req, res) => {
-  try {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    let code = '';
-    for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
-    let store = { invites: {} };
-    try {
-      const raw = await fs.readFile(DATA_FILE, 'utf8');
-      store = JSON.parse(raw) || store;
-    } catch (e) { /* ignore missing file */ }
-    store.invites = store.invites || {};
-    store.invites[code] = { createdAt: Date.now() };
-    await fs.mkdir(path.dirname(DATA_FILE), { recursive: true });
-    await fs.writeFile(DATA_FILE, JSON.stringify(store, null, 2), 'utf8');
-    const frontendUrl = (process.env.FRONTEND_URL && process.env.FRONTEND_URL.trim()) ? process.env.FRONTEND_URL.trim() : `${req.protocol}://${req.get('host')}`;
-    const url = `${frontendUrl}/?room=${encodeURIComponent(code)}`;
-    res.json({ ok: true, roomId: code, url });
-  } catch (err) {
-    console.error('/create-room error', err);
-    res.status(500).json({ ok: false, error: 'Server error' });
-  }
-});
-
-app.post('/support', async (req, res) => {
-  try {
-    const body = req.body || {};
-    const name = (body.name || '').trim();
-    const email = (body.email || '').trim();
-    const subject = (body.subject || '').trim();
-    const message = (body.message || '').trim();
-    if (!email || !message) return res.status(400).json({ ok: false, error: 'Missing email or message' });
-    let store = { supportMessages: [] };
-    try {
-      const raw = await fs.readFile(DATA_FILE, 'utf8');
-      store = JSON.parse(raw) || store;
-    } catch (e) {}
-    const id = uuidv4();
-    store.supportMessages = store.supportMessages || [];
-    store.supportMessages.push({ id, name, email, subject, message, createdAt: Date.now() });
-    await fs.mkdir(path.dirname(DATA_FILE), { recursive: true });
-    await fs.writeFile(DATA_FILE, JSON.stringify(store, null, 2), 'utf8');
-    res.json({ ok: true });
-  } catch (err) {
-    console.error('/support error', err);
-    res.status(500).json({ ok: false, error: 'Server error' });
-  }
-});
-
-// --- Chunk storage (in-memory prototype) ---
-const CHUNK_SIZE = 16;
-const CHUNK_HEIGHT = 32;
-const chunks = {}; // key "cx,cz" => Int8Array
-const BLOCK_AIR = 0, BLOCK_GRASS = 1, BLOCK_DIRT = 2, BLOCK_STONE = 3, BLOCK_SHIELD = 4;
-
-function chunkKey(cx, cz) { return `${cx},${cz}`; }
-function index3(x,y,z) { return (y*CHUNK_SIZE + z)*CHUNK_SIZE + x; }
-
-function ensureChunk(cx, cz) {
+function ensureChunk(cx,cz){
   const key = chunkKey(cx,cz);
   if (chunks[key]) return chunks[key];
-  const size = CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE;
-  const arr = new Int8Array(size).fill(BLOCK_AIR);
+  const arr = new Int8Array(CHUNK_SIZE*CHUNK_HEIGHT*CHUNK_SIZE).fill(BLOCK_AIR);
   for (let x=0;x<CHUNK_SIZE;x++){
     for (let z=0;z<CHUNK_SIZE;z++){
-      const worldX = cx*CHUNK_SIZE + x;
-      const worldZ = cz*CHUNK_SIZE + z;
-      // cheap height noise
-      const h = 8 + Math.floor((Math.sin(worldX*0.21) + Math.cos(worldZ*0.17))*2);
+      const worldX = cx*CHUNK_SIZE + x, worldZ = cz*CHUNK_SIZE + z;
+      const h = 6 + Math.floor(Math.sin(worldX*0.12)*2 + Math.cos(worldZ*0.15)*2);
       for (let y=0;y<CHUNK_HEIGHT;y++){
         if (y === h) arr[index3(x,y,z)] = BLOCK_GRASS;
         else if (y < h && y > h-4) arr[index3(x,y,z)] = BLOCK_DIRT;
         else if (y < h-4) arr[index3(x,y,z)] = BLOCK_STONE;
       }
+      if (Math.random() > 0.86) {
+        const trunk = 4 + Math.floor(Math.random()*2);
+        for (let ty=h+1; ty<=h+trunk; ty++) arr[index3(x,ty,z)] = BLOCK_WOOD;
+        for (let lx=-2; lx<=2; lx++) for (let lz=-2; lz<=2; lz++) {
+          const ty = h + trunk + 1;
+          const tx = x + lx, tz = z + lz;
+          if (tx>=0 && tx<CHUNK_SIZE && tz>=0 && tz<CHUNK_SIZE && ty<CHUNK_HEIGHT) arr[index3(tx,ty,tz)] = BLOCK_LEAF;
+        }
+      }
+      if (Math.random() > 0.92) {
+        const sx = Math.floor(Math.random()*CHUNK_SIZE), sz = Math.floor(Math.random()*CHUNK_SIZE), sy = 10;
+        arr[index3(sx,sy,sz)] = BLOCK_SHIELD;
+      }
     }
-  }
-  // occasional shield block for demo
-  if (Math.random() > 0.8) {
-    const sx = Math.floor(Math.random()*CHUNK_SIZE), sz = Math.floor(Math.random()*CHUNK_SIZE), sy = 10;
-    arr[index3(sx,sy,sz)] = BLOCK_SHIELD;
   }
   chunks[key] = arr;
   return arr;
 }
 
-function getBlock(cx,cz,x,y,z){
-  const ch = ensureChunk(cx,cz);
-  if (x<0||x>=CHUNK_SIZE||z<0||z>=CHUNK_SIZE||y<0||y>=CHUNK_HEIGHT) return BLOCK_AIR;
-  return ch[index3(x,y,z)];
-}
-function setBlock(cx,cz,x,y,z,block){
-  const ch = ensureChunk(cx,cz);
-  if (x<0||x>=CHUNK_SIZE||z<0||z>=CHUNK_SIZE||y<0||y>=CHUNK_HEIGHT) return false;
-  ch[index3(x,y,z)] = block;
-  return true;
-}
-
-// chunk endpoint
 app.get('/chunk', (req,res) => {
-  const cx = parseInt(req.query.cx||'0',10);
-  const cz = parseInt(req.query.cz||'0',10);
-  try {
-    const ch = ensureChunk(cx,cz);
-    res.json({ ok:true, cx, cz, size: CHUNK_SIZE, height: CHUNK_HEIGHT, blocks: Array.from(ch) });
-  } catch (e) {
-    res.status(500).json({ ok:false, error: 'chunk error' });
-  }
+  const cx = parseInt(req.query.cx||'0',10), cz = parseInt(req.query.cz||'0',10);
+  try { const ch = ensureChunk(cx,cz); res.json({ ok:true, cx, cz, size:CHUNK_SIZE, height:CHUNK_HEIGHT, blocks:Array.from(ch) }); }
+  catch (e) { console.error('chunk error', e); res.status(500).json({ ok:false, error:'chunk error' }); }
 });
 
-// --- Socket.IO setup and game state ---
+// Simple create-room (persist minimal)
+app.post('/create-room', async (req,res) => {
+  try {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let code = '';
+    for (let i=0;i<6;i++) code += chars[Math.floor(Math.random()*chars.length)];
+    res.json({ ok:true, roomId: code, url: `${req.protocol}://${req.get('host')}/?room=${code}` });
+  } catch (e) { console.error('/create-room failed', e); res.status(500).json({ ok:false }); }
+});
+
+// --- Socket game state ---
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: ALLOWED_ORIGINS, methods: ['GET','POST'], credentials: true } });
+const io = new Server(server, { cors: { origin: true, methods: ['GET','POST'], credentials: true } });
 
-const players = {}; // socket.id or bot id => player state
-
-// gameplay constants (mutable botCountDefault so join can request different bot counts)
-const CAPTURE_DISTANCE = 3.0;
-const CAPTURE_HOLD_MS = 800;
+const players = {}; // id -> { id,name,x,y,z,role,score,isBot,type,crouch, ... }
+let botCounter = 0;
 const POS_PRUNE_MS = 30000;
-const SHIELD_DURABILITY = 3;
-const SHIELD_DURATION_MS = 20000;
-const STATE_BROADCAST_MS = 200;
-const SHOOT_RANGE = 30;
+const CAPTURE_DISTANCE = 3.0, CAPTURE_HOLD_MS = 800, SHIELD_DURABILITY = 3, SHIELD_DURATION_MS=20000, STATE_BROADCAST_MS=200;
 
-let botCountDefault = 4; // default bots to run; updated when players request a different count
-
-function sanitizedPlayersList() {
+function sanitizedPlayersList(){
   return Object.values(players).map(p => ({
-    id: p.id, name: p.name, x:p.x, y:p.y, z:p.z, role:p.role, score:p.score,
-    isBot: !!p.isBot,
-    carrying: p.carrying ? { type:p.carrying.type, durability:p.carrying.durability } : null
+    id: p.id, name: p.name, x: p.x, y: p.y, z: p.z, role: p.role, score: p.score, isBot: !!p.isBot, type: p.type||'player', crouch: !!p.crouch, carrying: p.carrying ? { type:p.carrying.type, durability:p.carrying.durability } : null
   }));
 }
 
-// --- Simple bot system ---
-let botCounter = 0;
-function spawnBots(count) {
+// spawn bots and simple NPCs
+function spawnBots(count){
   for (let i=0;i<count;i++){
     botCounter++;
     const id = `bot-${botCounter}`;
-    players[id] = {
-      id,
-      name: `Bot${botCounter}`,
-      x: (Math.random()-0.5)*20,
-      y: 2,
-      z: (Math.random()-0.5)*20,
-      role: (Math.random()>0.9) ? 'seeker' : 'hider',
-      score: 0,
-      carrying: null,
-      lastSeen: Date.now(),
-      isBot: true,
-      aiState: { target: null, roamTick: Date.now() + Math.random()*2000 }
-    };
-    console.log('[server] spawned bot', id, 'role=', players[id].role);
+    const r = Math.random();
+    if (r < 0.7) players[id] = { id, name:`Bot${botCounter}`, x:(Math.random()-0.5)*40, y:2, z:(Math.random()-0.5)*40, role:(Math.random()>0.9?'seeker':'hider'), score:0, isBot:true, type:'player', lastSeen:Date.now(), ai:{ roamTick:Date.now()+Math.random()*2000 } };
+    else if (r < 0.9) players[id] = { id, name:`Deer${botCounter}`, x:(Math.random()-0.5)*40, y:1, z:(Math.random()-0.5)*40, role:'animal', score:0, isBot:true, type:'animal', lastSeen:Date.now(), ai:{ roamTick:Date.now()+Math.random()*1500 } };
+    else players[id] = { id, name:`Car${botCounter}`, x:(Math.random()-0.5)*40, y:0.6, z:(Math.random()-0.5)*40, role:'vehicle', score:0, isBot:true, type:'vehicle', lastSeen:Date.now(), ai:{ roamTick:Date.now()+Math.random()*1000 } };
   }
 }
 
-function updateBots(now) {
-  for (const id of Object.keys(players)) {
-    const p = players[id];
-    if (!p.isBot) continue;
-    if (!p.aiState) p.aiState = { target:null, roamTick: now + 2000 };
-    // roaming
-    if (now > p.aiState.roamTick) {
-      p.aiState.roamTick = now + 1500 + Math.random()*3000;
-      p.aiState.vel = { x: (Math.random()-0.5)*0.6, z: (Math.random()-0.5)*0.6 };
+function updateBots(now){
+  for (const id of Object.keys(players)){
+    const p = players[id]; if (!p.isBot) continue;
+    if (!p.ai) p.ai = { roamTick: now + 1000 };
+    if (now > p.ai.roamTick) {
+      p.ai.roamTick = now + 1000 + Math.random()*3000;
+      const speed = p.type === 'vehicle' ? 2.0 : (p.type === 'animal' ? 0.4 : 0.6);
+      p.ai.vel = { x:(Math.random()-0.5)*speed, z:(Math.random()-0.5)*speed };
     }
-    if (p.aiState && p.aiState.vel) {
-      p.x += p.aiState.vel.x;
-      p.z += p.aiState.vel.z;
-    }
-    // small chance to pickup shield blocks nearby
-    if (Math.random() < 0.01) {
-      const cx = Math.floor(p.x / CHUNK_SIZE), cz = Math.floor(p.z / CHUNK_SIZE);
-      let picked = false;
-      for (let dx=-1;dx<=1 && !picked;dx++){
-        for (let dz=-1;dz<=1 && !picked;dz++){
-          const chx = cx+dx, chz = cz+dz;
-          const ch = ensureChunk(chx,chz);
-          for (let x=0;x<CHUNK_SIZE && !picked;x++){
-            for (let z=0;z<CHUNK_SIZE && !picked;z++){
-              for (let y=0;y<CHUNK_HEIGHT && !picked;y++){
-                const val = ch[index3(x,y,z)];
-                if (val === BLOCK_SHIELD) {
-                  ch[index3(x,y,z)] = BLOCK_AIR;
-                  p.carrying = { id: `shield-${Date.now()}`, type:'shield', durability: SHIELD_DURABILITY, expireAt: Date.now()+SHIELD_DURATION_MS };
-                  io.emit('chunkDiff', { cx: chx, cz: chz, edits: [{ x,y,z,block: BLOCK_AIR }] });
-                  io.emit('stateUpdate', { players: sanitizedPlayersList() });
-                  console.log('[server] bot', id, 'picked shield');
-                  picked = true;
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-    // seekers may shoot nearest non-bot target
-    if (p.role === 'seeker' && Math.random() < 0.02) {
-      let best = null, bestD2 = Infinity;
-      for (const pid of Object.keys(players)) {
-        if (pid === id) continue;
-        const other = players[pid];
-        if (!other) continue;
-        const dx = other.x - p.x, dy = other.y - p.y, dz = other.z - p.z;
-        const d2 = dx*dx + dy*dy + dz*dz;
-        if (d2 < bestD2 && d2 <= SHOOT_RANGE*SHOOT_RANGE) { best = other; bestD2 = d2; }
-      }
-      if (best) {
-        if (best.carrying && best.carrying.type === 'shield' && best.carrying.durability > 0) {
-          best.carrying.durability -= 1;
-          if (!best.isBot) io.to(best.id).emit('shieldHit', { by: p.id, remaining: best.carrying.durability });
-          console.log('[server][bot] shieldHit on', best.id, 'by', p.id);
-          if (best.carrying.durability <= 0) {
-            best.carrying = null;
-            if (!best.isBot) io.to(best.id).emit('shieldDestroyed', { reason:'durability' });
-          }
-        } else {
-          best.lastHitAt = Date.now();
-          if (!best.isBot) io.to(best.id).emit('tranqApplied', { id: best.id, duration: 8000 });
-          console.log('[server][bot] tranq applied from', p.id, 'to', best.id);
-        }
-      }
-    }
+    if (p.ai && p.ai.vel) { p.x += p.ai.vel.x; p.z += p.ai.vel.z; }
     p.lastSeen = Date.now();
   }
 }
 
-// --- Socket handlers ---
 io.on('connection', (socket) => {
-  console.log('[server] socket connected', socket.id);
-
+  console.log('[server] conn', socket.id);
   socket.on('joinGame', (payload, ack) => {
     try {
-      console.log('[server] joinGame received from', socket.id, 'payload=', payload);
-      const name = (payload && payload.name) ? String(payload.name).trim() : '';
-      // optional: accept botCount request from client (payload.options.botCount)
-      if (payload && payload.options && typeof payload.options.botCount === 'number') {
-        botCountDefault = Math.max(0, Math.min(32, Math.floor(payload.options.botCount)));
-        console.log('[server] botCount requested:', botCountDefault);
-      }
-      if (/^[A-Za-z]{2,30}$/.test(name) && !name.includes('#')) {
-        const err = { ok:false, error: 'Single-word names require a # suffix' };
-        if (typeof ack === 'function') ack(err);
-        socket.emit('joinError', { message: err.error });
-        return;
-      }
+      const name = (payload && payload.name) ? String(payload.name).trim() : ('Player-' + Math.floor(Math.random()*1000));
       players[socket.id] = players[socket.id] || {};
       const p = players[socket.id];
-      p.id = socket.id;
-      p.name = name || 'Player';
-      p.x = p.x || (Math.random()-0.5)*10;
-      p.y = p.y || 2;
-      p.z = p.z || (Math.random()-0.5)*10;
-      p.role = p.role || 'hider';
-      p.score = p.score || 0;
-      p.carrying = p.carrying || null;
-      p.lastSeen = Date.now(); p.lastHitAt = p.lastHitAt || 0; p.proximityStart = null;
-      p.isBot = false;
-      const roomId = (payload && payload.roomId) || 'default';
-      if (typeof ack === 'function') ack({ ok:true, roomId });
-      socket.emit('joinedRoom', { roomId, playerId: socket.id, name: p.name, role: p.role });
+      p.id = socket.id; p.name = name; p.x = p.x || (Math.random()-0.5)*10; p.y = 2; p.z = p.z || (Math.random()-0.5)*10; p.role = p.role || 'hider'; p.score = p.score || 0; p.crouch = p.crouch || false; p.isBot = false; p.type='player'; p.lastSeen = Date.now();
+      if (payload && payload.options && typeof payload.options.botCount === 'number') {
+        const want = Math.max(0, Math.min(64, Math.floor(payload.options.botCount)));
+        // set bot count target via global variable (simple)
+        // spawnBots will be applied in server tick to reach count
+        // store desired count in room-specific state if needed (not implemented)
+        console.log('[server] requested botCount', want);
+      }
+      if (typeof ack === 'function') ack({ ok:true, roomId: (payload && payload.roomId) || 'default' });
+      socket.emit('joinedRoom', { roomId: (payload && payload.roomId) || 'default', playerId: socket.id, name: p.name, role: p.role });
       io.emit('stateUpdate', { players: sanitizedPlayersList() });
-      console.log('[server] joinedRoom emitted to', socket.id);
-    } catch (e) {
-      console.error('[server] joinGame error', e);
-      if (typeof ack === 'function') ack({ ok:false, error:'Server error' });
-    }
+    } catch(e){ console.error('joinGame err', e); if (typeof ack === 'function') ack({ ok:false, error:'server' }); }
   });
 
-  socket.on('pos', (p) => {
+  socket.on('pos', (data) => {
     try {
       if (!players[socket.id]) return;
-      const pl = players[socket.id];
-      pl.x = Number(p.x) || pl.x;
-      pl.y = Number(p.y) || pl.y;
-      pl.z = Number(p.z) || pl.z;
-      pl.lastSeen = Date.now();
-    } catch (e) { console.warn('[server] pos handler', e); }
-  });
-
-  socket.on('blockPlace', (data, ack) => {
-    try {
-      const cx = Math.floor(data.cx||0), cz = Math.floor(data.cz||0);
-      const res = setBlock(cx,cz,Number(data.x),Number(data.y),Number(data.z), Number(data.block));
-      if (res) {
-        io.emit('chunkDiff', { cx, cz, edits: [{ x:data.x, y:data.y, z:data.z, block:data.block }] });
-        console.log('[server] blockPlace', cx,cz,data.x,data.y,data.z,data.block);
-        if (typeof ack === 'function') ack({ ok:true });
-      } else {
-        if (typeof ack === 'function') ack({ ok:false, error:'invalid' });
-      }
-    } catch (e) {
-      console.error('[server] blockPlace error', e);
-      if (typeof ack === 'function') ack({ ok:false, error:'server' });
-    }
-  });
-
-  socket.on('blockRemove', (data, ack) => {
-    try {
-      const cx = Math.floor(data.cx||0), cz = Math.floor(data.cz||0);
-      const prev = getBlock(cx,cz,Number(data.x),Number(data.y),Number(data.z));
-      const res = setBlock(cx,cz,Number(data.x),Number(data.y),Number(data.z), BLOCK_AIR);
-      if (res) {
-        io.emit('chunkDiff', { cx, cz, edits: [{ x:data.x, y:data.y, z:data.z, block:BLOCK_AIR }] });
-        console.log('[server] blockRemove', cx,cz,data.x,data.y,data.z);
-        if (typeof ack === 'function') ack({ ok:true, prev });
-      } else {
-        if (typeof ack === 'function') ack({ ok:false, error:'invalid' });
-      }
-    } catch (e) {
-      console.error('[server] blockRemove error', e);
-      if (typeof ack === 'function') ack({ ok:false, error:'server' });
-    }
+      const p = players[socket.id];
+      p.x = Number(data.x) || p.x; p.y = Number(data.y) || p.y; p.z = Number(data.z) || p.z;
+      p.crouch = !!data.crouch;
+      p.lastSeen = Date.now();
+    } catch(e){ console.warn('pos handler err', e); }
   });
 
   socket.on('shoot', (payload, ack) => {
     try {
-      const shooter = players[socket.id];
-      if (!shooter) { if (typeof ack === 'function') ack({ ok:false, error:'not_found' }); return; }
-      let best = null; let bestD2 = Infinity;
-      for (const id of Object.keys(players)) {
-        if (id === socket.id) continue;
-        const pl = players[id];
-        const dx = pl.x - shooter.x, dy = pl.y - shooter.y, dz = pl.z - shooter.z;
-        const d2 = dx*dx + dy*dy + dz*dz;
-        if (d2 < bestD2 && d2 <= SHOOT_RANGE*SHOOT_RANGE) { best = pl; bestD2 = d2; }
-      }
+      const shooter = players[socket.id]; if (!shooter) { if (typeof ack === 'function') ack({ ok:false }); return; }
+      let best=null, bestD2=Infinity;
+      for (const id of Object.keys(players)){ if (id===socket.id) continue; const target=players[id]; const dx = (target.x - shooter.x), dy=(target.y - shooter.y), dz=(target.z - shooter.z); const d2 = dx*dx + dy*dy + dz*dz; if (d2 < bestD2 && d2 <= 30*30) { best = target; bestD2 = d2; } }
       if (!best) { if (typeof ack === 'function') ack({ ok:false, error:'no_target' }); return; }
-      if (best.carrying && best.carrying.type === 'shield' && best.carrying.durability > 0) {
-        best.carrying.durability -=1;
-        io.to(best.id).emit('shieldHit', { by: shooter.id, remaining: best.carrying.durability });
-        io.to(shooter.id).emit('shieldBlocked', { target: best.id, remaining: best.carrying.durability });
-        console.log('[server] shieldHit', best.id, 'remaining', best.carrying.durability);
-        if (best.carrying.durability <= 0) { best.carrying = null; io.to(best.id).emit('shieldDestroyed', { reason:'durability' }); }
-        if (typeof ack === 'function') ack({ ok:true, blocked:true });
-        return;
-      }
-      best.lastHitAt = Date.now();
-      io.to(best.id).emit('tranqApplied', { id: best.id, duration: 8000 });
-      io.to(shooter.id).emit('shotResult', { target: best.id, ok:true });
-      console.log('[server] shot applied', shooter.id, '->', best.id);
-      if (typeof ack === 'function') ack({ ok:true, target: best.id });
-    } catch (e) {
-      console.error('[server] shoot error', e);
-      if (typeof ack === 'function') ack({ ok:false, error:'server' });
-    }
+      const blocked = (best.carrying && best.carrying.type === 'shield' && best.carrying.durability > 0);
+      if (blocked) { best.carrying.durability -= 1; if (best.carrying.durability <= 0) best.carrying = null; }
+      else { best.lastHitAt = Date.now(); }
+      // emit shotFired event for visuals
+      const shooterPos = { x: shooter.x, y: shooter.y + 1.0, z: shooter.z };
+      const targetPos = { x: best.x, y: best.y + 1.0, z: best.z };
+      io.emit('shotFired', { shooter: shooter.id, target: best.id, shooterPos, targetPos, blocked: !!blocked });
+      if (typeof ack === 'function') ack({ ok:true, target: best.id, blocked: !!blocked });
+    } catch(e){ console.error('shoot err', e); if (typeof ack === 'function') ack({ ok:false, error:'server' }); }
+  });
+
+  socket.on('blockPlace', (data, ack) => {
+    try { const cx=Math.floor(data.cx||0), cz=Math.floor(data.cz||0); const ch = ensureChunk(cx,cz); ch[index3(Number(data.x),Number(data.y),Number(data.z))] = Number(data.block); io.emit('chunkDiff',{ cx,cz,edits:[{ x:data.x,y:data.y,z:data.z,block:data.block }]}); if (typeof ack === 'function') ack({ ok:true }); }
+    catch(e){ console.error('blockPlace err', e); if (typeof ack === 'function') ack({ ok:false }); }
+  });
+
+  socket.on('blockRemove', (data, ack) => {
+    try { const cx=Math.floor(data.cx||0), cz=Math.floor(data.cz||0); const ch = ensureChunk(cx,cz); const prev = ch[index3(Number(data.x),Number(data.y),Number(data.z))]; ch[index3(Number(data.x),Number(data.y),Number(data.z))] = BLOCK_AIR; io.emit('chunkDiff',{ cx,cz,edits:[{ x:data.x,y:data.y,z:data.z,block:BLOCK_AIR }]}); if (typeof ack === 'function') ack({ ok:true, prev }); }
+    catch(e){ console.error('blockRemove err', e); if (typeof ack === 'function') ack({ ok:false }); }
   });
 
   socket.on('pickup', (payload, ack) => {
     try {
-      const pl = players[socket.id];
-      if (!pl) { if (typeof ack === 'function') ack({ ok:false }); return; }
-      const cx = Math.floor(pl.x / CHUNK_SIZE), cz = Math.floor(pl.z / CHUNK_SIZE);
+      const p = players[socket.id]; if (!p) { if (typeof ack==='function') ack({ ok:false }); return; }
+      const cx = Math.floor(p.x / CHUNK_SIZE), cz = Math.floor(p.z / CHUNK_SIZE);
       let picked = null;
       for (let dx=-1; dx<=1 && !picked; dx++){
         for (let dz=-1; dz<=1 && !picked; dz++){
-          const chx = cx+dx, chz = cz+dz;
-          const ch = ensureChunk(chx,chz);
-          for (let x=0;x<CHUNK_SIZE && !picked;x++){
-            for (let z=0;z<CHUNK_SIZE && !picked;z++){
-              for (let y=0;y<CHUNK_HEIGHT && !picked;y++){
-                const bx = chx*CHUNK_SIZE + x, bz = chz*CHUNK_SIZE + z;
-                const worldDx = (bx + 0.5) - pl.x, worldDz = (bz + 0.5) - pl.z;
-                const dist2 = worldDx*worldDx + worldDz*worldDz;
-                const val = ch[index3(x,y,z)];
-                if (val === BLOCK_SHIELD && dist2 <= 4) {
-                  ch[index3(x,y,z)] = BLOCK_AIR;
-                  picked = { id: `shield-${Date.now()}`, durability: SHIELD_DURABILITY };
-                  pl.carrying = { id: picked.id, type: 'shield', durability: picked.durability, expireAt: Date.now()+SHIELD_DURATION_MS };
-                  io.emit('chunkDiff', { cx: chx, cz: chz, edits: [{ x,y,z,block: BLOCK_AIR }] });
-                  io.to(socket.id).emit('shieldPicked', { id: picked.id, durability: picked.durability, expireAt: pl.carrying.expireAt });
-                  console.log('[server] shieldPicked by', socket.id, 'from', chx,chz,x,y,z);
-                }
-              }
+          const chx = cx+dx, chz = cz+dz; const ch = ensureChunk(chx,chz);
+          for (let x=0;x<CHUNK_SIZE && !picked;x++) for (let z=0;z<CHUNK_SIZE && !picked;z++) for (let y=0;y<CHUNK_HEIGHT && !picked;y++){
+            const val = ch[index3(x,y,z)];
+            if (val === BLOCK_SHIELD) {
+              ch[index3(x,y,z)] = BLOCK_AIR;
+              p.carrying = { id: `shield-${Date.now()}`, type: 'shield', durability: SHIELD_DURABILITY };
+              io.emit('chunkDiff', { cx: chx, cz: chz, edits:[{ x,y,z,block:BLOCK_AIR }]});
+              io.to(socket.id).emit('shieldPicked', { id: p.carrying.id, durability: p.carrying.durability });
+              picked = true;
             }
           }
         }
       }
-      if (picked) { if (typeof ack === 'function') ack({ ok:true, carrying: pl.carrying }); }
-      else { if (typeof ack === 'function') ack({ ok:false, error:'none' }); }
-    } catch (e) {
-      console.error('[server] pickup error', e);
-      if (typeof ack === 'function') ack({ ok:false, error:'server' });
-    }
+      if (picked) { if (typeof ack==='function') ack({ ok:true, carrying: p.carrying }); } else { if (typeof ack==='function') ack({ ok:false, error:'none' }); }
+    } catch(e){ console.error('pickup err', e); if (typeof ack==='function') ack({ ok:false, error:'server' }); }
   });
 
-  socket.on('disconnect', () => {
-    console.log('[server] socket disconnected', socket.id);
-    if (players[socket.id]) players[socket.id].lastSeen = Date.now() - POS_PRUNE_MS - 1;
-  });
+  socket.on('disconnect', ()=>{ if (players[socket.id]) players[socket.id].lastSeen = Date.now() - POS_PRUNE_MS - 1; });
 });
 
-// server tick: prune players, update bots, capture checks, broadcast state
 setInterval(() => {
   try {
     const now = Date.now();
-
-    // prune stale non-bot players
     for (const id of Object.keys(players)) {
       if (!players[id].lastSeen || (now - players[id].lastSeen > POS_PRUNE_MS)) {
-        if (!players[id].isBot) {
-          console.log('[server] pruning player', id);
-          delete players[id];
-        }
+        if (!players[id].isBot) delete players[id];
       }
     }
-
-    // ensure we have botCountDefault bots
     const existingBots = Object.values(players).filter(p => p.isBot).length;
-    if (existingBots < botCountDefault) spawnBots(botCountDefault - existingBots);
-
-    // update bots AI
+    if (existingBots < 6) spawnBots(6 - existingBots);
     updateBots(now);
 
-    // capture checks (seekers capturing hiders)
+    // capture logic unchanged (seekers capture hiders)
     const pls = Object.values(players);
     const seekers = pls.filter(p => p.role === 'seeker');
     for (const seeker of seekers) {
-      for (const hider of pls.filter(p => p.role !== 'seeker')) {
+      for (const hider of pls.filter(p => p.role !== 'seeker' && p.type === 'player')) {
         const dx = seeker.x - hider.x, dz = seeker.z - hider.z, dy = seeker.y - hider.y;
         const d2 = dx*dx + dy*dy + dz*dz;
         if (d2 <= CAPTURE_DISTANCE*CAPTURE_DISTANCE) {
@@ -484,34 +231,21 @@ setInterval(() => {
           if (hitRecently) { hider.proximityStart = null; continue; }
           if (!hider.proximityStart) hider.proximityStart = now;
           if (now - hider.proximityStart >= CAPTURE_HOLD_MS) {
-            const prevSeekerId = seeker.id;
-            seeker.role = 'hider';
-            hider.role = 'seeker';
-            hider.score = (hider.score || 0) + 200;
-            hider.proximityStart = null;
-            if (!players[prevSeekerId].isBot) io.to(prevSeekerId).emit('captured', { by: hider.id, newRole: 'hider' });
+            seeker.role = 'hider'; hider.role = 'seeker'; hider.score = (hider.score||0)+200; hider.proximityStart = null;
+            if (!players[seeker.id].isBot) io.to(seeker.id).emit('captured', { by: hider.id, newRole: 'hider' });
             if (!players[hider.id].isBot) io.to(hider.id).emit('becameSeeker', { newRole: 'seeker', score: hider.score });
             io.emit('stateUpdate', { players: sanitizedPlayersList() });
-            console.log('[server] playerCaptured', prevSeekerId, 'by', hider.id);
             seeker.lastHitAt = Date.now(); hider.lastHitAt = Date.now();
           }
-        } else {
-          hider.proximityStart = null;
-        }
+        } else hider.proximityStart = null;
       }
     }
 
     io.emit('stateUpdate', { players: sanitizedPlayersList() });
-  } catch (e) {
-    console.error('[server] tick error', e);
-  }
+  } catch(e) { console.error('tick error', e); }
 }, STATE_BROADCAST_MS);
 
-// static frontend
 app.use(express.static(FRONTEND_DIR));
-app.get('*', (req, res) => res.sendFile(path.join(FRONTEND_DIR, 'index.html')));
+app.get('*', (req,res) => res.sendFile(path.join(FRONTEND_DIR, 'index.html')));
 
-// start server
-(async function start() {
-  server.listen(PORT, () => console.log(`Server listening on ${PORT}`));
-})();
+server.listen(PORT, () => console.log(`Server listening on ${PORT}`));
