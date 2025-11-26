@@ -1,22 +1,58 @@
+/* Updated style.css - constrains logo, reserves layout space, responsive adjustments */
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;font-family:Inter,system-ui,Arial;background:radial-gradient(circle at 20% 10%,#021224 0,#000 60%);color:#e5e7eb}
-.hts-header{position:fixed;top:12px;left:12px;z-index:120}
-.hts-logo-wrap{display:flex;align-items:center;gap:8px}
-.main-nav{position:fixed;top:18px;right:12px;z-index:130;display:flex;gap:8px}
-.nav-btn{background:rgba(255,255,255,0.04);color:#e5e7eb;padding:8px 12px;border-radius:10px;border:none}
+
+/* Header / logo */
+.hts-header{position:fixed;top:10px;left:12px;right:12px;z-index:220;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.hts-logo-wrap{display:flex;align-items:center;gap:8px;text-decoration:none}
+.hts-logo-large{height:82px;max-height:82px;width:auto;display:block;filter: drop-shadow(0 10px 30px rgba(0,0,0,0.6));margin-left:6px;object-fit:contain}
+
+/* reserve a visible left column on wide screens so logo doesn't overlap the menu */
+@media (min-width:1100px){
+  .main-content { padding-left: 360px; } /* reserve room for a large logo */
+}
+
+/* Navigation */
+.top-actions{display:flex;gap:8px;align-items:center; margin-right:6px;}
+.nav-btn{background:rgba(255,255,255,0.06);color:#e5e7eb;padding:8px 12px;border-radius:999px;border:none;cursor:pointer;box-shadow:0 6px 16px rgba(0,0,0,0.45)}
+
+/* Pages */
 .page{display:none;padding:24px;min-height:100vh}
 .page.active{display:block}
-.menu-card{max-width:760px;margin:100px auto;background:linear-gradient(180deg,rgba(6,11,25,0.95),rgba(3,7,18,0.9));padding:22px;border-radius:18px;box-shadow:0 30px 80px rgba(0,0,0,0.6)}
-.menu-title{font-size:30px;color:#fff;margin-bottom:8px}
+
+/* Centered card */
+.menu-card{max-width:760px;margin:120px auto;background:linear-gradient(180deg,rgba(6,11,25,0.96),rgba(3,7,18,0.94));padding:28px;border-radius:18px;box-shadow:0 30px 80px rgba(0,0,0,0.7)}
+.menu-title{font-size:34px;color:#fff;margin-bottom:6px;letter-spacing:0.02em}
+.menu-subtitle{color:#cbd5e1;margin-bottom:10px}
+.menu-form{margin-top:8px}
 .menu-form label{display:block;font-size:12px;color:#9ca3af;margin-top:12px}
 input,select,textarea{width:100%;padding:10px 12px;border-radius:10px;border:none;background:rgba(255,255,255,0.02);color:#e5e7eb}
-.btn-primary{background:linear-gradient(90deg,#f97316,#facc15);padding:12px 18px;border-radius:999px;border:none;color:#111;font-weight:700}
+.btn-primary{display:inline-block;background-image:linear-gradient(90deg,#f97316,#facc15);padding:12px 18px;border-radius:999px;border:none;color:#111;font-weight:700;cursor:pointer}
 .btn-secondary{background:rgba(255,255,255,0.04);padding:8px 10px;border-radius:10px;border:none;color:#e5e7eb}
+.invite-area{margin-top:8px;color:#cbd5e1}
+.invite-text{background:rgba(255,255,255,0.02);padding:8px 10px;border-radius:8px;display:inline-block}
+
+/* Canvas / HUD */
 #gameCanvas{position:fixed;inset:0;z-index:0;width:100%;height:100%;display:block;background:#000}
-.hud{position:fixed;top:18px;left:18px;z-index:200;display:flex;flex-direction:column;gap:6px;color:#d1d5db}
+.hud{position:fixed;top:100px;left:18px;z-index:200;display:flex;flex-direction:column;gap:6px;color:#d1d5db}
+.leaderboard{position:fixed;right:24px;top:160px;z-index:200;background:rgba(10,14,25,0.9);padding:12px;border-radius:12px}
+
+/* Tranq overlay + shoot */
 .tranq-overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:300;pointer-events:none}
-.tranq-overlay-inner{background:rgba(3,7,18,0.8);padding:18px 22px;border-radius:12px;color:#fef3c7}
+.tranq-overlay-inner{background:rgba(3,7,18,0.88);padding:18px 22px;border-radius:12px;color:#fef3c7}
 .shoot-btn{position:fixed;right:20px;bottom:20px;width:84px;height:84px;border-radius:50%;background:radial-gradient(circle at 30% 0,#f97316 0,#b91c1c 55%);border:none;color:#fff;z-index:80;display:none}
 @media (min-width:800px){ .shoot-btn{display:block} }
-.leaderboard{position:fixed;right:24px;top:86px;z-index:200;background:rgba(10,14,25,0.9);padding:12px;border-radius:12px}
+
 .waiting-overlay{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);background:rgba(3,7,18,0.92);padding:12px 18px;color:#e5e7eb;border-radius:8px;z-index:1000}
+.menu-howto ol{margin-left:16px; margin-top:12px; color:#cbd5e1}
+.menu-howto li{margin-bottom:8px}
+
+/* Smaller screens: hide large reserved left column and scale logo down */
+@media (max-width:1099px){
+  .main-content { padding-left: 16px; padding-right:16px; }
+  .hts-logo-large { height:56px; max-height:56px; }
+  .menu-card { margin: 80px 12px; }
+}
+
+/* Accessibility / footer */
+.footer-inner{position:fixed;left:0;right:0;bottom:8px;display:flex;justify-content:center;pointer-events:none;color:#9ca3af;z-index:220}
