@@ -353,6 +353,9 @@ setInterval(() => {
 
   for (const roomId in gameState.rooms) {
     const room = gameState.rooms[roomId];
+    
+    // Skip empty rooms to save CPU
+    if (Object.keys(room.players).length === 0) continue;
 
     // Prune stale players
     for (const playerId in room.players) {

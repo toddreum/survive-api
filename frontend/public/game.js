@@ -101,7 +101,8 @@ function setupPollingSocket(){
       transports: ['polling'],
       upgrade: false,
       reconnectionAttempts: 10,
-      reconnectionDelay: 1000,
+      reconnectionDelay: 2000,
+      reconnectionDelayMax: 10000,
       timeout: 7000
     });
 

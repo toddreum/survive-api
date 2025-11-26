@@ -159,7 +159,7 @@
         roughness: 0.4,
         metalness: 0.6,
         emissive: colors[i % colors.length],
-        emissiveIntensity: 0.2
+        emissiveIntensity: 0.1
       });
       const cube = new THREE.Mesh(geometry, material);
       
@@ -179,10 +179,10 @@
   function loadModel(url, onLoad, onError) {
     console.log('[initThree] loadModel called for', url);
     
-    // Check if GLTFLoader is available
-    if (typeof THREE.GLTFLoader === 'undefined') {
-      console.warn('[initThree] GLTFLoader not available - model loading skipped');
-      if (onError) onError(new Error('GLTFLoader not available'));
+    // Check if GLTFLoader is available (needs separate script: GLTFLoader.js)
+    if (typeof THREE === 'undefined' || !THREE.GLTFLoader) {
+      console.warn('[initThree] GLTFLoader not available - load GLTFLoader.js from three.js examples');
+      if (onError) onError(new Error('GLTFLoader not available - include GLTFLoader.js'));
       return;
     }
 
