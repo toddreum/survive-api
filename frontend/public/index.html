@@ -2,91 +2,127 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Survive Voxel Prototype — Hide To Survive</title>
+  <title>Hide To Survive — Multiplayer Hide & Seek</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <link rel="icon" href="/favicon.svg" />
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body class="holiday">
   <header class="hts-header">
-    <a class="hts-logo-wrap" href="/" aria-label="Survive.com">
-      <!-- Inline SVG fallback -->
-      <svg width="180" height="48" viewBox="0 0 400 80" xmlns="http://www.w3.org/2000/svg" role="img">
-        <rect width="100%" height="100%" rx="10" fill="#061E33" />
-        <text x="22" y="50" font-family="Inter, Arial, sans-serif" font-weight="700" font-size="34" fill="#00E6FF">SURVIVE</text>
-      </svg>
-      <img id="siteLogo" src="/logo.png" alt="Survive.com logo" class="hts-logo-img" style="height:48px; display:none;" onload="this.style.display='block'" onerror="this.style.display='none'"/>
+    <!-- Large logo only (no text label) -->
+    <a class="hts-logo-wrap" href="/" aria-label="Game Home">
+      <img id="siteLogoLarge" src="/logo.png" alt="Game logo" class="hts-logo-large" onerror="this.style.display='none'"/>
+      <!-- SVG fallback if logo.png missing -->
+      <img id="siteLogoSvg" src="/logo.svg" alt="Game logo" class="hts-logo-large" />
     </a>
+
+    <nav class="top-actions" aria-label="Top actions">
+      <button id="navLogin" class="nav-btn">Login</button>
+      <button id="navHow" class="nav-btn">How To Play</button>
+      <button id="navPlay" class="nav-btn">Play</button>
+    </nav>
   </header>
 
-  <nav class="main-nav">
-    <button id="navLogin" class="nav-btn">Login</button>
-    <button id="navHow" class="nav-btn">How To Play</button>
-    <button id="navPlay" class="nav-btn">Play</button>
-  </nav>
+  <main>
+    <section id="pageLogin" class="page active">
+      <main class="menu-card">
+        <h1 class="menu-title">HIDE TO SURVIVE</h1>
+        <p class="menu-subtitle">Fast-paced voxel hide-and-seek — multiplayer matches with shields, captures, and tactical play.</p>
 
-  <section id="pageLogin" class="page active">
-    <main class="menu-card">
-      <h1 class="menu-title">HIDE TO SURVIVE</h1>
-      <p class="menu-subtitle">Fast-paced voxel hide-and-seek prototype.</p>
+        <div class="menu-form">
+          <label for="playerName">Name</label>
+          <input id="playerName" type="text" placeholder="Player#1234" maxlength="30" />
 
-      <div class="menu-form">
-        <label for="playerName">Name</label>
-        <input id="playerName" type="text" placeholder="Player" maxlength="30" />
+          <label for="roomId">Room (optional)</label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input id="roomId" type="text" placeholder="default" style="flex:1;" />
+            <button id="createRoomBtn" class="btn-secondary">Create Room</button>
+          </div>
 
-        <label for="roomId">Room (optional)</label>
-        <div style="display:flex; gap:8px; align-items:center;">
-          <input id="roomId" type="text" placeholder="default" style="flex:1;" />
-          <button id="createRoomBtn" class="btn-secondary">Create Room</button>
+          <div id="inviteArea" class="invite-area hidden">
+            <span id="inviteText" class="invite-text"></span>
+          </div>
+
+          <label for="botCount">Bot Count</label>
+          <input id="botCount" type="number" min="0" max="16" value="4" />
+
+          <button id="joinBtn" class="btn-primary" style="margin-top:12px;">JOIN MATCH</button>
+          <div style="margin-top:8px;color:#9ca3af;font-size:13px;">
+            Hint: Click the canvas to lock pointer. Use WASD + mouse. Q to place block, R to remove, E to pick up shield. Press E to pickup shields.
+          </div>
         </div>
+      </main>
+    </section>
 
-        <div id="inviteArea" class="invite-area hidden">
-          <span id="inviteText"></span>
-          <button id="copyInviteBtn" class="btn-primary small">Copy</button>
+    <section id="pageHow" class="page">
+      <main class="menu-card">
+        <h2>HOW TO PLAY</h2>
+        <div class="menu-howto">
+          <ol>
+            <li><strong>Objective</strong>: Survive as a Hider or hunt as the Seeker. Hiders score points by surviving, capturing Seekers, and using shields. Seekers score by tranqing Hiders.</li>
+            <li><strong>Roles</strong>:
+              <ul>
+                <li>Hider — runs, hides, picks up shields, and can capture Seekers by reaching them without being hit.</li>
+                <li>Seeker — has the tranquilizer gun. Shoot Hiders to temporarily disable them. If a Hider reaches you they can capture you and take the gun.</li>
+              </ul>
+            </li>
+            <li><strong>Capture rule</strong>: If a Hider gets within capture distance (close range) of the Seeker and remains there without being hit for a short hold time, the Hider captures the Seeker. Roles swap and the capturer (Hider) becomes Seeker and receives the gun. Successful captures award big points.</li>
+            <li><strong>Shields</strong>: Shields are world items you can pick up (press E or auto-pick). Shield behavior:
+              <ul>
+                <li>Durability model: shields block a fixed number of dart hits (default 3) or expire after a duration (default 20s), whichever comes first.</li>
+                <li>When a shield absorbs a dart the durability decreases; at 0 the shield breaks.</li>
+                <li>Shields can be carried and will be shown in your HUD.</li>
+              </ul>
+            </li>
+            <li><strong>Shooting & Tranquilizer</strong>: The Seeker's darts sedate Hiders (tranq). If the target has an active shield the dart is blocked; the shield loses durability. Sedated players are temporarily out until revived or time passes.</li>
+            <li><strong>Block & World Interaction</strong>: Use Q to place a block and R to remove a block in front of you (useful for quick cover). Shields may appear as world blocks or pickups in the voxel landscape.</li>
+            <li><strong>Movement</strong>: WASD + mouse; click canvas to lock pointer. Jump with Space.</li>
+            <li><strong>Scoring</strong>:
+              <ul>
+                <li>Capturing a Seeker grants a large point bonus to the capturer.</li>
+                <li>Shooting an opponent grants modest points.</li>
+                <li>Survival time contributes small ongoing points for Hiders.</li>
+              </ul>
+            </li>
+            <li><strong>Maps & Travel</strong>: You can move freely across landscapes. We aim for multiple unique maps (city, forest, mall, bunker) with traversal options and varied sight-lines for tactical play.</li>
+            <li><strong>Fair play</strong>: This prototype uses client position updates for responsiveness. For public release we'll move collision/physics server-side and add anti-cheat measures.</li>
+            <li><strong>Multiplayer tips</strong>: Test with multiple windows. Shields block a few hits — use them wisely. If you become Seeker, try keeping distance and using terrain to your advantage.</li>
+          </ol>
         </div>
+      </main>
+    </section>
 
-        <label for="botCount">Bot Count</label>
-        <input id="botCount" type="number" min="0" max="16" value="4" />
+    <section id="pagePlay" class="page">
+      <canvas id="gameCanvas"></canvas>
 
-        <button id="joinBtn" class="btn-primary" style="margin-top:12px;">JOIN MATCH</button>
-        <div style="margin-top:8px;color:#9ca3af;font-size:13px;">Hint: Click the canvas to lock pointer. Use WASD + mouse. Q to place block, R to remove, E to pick up shield.</div>
+      <div id="hud" class="hud hidden">
+        <div id="playerDisplayName" class="hud-role"></div>
+        <div id="roleLabel" class="hud-role"></div>
+        <div id="timerLabel"></div>
+        <div id="playersLabel"></div>
+        <div id="connectionStatus" style="font-size:0.9rem;color:#9ca3af;"></div>
+        <div id="shieldStatus" style="font-size:0.95rem;color:#fef3c7;"></div>
       </div>
-    </main>
-  </section>
 
-  <section id="pageHow" class="page">
-    <main class="menu-card">
-      <h2>HOW TO PLAY</h2>
-      <p>Hiders pick up shields to block darts. If a hider reaches the seeker and holds proximity they capture the seeker and take the gun.</p>
-    </main>
-  </section>
+      <aside id="leaderboard" class="leaderboard hidden"><h3>Leaderboard</h3><ul id="leaderboardList"></ul></aside>
 
-  <section id="pagePlay" class="page">
-    <canvas id="gameCanvas"></canvas>
+      <div id="tranqOverlay" class="tranq-overlay hidden"><div class="tranq-overlay-inner"><h2>TRANQUILIZED!</h2><p>You'll recover shortly.</p></div></div>
 
-    <div id="hud" class="hud hidden">
-      <div id="playerDisplayName"></div>
-      <div id="roleLabel"></div>
-      <div id="playersLabel"></div>
-      <div id="connectionStatus">Not connected</div>
-      <div id="shieldStatus"></div>
-    </div>
-
-    <div id="tranqOverlay" class="tranq-overlay hidden"><div class="tranq-overlay-inner"><h2>TRANQUILIZED!</h2></div></div>
-
-    <button id="shootBtn" class="shoot-btn">SHOOT</button>
-    <aside id="leaderboard" class="leaderboard"><h3>Leaderboard</h3><ul id="leaderboardList"></ul></aside>
-  </section>
+      <button id="shootBtn" class="shoot-btn">SHOOT</button>
+    </section>
+  </main>
 
   <footer class="site-footer">
     <div class="footer-inner">
-      <span>© Survive.com 2025</span>
+      <span>© 2025</span>
       <span class="footer-support"><a id="supportLink" href="#" class="support-link">Support</a></span>
     </div>
   </footer>
 
+  <!-- scripts -->
   <script src="/env.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r127/three.min.js"></script>
+  <!-- reliable modern three.js -->
+  <script src="https://unpkg.com/three@0.152.2/build/three.min.js"></script>
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script src="/initThree.js"></script>
   <script src="/initVoxel.js"></script>
@@ -98,7 +134,7 @@
       function showPage(id) { document.querySelectorAll('.page').forEach(p=>p.classList.remove('active')); const el = document.getElementById(id); if (el) el.classList.add('active'); }
       document.getElementById('navHow').addEventListener('click', (e)=>{ e.preventDefault(); showPage('pageHow'); });
       document.getElementById('navLogin').addEventListener('click', (e)=>{ e.preventDefault(); showPage('pageLogin'); });
-      document.getElementById('navPlay').addEventListener('click', (e)=>{ e.preventDefault(); showPage('pagePlay'); });
+      document.getElementById('navPlay').addEventListener('click', (e)=>{ e.preventDefault(); if (window.myId || (window.hts && window.hts.socketConnected)) showPage('pagePlay'); else { alert('Please JOIN MATCH first'); showPage('pageLogin'); } });
     })();
   </script>
 </body>
