@@ -3,7 +3,7 @@
 // - HUD now shows points and charge meter, and Phase button when eligible.
 // - On hit we show shooter marker and a short description; we no longer tranquilize.
 // - When Phase is active we allow temporary "phase" movement (client-side bypass of collision).
-// - Rules updated on the How To Play page (modify index.html separately).
+// - Rules updated on the How To Play page (index.html).
 
 const BACKEND_URL = (typeof window !== 'undefined' && window.__BACKEND_URL__ && window.__BACKEND_URL__.length)
   ? window.__BACKEND_URL__ : (typeof window !== 'undefined' && window.location && window.location.origin ? window.location.origin : 'https://survive.com');
@@ -13,9 +13,8 @@ const SESSION_KEY = 'survive.session.v1';
 function $(id){ return document.getElementById(id); }
 
 let socket = null, voxelStarted=false, myId=null, myRole='', myPoints=0, myCharge=0, myPhaseActive=false, myPhaseExpires=0;
-let offlineMode=false;
+window._myPhaseActive = false;
 
-// Setup socket
 function setupSocket(){
   if (socket) return socket;
   socket = io(BACKEND_URL, { timeout:10000, reconnectionAttempts:5, transports:['polling','websocket'] });
@@ -28,8 +27,9 @@ function setupSocket(){
     if (info && info.id === myId) {
       myPhaseActive = true;
       myPhaseExpires = Date.now() + (info.duration || 6000);
+      window._myPhaseActive = true;
       updateHUD();
-      setTimeout(()=>{ myPhaseActive = false; updateHUD(); }, info.duration || 6000);
+      setTimeout(()=>{ myPhaseActive = false; window._myPhaseActive = false; updateHUD(); }, info.duration || 6000);
     }
   });
   return socket;
@@ -42,11 +42,11 @@ function onJoined(p){
   document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));
   $('pagePlay').classList.add('active');
   $('hud').classList.remove('hidden');
-  // start renderer and chunk requests
   if (!voxelStarted && window.VoxelWorld && window.VoxelWorld.start) {
     voxelStarted = !!window.VoxelWorld.start();
     if (voxelStarted) for (let cx=-2; cx<=2; cx++) for (let cz=-2; cz<=2; cz++) window.VoxelWorld.requestChunk(cx,cz);
   }
+  startPosLoop();
 }
 
 function onState(s){
@@ -59,22 +59,20 @@ function onState(s){
     myPhaseActive = !!me.phaseActive;
     updateHUD();
   }
-  if (window.VoxelWorld && window.VoxelWorld.updatePlayers) window.VoxelWorld.updatePlayers(players);
+  if (window.VoxelWorld && typeof window.VoxelWorld.updatePlayers === 'function') window.VoxelWorld.updatePlayers(players);
 }
 
 function onPlayerHit(info){
-  // info: { shooter, target, shooterPos, targetPos, blocked, shooterPoints, shooterCharge }
   if (!info) return;
-  // if I'm the target, show persistent marker and message
   if (info.target === myId) {
-    toast(`Hit by ${info.shooter}`, 3000);
+    const shooterName = info.shooter;
+    toast(`Hit by ${shooterName}`, 3000);
     if (window.VoxelWorld && typeof window.VoxelWorld.showShooterMarker === 'function') {
-      window.VoxelWorld.showShooterMarker(info.shooterPos, info.shooter, 6000);
+      window.VoxelWorld.showShooterMarker(info.shooterPos || {x:0,y:1.6,z:0}, info.shooter, 6000);
     } else if (window.VoxelWorld && typeof window.VoxelWorld.spawnShotEffect === 'function') {
-      window.VoxelWorld.spawnShotEffect(info.shooterPos, info.targetPos, 0xff6666);
+      window.VoxelWorld.spawnShotEffect(info.shooterPos || {x:0,y:1.6,z:0}, info.targetPos || {x:0,y:1.6,z:0}, 0xff6666);
     }
   }
-  // update shooter's points/charge if it's me
   if (info.shooter === myId) {
     myPoints = info.shooterPoints || myPoints;
     myCharge = info.shooterCharge || myCharge;
@@ -83,12 +81,8 @@ function onPlayerHit(info){
 }
 
 function updateHUD(){
-  const lbl = $('playersLabel');
-  if (lbl) lbl.textContent = `${lbl.textContent || ''}`; // keep players label as is
-  const pd = $('playerDisplayName'); if (pd) pd.textContent = pd.textContent || 'You';
-  const scoreEl = document.getElementById('scoreLabel') || (()=>{ const e=document.createElement('div'); e.id='scoreLabel'; e.style.fontWeight='700'; e.style.color='#ffd'; document.getElementById('hud').appendChild(e); return e; })();
-  scoreEl.textContent = `Points: ${myPoints}  Charge: ${myCharge}`;
-  // show phase button when eligible
+  const scoreEl = document.getElementById('scoreLabel');
+  if (scoreEl) scoreEl.textContent = `Points: ${myPoints}  Charge: ${myCharge}`;
   let phaseBtn = document.getElementById('phaseBtn');
   if (!phaseBtn) {
     phaseBtn = document.createElement('button'); phaseBtn.id = 'phaseBtn'; phaseBtn.className='btn-secondary'; phaseBtn.textContent='Activate Phase';
@@ -101,16 +95,14 @@ function updateHUD(){
     });
     document.getElementById('hud').appendChild(phaseBtn);
   }
-  phaseBtn.disabled = !(myCharge >= 5) || myPhaseActive;
-  if (myPhaseActive) phaseBtn.textContent = 'Phased';
-  else phaseBtn.textContent = 'Activate Phase';
+  phaseBtn.disabled = !(myCharge >= CHARGE_TO_PHASE) || myPhaseActive;
+  if (myPhaseActive) phaseBtn.textContent = 'Phased'; else phaseBtn.textContent = 'Activate Phase';
 }
 
-// shooting: left-click or button
 window.doLocalShoot = function(){
   if (!socket || !socket.connected) { toast('Not connected'); return; }
   if (!myId) { toast('Not in a room'); return; }
-  socket.emit('shoot', {}, (ack)=>{ if (ack && ack.ok) { /* fire acknowledged */ } });
+  socket.emit('shoot', {}, (ack)=>{ if (ack && ack.ok) {} });
 };
 
 function startPosLoop(){
@@ -125,17 +117,17 @@ function startPosLoop(){
 
 document.addEventListener('DOMContentLoaded', ()=> {
   setupSocket();
-  // connect UI
   const shootBtn = $('shootBtn'); if (shootBtn) { shootBtn.addEventListener('click', (e)=>{ e.preventDefault(); window.doLocalShoot(); }); shootBtn.style.display = 'block'; }
-  // start renderer if present
   if (window.VoxelWorld && window.VoxelWorld.start) { voxelStarted = !!window.VoxelWorld.start(); if (voxelStarted) for (let cx=-2; cx<=2; cx++) for (let cz=-2; cz<=2; cz++) window.VoxelWorld.requestChunk(cx,cz); }
-  // auto join if session
   const sessJson = sessionStorage.getItem(SESSION_KEY); if (sessJson) {
     try {
-      const sess = JSON.parse(sessJson); if (sess && sess.name) { // attempt auto-join
+      const sess = JSON.parse(sessJson); if (sess && sess.name) {
         setupSocket();
         socket && socket.connected && socket.emit('joinGame', { name: sess.name, roomId: sess.roomId||'default', options:{ botCount: sess.botCount||8 } }, ()=>{});
       }
     } catch (e) {}
   }
 });
+
+function toast(msg, ms=2000){ const s=$('connectionStatus'); if(!s) return; const prev=s.textContent; s.textContent=msg; if(ms) setTimeout(()=>s.textContent=prev,ms); }
+const CHARGE_TO_PHASE = 5;
