@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Hide To Survive — Multiplayer Hide & Seek</title>
+  <title>Hide To Survive — Multiplayer Block Game</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <link rel="icon" href="/favicon.svg" />
   <link rel="stylesheet" href="/style.css" />
@@ -17,14 +17,16 @@
       <button id="navLogin" class="nav-btn">Login</button>
       <button id="navHow" class="nav-btn">How To Play</button>
       <button id="navPlay" class="nav-btn">Play</button>
+      <button id="navContact" class="nav-btn">Contact</button>
     </nav>
   </header>
 
   <main class="main-content" role="main">
+    <!-- Login / Join card -->
     <section id="pageLogin" class="page active" aria-labelledby="loginTitle">
       <main class="menu-card" role="region" aria-label="Join menu">
         <h1 id="loginTitle" class="menu-title">HIDE TO SURVIVE</h1>
-        <p class="menu-subtitle">Fast-paced voxel hide-and-seek — multiplayer matches with shields, captures, and tactical play.</p>
+        <p class="menu-subtitle">Fast-paced block-based hide-and-seek — multiplayer matches with shields, captures, and tactical play.</p>
 
         <div class="menu-form">
           <label for="playerName">Name</label>
@@ -41,32 +43,64 @@
           </div>
 
           <label for="botCount">Bot Count</label>
-          <input id="botCount" type="number" min="0" max="32" value="4" />
+          <input id="botCount" type="number" min="0" max="64" value="12" />
 
           <div style="margin-top:12px">
             <button id="joinBtn" class="btn-primary">JOIN MATCH</button>
           </div>
 
-          <p class="hint">Hint: Click the canvas overlay to lock pointer. Use WASD + mouse. Q to place block, R to remove, E to pick up shield.</p>
+          <p class="hint">Hint: Click the canvas overlay to lock pointer. Use WASD or arrow keys + mouse. Q to place a block, R to remove, E to pick up shield.</p>
         </div>
       </main>
     </section>
 
+    <!-- How To Play -->
     <section id="pageHow" class="page" aria-labelledby="howTitle">
       <main class="menu-card">
         <h2 id="howTitle">HOW TO PLAY</h2>
         <div class="menu-howto">
           <ol>
-            <li><strong>Objective</strong>: Survive as a Hider or hunt as the Seeker.</li>
-            <li><strong>Roles</strong>: Hider and Seeker — Hiders pick up shields, Seekers have darts.</li>
-            <li><strong>Capture</strong>: Hider holds close to Seeker to capture (hold-time). Roles swap on capture.</li>
-            <li><strong>Shields</strong>: Block limited hits (durability & duration).</li>
-            <li><strong>Controls</strong>: WASD + mouse, click canvas to lock pointer, Q place, R remove, E pickup, SHOOT button to fire.</li>
+            <li><strong>Objective</strong>: Hiders survive and find hiding places; Seekers use tranquilizer darts to catch Hiders.</li>
+            <li><strong>Controls</strong>: Move with WASD or arrow keys, look with mouse (click the game area to lock the pointer). Q place block, R remove, E pick up shields. Use the SHOOT button to fire a dart (if you're the Seeker).</li>
+            <li><strong>Shields</strong>: Shields block a few darts. Pick them up from the world and use them strategically.</li>
+            <li><strong>Maps</strong>: Worlds are composed of chunked block terrain — forests, cities, roads, and buildings offer many hiding places.</li>
+            <li><strong>NPCs</strong>: Birds, vehicles, and animals roam the world and provide dynamic cover and distraction.</li>
+            <li><strong>Tips</strong>: Crouch to hide behind low cover (Control or C). Use serum to recover from tranquilizers (F to use).</li>
           </ol>
         </div>
       </main>
     </section>
 
+    <!-- Contact page (linked from Support in the footer) -->
+    <section id="pageContact" class="page" aria-labelledby="contactTitle">
+      <main class="menu-card">
+        <h2 id="contactTitle">Contact Support</h2>
+        <p class="menu-subtitle">Send a message to support@survive.com</p>
+
+        <div class="menu-form" id="contactFormWrap">
+          <label for="contactName">Your name</label>
+          <input id="contactName" type="text" placeholder="Jane Doe" maxlength="80" />
+
+          <label for="contactEmail">Email</label>
+          <input id="contactEmail" type="email" placeholder="you@example.com" maxlength="120" />
+
+          <label for="contactSubject">Subject</label>
+          <input id="contactSubject" type="text" placeholder="Brief subject" maxlength="140" />
+
+          <label for="contactMessage">Message</label>
+          <textarea id="contactMessage" rows="6" placeholder="Describe your issue or question" maxlength="4000"></textarea>
+
+          <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
+            <button id="contactSendBtn" class="btn-primary">Send Message</button>
+            <span id="contactStatus" class="muted small"></span>
+          </div>
+        </div>
+
+        <p class="hint" style="margin-top:12px;color:#9ca3af;font-size:13px">Messages will be sent to support@survive.com. If your host requires SMTP credentials set them on the backend.</p>
+      </main>
+    </section>
+
+    <!-- Play area -->
     <section id="pagePlay" class="page" aria-label="Play area">
       <div id="playOverlay" class="click-to-play">Click here to play (locks pointer)</div>
       <canvas id="gameCanvas" aria-hidden="true"></canvas>
@@ -84,7 +118,16 @@
 
       <aside id="leaderboard" class="leaderboard hidden" aria-label="Leaderboard"><h3>Leaderboard</h3><ul id="leaderboardList"></ul></aside>
 
-      <div id="tranqOverlay" class="tranq-overlay hidden"><div class="tranq-overlay-inner"><h2>TRANQUILIZED!</h2><p>You'll recover shortly.</p></div></div>
+      <div id="tranqOverlay" class="tranq-overlay hidden"><div class="tranq-overlay-inner"><h2>TRANQUILIZED!</h2><p>Use a serum (F) to recover if you have one.</p></div></div>
+
+      <div id="hintsPanel" class="hints-panel hidden">
+        <h4>Quick Hints</h4>
+        <ul>
+          <li>Click overlay to lock pointer, then move with WASD / arrow keys.</li>
+          <li>Look for shields (gold blocks) and serums (cyan) — shields block darts, serums heal you.</li>
+          <li>Use buildings, trees, and cars for cover. Hold Control or C to crouch.</li>
+        </ul>
+      </div>
 
       <button id="shootBtn" class="shoot-btn">SHOOT</button>
     </section>
@@ -95,12 +138,11 @@
       <div class="footer-left">
         <span class="copyright-symbol">©</span>
         <span class="copyright-year">2025</span>
+        <a class="brand" href="https://survive.com" target="_blank" rel="noopener">Survive.com</a>
       </div>
 
       <div class="footer-right">
-        <a id="supportLink" class="support-link" href="#">Support</a>
-        <span class="footer-sep">—</span>
-        <a class="brand" href="/" rel="noopener">Survive.com</a>
+        <a id="supportLink" class="support-link" href="#" title="Contact support">Support</a>
       </div>
     </div>
   </footer>
@@ -116,10 +158,56 @@
   <script>
     (function () {
       function $(id){ return document.getElementById(id); }
-      function showPage(id) { document.querySelectorAll('.page').forEach(p=>p.classList.remove('active')); const el = document.getElementById(id); if (el) el.classList.add('active'); }
+      function showPage(id) {
+        document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+        const el = document.getElementById(id); if (el) el.classList.add('active');
+      }
       document.getElementById('navHow').addEventListener('click', (e)=>{ e.preventDefault(); showPage('pageHow'); });
       document.getElementById('navLogin').addEventListener('click', (e)=>{ e.preventDefault(); showPage('pageLogin'); });
       document.getElementById('navPlay').addEventListener('click', (e)=>{ e.preventDefault(); if (window.myId || (window.hts && window.hts.socketConnected)) showPage('pagePlay'); else { alert('Please JOIN MATCH first'); showPage('pageLogin'); } });
+      document.getElementById('navContact').addEventListener('click', (e)=>{ e.preventDefault(); showPage('pageContact'); });
+
+      // support link opens contact page
+      document.getElementById('supportLink').addEventListener('click', function(e){
+        e.preventDefault();
+        showPage('pageContact');
+      });
+
+      // contact form send
+      const contactSendBtn = document.getElementById('contactSendBtn');
+      if (contactSendBtn) {
+        contactSendBtn.addEventListener('click', async function(e){
+          e.preventDefault();
+          const name = (document.getElementById('contactName').value || '').trim();
+          const email = (document.getElementById('contactEmail').value || '').trim();
+          const subject = (document.getElementById('contactSubject').value || '').trim();
+          const message = (document.getElementById('contactMessage').value || '').trim();
+          const status = document.getElementById('contactStatus');
+          if (!email || !message) { alert('Please provide your email and a message'); return; }
+          contactSendBtn.disabled = true; status.textContent = 'Sending…';
+          try {
+            const resp = await fetch('/support', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name, email, subject, message })
+            });
+            const j = await resp.json();
+            if (j && j.ok) {
+              status.textContent = 'Message sent. Support will contact you.';
+              document.getElementById('contactName').value=''; document.getElementById('contactSubject').value=''; document.getElementById('contactMessage').value='';
+            } else {
+              status.textContent = 'Could not send message. Try again later.';
+              console.warn('support error', j);
+            }
+          } catch (err) {
+            console.error('support send failed', err);
+            status.textContent = 'Send failed. Try again later.';
+          } finally {
+            contactSendBtn.disabled = false;
+            setTimeout(()=>{ if (status) status.textContent = ''; }, 6000);
+          }
+        });
+      }
     })();
   </script>
 </body>
