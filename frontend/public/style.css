@@ -1,99 +1,309 @@
-/* Full frontend/public/style.css - updated:
-   - Larger logo (desktop) and responsive smaller sizes
-   - Remove image outline/border and unwanted focus ring
-   - Footer spacing adjusted so "©" is immediately before the year and brand sits right after
-   - Kept other styles from the previous layout
+/* Full frontend/public/style.css
+   - Comprehensive styling for header, pages, menu cards, HUD, play canvas, renderer overlays, footer.
+   - Includes responsive rules, improved logo sizing, compact HUD, hide-nav-in-match helper, and accessibility tweaks.
+   - Replace your existing style.css with this file and hard-refresh (Ctrl/Cmd+Shift+R).
 */
 
-*{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;font-family:Inter,system-ui,Arial;background:radial-gradient(circle at 20% 10%,#021224 0,#000 60%);color:#e5e7eb}
+/* Reset / base */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; background: radial-gradient(circle at 20% 10%, #021224 0, #000 60%); color: #e5e7eb; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; }
 
-/* header */
-.hts-header{position:fixed;top:8px;left:8px;right:8px;display:flex;justify-content:space-between;align-items:center;z-index:600;padding:6px}
-.logo-link{display:inline-flex;align-items:center;justify-content:center;padding:6px;border-radius:10px}
-.logo-link img{
-  height:120px;            /* increased size on desktop */
-  max-height:120px;
-  display:block;
-  margin-left:6px;
-  filter:drop-shadow(0 8px 24px rgba(0,0,0,0.6));
-  object-fit:contain;
-  border:0;                 /* remove any border */
-  outline: none;           /* remove default focus outline on images */
+/* --- Header --- */
+.hts-header {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  z-index: 900;
+  padding: 6px;
+  pointer-events: auto;
 }
-.logo-link:focus{ outline: none; } /* no focus ring on the anchor wrapper */
 
-.top-actions{display:flex;gap:8px;align-items:center;margin-right:12px}
-.nav-btn{background:rgba(255,255,255,0.06);color:#e5e7eb;padding:8px 12px;border-radius:999px;border:none;cursor:pointer;box-shadow:0 6px 16px rgba(0,0,0,0.45)}
-
-/* main card */
-.main-content{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
-.page{display:none;width:100%;max-width:1100px}
-.page.active{display:block}
-.menu-card{width:100%;max-width:760px;margin:120px auto 0 auto;background:linear-gradient(180deg,rgba(6,11,25,0.96),rgba(3,7,18,0.94));padding:28px;border-radius:18px;box-shadow:0 30px 80px rgba(0,0,0,0.7);position:relative}
-.menu-title{font-size:34px;color:#fff;margin-bottom:6px}
-.menu-subtitle{color:#cbd5e1;margin-bottom:10px}
-.row{display:flex;gap:8px;align-items:center}
-.row input{flex:1}
-.menu-form label{display:block;font-size:12px;color:#9ca3af;margin-top:12px}
-input,select,textarea{width:100%;padding:10px 12px;border-radius:10px;border:none;background:rgba(255,255,255,0.02);color:#e5e7eb}
-
-/* contact close button and success box */
-.contact-close{position:absolute;right:12px;top:12px;background:transparent;border:none;color:#cbd5e1;font-size:18px;padding:6px;cursor:pointer}
-.contact-close:hover{color:#fff}
-.support-success{display:flex;align-items:center;gap:12px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.12);padding:10px;border-radius:8px;margin-bottom:12px}
-.support-success.hidden{display:none}
-.support-success-close{margin-left:auto;background:transparent;border:none;color:#cbd5e1;font-size:16px;cursor:pointer}
-
-/* buttons */
-.btn-primary{background-image:linear-gradient(90deg,#f97316,#facc15);padding:12px 18px;border-radius:999px;border:none;color:#111;font-weight:700;cursor:pointer}
-.btn-secondary{background:rgba(255,255,255,0.04);padding:8px 10px;border-radius:10px;border:none;color:#e5e7eb}
-
-/* play overlay / canvas */
-.click-to-play{position:fixed;left:0;top:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#e5e7eb;font-size:20px;z-index:250;pointer-events:auto;background:linear-gradient(transparent, rgba(0,0,0,0.18))}
-.click-to-play.hidden{display:none}
-
-/* canvas */
-#gameCanvas{position:fixed;inset:0;z-index:0;width:100%;height:100%;display:block;background:#000}
-
-/* compact HUD top-right */
-.hud{position:fixed;top:12px;right:12px;z-index:610;display:flex;flex-direction:column;gap:6px;color:#d1d5db;align-items:flex-end;font-size:14px}
-.hud .hud-role{background:rgba(0,0,0,0.24);padding:6px 10px;border-radius:10px}
-.hud .hud-item{background:rgba(0,0,0,0.14);padding:6px 8px;border-radius:8px}
-
-/* leaderboard */
-.leaderboard{position:fixed;left:12px;bottom:90px;z-index:610;background:rgba(10,14,25,0.9);padding:12px;border-radius:12px}
-
-/* footer layout: left copyright+year+brand, right support link */
-/* Adjusted so © is right next to the year and brand follows closely */
-.site-footer{position:fixed;left:0;right:0;bottom:10px;z-index:700;pointer-events:none}
-.footer-inner{display:flex;justify-content:space-between;align-items:center;padding:10px 28px;color:#9ca3af;pointer-events:auto;font-size:14px}
-.footer-left{display:flex;align-items:center;gap:6px;color:#cbd5e1} /* smaller gap */
-.footer-left .copyright-symbol{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:rgba(255,255,255,0.03);color:#fff;font-size:12px;box-shadow:0 2px 8px rgba(0,0,0,0.45);margin-right:2px}
-.footer-left .copyright-year{color:#9ca3af;margin-right:6px} /* tight spacing to year */
-.footer-left .brand{color:#cbd5e1;text-decoration:none;font-weight:600;margin-left:0} /* brand directly after year */
-
-/* support on the far right */
-.footer-right{display:flex;align-items:center;gap:12px}
-.support-link{color:#00E6FF;text-decoration:none;font-weight:700;padding:6px 8px;border-radius:8px;background:rgba(0,230,255,0.03);transition:all .12s ease}
-.support-link:hover{ transform:translateY(-2px); box-shadow:0 8px 18px rgba(0,230,255,0.06); }
-.footer-sep{color:#7c8798;margin:0 8px}
-
-/* tranq / stunned overlay */
-.tranq-overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:600;pointer-events:none}
-.tranq-overlay-inner{background:rgba(3,7,18,0.88);padding:18px 22px;border-radius:12px;color:#fef3c7}
-.shoot-btn{position:fixed;right:20px;bottom:20px;width:84px;height:84px;border-radius:50%;background:radial-gradient(circle at 30% 0,#f97316 0,#b91c1c 55%);border:none;color:#fff;z-index:620}
-@media (min-width:800px){ .shoot-btn{display:block} }
-
-/* responsive tweaks */
-@media (max-width:900px){
-  .logo-link img{height:96px;max-height:96px} /* reduce a bit on tablet */
-  .menu-card{margin:48px auto 0 auto}
-  .footer-inner{padding:8px 12px;font-size:13px}
+.logo-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border-radius: 10px;
+  text-decoration: none;
 }
-@media (max-width:600px){
-  .logo-link img{height:72px;max-height:72px} /* mobile */
-  .menu-card{margin:36px 12px}
-  .menu-title{font-size:24px}
-  .click-to-play{font-size:16px}
+
+/* Logo sizes: desktop/tablet/mobile */
+.logo-link img {
+  height: 120px;               /* desktop default */
+  max-height: 120px;
+  display: block;
+  margin-left: 6px;
+  filter: drop-shadow(0 8px 24px rgba(0,0,0,0.6));
+  object-fit: contain;
+  border: 0;
+  outline: none;
 }
+
+/* remove focus outline on link but keep keyboard accessibility via custom style */
+.logo-link:focus { box-shadow: 0 0 0 3px rgba(16,185,129,0.08); outline: none; }
+
+.top-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-right: 12px;
+}
+
+/* nav buttons */
+.nav-btn {
+  background: rgba(255,255,255,0.06);
+  color: #e5e7eb;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 6px 16px rgba(0,0,0,0.45);
+}
+.nav-btn:focus { box-shadow: 0 0 0 4px rgba(250,200,24,0.06); outline: none; }
+
+/* helper: hide nav when in-match (set <body class="in-match"> via JS) */
+body.in-match .top-actions { display: none !important; }
+
+/* --- Main / Cards --- */
+.main-content { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.page { display: none; width: 100%; max-width: 1100px; }
+.page.active { display: block; }
+
+.menu-card {
+  width: 100%;
+  max-width: 760px;
+  margin: 120px auto 0;
+  background: linear-gradient(180deg, rgba(6,11,25,0.96), rgba(3,7,18,0.94));
+  padding: 28px;
+  border-radius: 18px;
+  box-shadow: 0 30px 80px rgba(0,0,0,0.7);
+  position: relative;
+}
+
+.menu-title { font-size: 34px; color: #fff; margin-bottom: 6px; letter-spacing: 0.6px; }
+.menu-subtitle { color: #cbd5e1; margin-bottom: 10px; }
+
+/* Form basics */
+.row { display:flex; gap:8px; align-items:center; }
+.row input { flex: 1; }
+.menu-form label { display:block; font-size:12px; color:#9ca3af; margin-top:12px; }
+input, select, textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: none;
+  background: rgba(255,255,255,0.02);
+  color: #e5e7eb;
+  font-size: 14px;
+}
+
+/* Contact / support card */
+.contact-close {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  background: transparent;
+  border: none;
+  color: #cbd5e1;
+  font-size: 18px;
+  padding: 6px;
+  cursor: pointer;
+}
+.contact-close:hover { color: #fff; }
+
+/* success banner */
+.support-success {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(16,185,129,0.08);
+  border: 1px solid rgba(16,185,129,0.12);
+  padding: 10px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+.support-success.hidden { display: none; }
+
+/* --- Buttons --- */
+.btn-primary {
+  background-image: linear-gradient(90deg, #f97316, #facc15);
+  padding: 12px 18px;
+  border-radius: 999px;
+  border: none;
+  color: #111;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 10px 30px rgba(250,120,30,0.12);
+}
+.btn-primary:active { transform: translateY(1px); }
+
+.btn-secondary {
+  background: rgba(255,255,255,0.04);
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: none;
+  color: #e5e7eb;
+}
+
+/* --- Play Overlay / Canvas / HUD --- */
+.click-to-play {
+  position: fixed;
+  left:0; top:0; width:100%; height:100%;
+  display:flex; align-items:center; justify-content:center;
+  color:#e5e7eb; font-size:20px; z-index:250; pointer-events:auto;
+  background: linear-gradient(transparent, rgba(0,0,0,0.18));
+}
+.click-to-play.hidden { display:none; }
+
+#gameCanvas {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  background: #000;
+}
+
+/* Compact HUD (top-right) */
+.hud {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 920;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: #d1d5db;
+  align-items: flex-end;
+  font-size: 14px;
+  max-width: 240px;
+  pointer-events: auto;
+}
+.hud .hud-role {
+  background: rgba(0,0,0,0.24);
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-weight: 700;
+}
+.hud .hud-item {
+  background: rgba(0,0,0,0.14);
+  padding: 6px 10px;
+  border-radius: 10px;
+}
+
+/* Reduce clutter: stack controls vertically and limit width */
+.hud button { width: 140px; }
+
+/* Leaderboard */
+.leaderboard {
+  position: fixed;
+  left: 12px;
+  bottom: 90px;
+  z-index: 910;
+  background: rgba(10,14,25,0.9);
+  padding: 12px;
+  border-radius: 12px;
+  pointer-events: auto;
+}
+
+/* Stunned overlay (center) */
+.tranq-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 930;
+  pointer-events: none;
+}
+.tranq-overlay-inner {
+  background: rgba(3,7,18,0.88);
+  padding: 18px 22px;
+  border-radius: 12px;
+  color: #fef3c7;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+}
+
+/* Shoot button (bottom-right) */
+.shoot-btn {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 0, #f97316 0, #b91c1c 55%);
+  border: none;
+  color: #fff;
+  z-index: 940;
+  display: none;
+  box-shadow: 0 18px 36px rgba(185,28,28,0.18);
+}
+@media (min-width:800px) { .shoot-btn { display:block; } }
+
+/* Hints */
+.hints-panel { position: fixed; right: 12px; bottom: 12px; z-index: 910; background: rgba(3,7,18,0.7); padding: 12px; border-radius: 12px; color: #d1d5db; }
+
+/* Footer layout: keep copyright symbol adjacent to year + brand */
+.site-footer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 10px;
+  z-index: 900;
+  pointer-events: none;
+}
+.footer-inner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 28px;
+  color: #9ca3af;
+  pointer-events: auto;
+  font-size: 14px;
+}
+.footer-left { display: flex; align-items: center; gap: 6px; color: #cbd5e1; }
+.footer-left .copyright-symbol {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: rgba(255,255,255,0.03); color:#fff; font-size:12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.45); margin-right:2px;
+}
+.footer-left .copyright-year { color:#9ca3af; margin-right:6px; }
+.footer-left .brand { color:#cbd5e1; text-decoration:none; font-weight:600; margin-left:0; }
+
+/* Support link */
+.footer-right { display:flex; align-items:center; gap:12px; }
+.support-link { color:#00E6FF; text-decoration:none; font-weight:700; padding:6px 8px; border-radius:8px; background: rgba(0,230,255,0.03); transition: all .12s ease; }
+.support-link:hover { transform: translateY(-2px); box-shadow: 0 8px 18px rgba(0,230,255,0.06); }
+
+/* Leaderboard / HUD tweaks for mobile */
+@media (max-width: 900px) {
+  .logo-link img { height: 96px; max-height: 96px; }
+  .menu-card { margin: 48px auto 0; }
+  .footer-inner { padding: 8px 12px; font-size: 13px; }
+  .hud { top: 8px; right: 8px; max-width: 180px; gap: 6px; }
+  .hud button { width: 120px; font-size: 13px; }
+}
+@media (max-width: 600px) {
+  .logo-link img { height: 72px; max-height: 72px; }
+  .menu-card { margin: 36px 12px; }
+  .menu-title { font-size: 24px; }
+  .click-to-play { font-size: 16px; }
+  .hud { font-size: 13px; top: 6px; right: 6px; }
+  .shoot-btn { width: 72px; height: 72px; }
+}
+
+/* Accessibility: focus visible for keyboard users */
+:focus { outline: none; }
+button:focus, a:focus { box-shadow: 0 0 0 4px rgba(250,200,24,0.08); }
+
+/* Utility helper */
+.hidden { display: none !important; }
+
+/* End of style.css */
