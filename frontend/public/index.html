@@ -6,7 +6,6 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <link rel="icon" href="/favicon.svg" />
   <style>
-    /* Minimal, professional landing styles */
     :root{
       --bg-1:#04111a;
       --bg-2:#071727;
@@ -25,23 +24,22 @@
       padding:32px;
     }
 
-    .container{max-width:920px;text-align:center;padding:40px;border-radius:14px;background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(0,0,0,0.04));box-shadow:0 30px 80px rgba(0,0,0,0.6)}
+    .container{max-width:960px;text-align:center;padding:46px;border-radius:14px;background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(0,0,0,0.04));box-shadow:0 30px 80px rgba(0,0,0,0.6)}
     h1{margin:0;font-size:36px;letter-spacing:0.6px}
     p.lead{color:var(--muted);margin:12px 0 26px;font-size:16px}
 
-    .promo{margin-top:12px}
+    .promo{margin-top:8px}
     .promo .muted{color:var(--muted);display:block;margin-bottom:14px;font-size:15px}
     .promo a{display:inline-block;transition:transform .12s ease}
     .promo a:hover{transform:translateY(-6px)}
-    .logo-embed{width:280px;height:auto;display:block;margin:0 auto}
+    .logo-embed{width:320px;height:auto;display:block;margin:0 auto}
 
     .cta-row{margin-top:18px;display:flex;gap:12px;justify-content:center}
     .btn{padding:10px 18px;border-radius:999px;border:none;cursor:pointer;font-weight:700}
     .btn-primary{background:linear-gradient(180deg,var(--accent1),var(--accent2));color:#24180b}
-    .btn-ghost{background:transparent;color:var(--text);border:1px solid rgba(255,255,255,0.06)}
 
     footer{margin-top:22px;color:var(--muted);font-size:13px}
-    @media (max-width:520px){ .logo-embed{width:220px} h1{font-size:28px} }
+    @media (max-width:520px){ .logo-embed{width:260px} h1{font-size:28px} }
   </style>
 </head>
 <body>
@@ -50,54 +48,83 @@
     <p class="lead">Survive.com is a gaming company that makes funny and challenging web games.</p>
 
     <div class="promo" aria-label="Bird Turds promo">
-      <span class="muted">Lots of new games coming soon! Check out our funny browser based game Bird Turds, here at</span>
+      <span class="muted">Check out our game Bird Turds, here at</span>
 
-      <!-- Linked logo: mirrors the supplied Bird Turds look, but the bird/turd body is greyish-white (not brown) -->
+      <!-- Linked logo: close visual match to provided image; bird/turd body is greyish-white (not brown) -->
       <a href="https://birdturds.com" target="_blank" rel="noopener" aria-label="Open BirdTurds.com">
-        <svg class="logo-embed" viewBox="0 0 800 720" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="btTitle btDesc">
+        <svg class="logo-embed" viewBox="0 0 800 800" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="btTitle btDesc">
           <title id="btTitle">Bird Turds logo</title>
-          <desc id="btDesc">Logo for Bird Turds: stylized bird icon above large stacked text BIRD TURDS .COM — bird body is greyish-white.</desc>
+          <desc id="btDesc">Bird Turds logo; stylized mascot above heavy gold text BIRD TURDS .COM — mascot body is greyish-white.</desc>
 
           <defs>
             <linearGradient id="goldGrad" x1="0" x2="0" y1="0" y2="1">
               <stop offset="0%" stop-color="#ffd34a"/>
               <stop offset="100%" stop-color="#ffaf14"/>
             </linearGradient>
-            <filter id="drop" x="-50%" y="-50%" width="200%" height="200%">
-              <feDropShadow dx="0" dy="12" stdDeviation="18" flood-color="#000" flood-opacity="0.35"/>
+
+            <filter id="logoShadow" x="-50%" y="-50%" width="200%" height="200%">
+              <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#000" flood-opacity="0.35"/>
+            </filter>
+
+            <!-- subtle inner shadow for text -->
+            <filter id="textShadow" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="6" result="g"/>
+              <feMerge>
+                <feMergeNode in="g"/>
+                <feMergeNode in="SourceGraphic"/>
+              </feMerge>
             </filter>
           </defs>
 
-          <!-- top icon: bird body (greyish-white) -->
-          <g transform="translate(120,20)" filter="url(#drop)">
-            <!-- main rounded body (was brown in original) now greyish-white -->
-            <path d="M200 110
-                     C260 64, 340 64, 380 110
-                     C360 100, 340 120, 300 130
-                     C260 140, 220 150, 200 170
-                     C160 150, 140 130, 200 110 Z"
-                  fill="#eceff3" stroke="#c9cfd5" stroke-width="6"/>
+          <!-- mascot (approximation of the provided logo; colored greyish-white for the body per request) -->
+          <g transform="translate(0,0)" filter="url(#logoShadow)">
+            <!-- outer outline / shape to mimic original thick outline -->
+            <path d="M400 70
+                     C480 70 560 110 580 170
+                     C610 250 560 300 520 340
+                     C540 370 560 420 520 450
+                     C470 495 360 520 300 540
+                     C240 520 140 490 120 420
+                     C100 350 140 300 180 260
+                     C200 220 260 190 320 170
+                     C340 150 360 130 400 120
+                     Z"
+                  fill="#eceff3" stroke="#c8c0b6" stroke-width="14"/>
 
-            <!-- little curl / head -->
-            <path d="M380 110 C420 92, 470 116, 452 148 C430 180, 384 172, 380 110 Z"
-                  fill="#f6f8fa" stroke="#d2d8dd" stroke-width="5"/>
+            <!-- top swirl / tuft -->
+            <path d="M430 50
+                     C460 36 500 42 520 64
+                     C540 86 532 112 512 120
+                     C490 128 468 118 450 110
+                     C432 102 416 84 430 74
+                     Z"
+                  fill="#f7f8fa" stroke="#d6d2c8" stroke-width="8"/>
+
+            <!-- eyes -->
+            <ellipse cx="370" cy="250" rx="36" ry="42" fill="#fff" stroke="#2b2b2b" stroke-width="6"/>
+            <ellipse cx="430" cy="230" rx="44" ry="50" fill="#fff" stroke="#2b2b2b" stroke-width="6"/>
+            <circle cx="372" cy="252" r="14" fill="#231f20"/>
+            <circle cx="432" cy="232" r="18" fill="#231f20"/>
+            <circle cx="380" cy="244" r="5" fill="#fff"/>
+            <circle cx="440" cy="224" r="6" fill="#fff"/>
 
             <!-- beak -->
-            <path d="M420 140 L460 150 L420 160 Z" fill="#ffb020" stroke="#9b6100" stroke-width="2"/>
+            <path d="M480 300 L540 310 L480 330 Z" fill="#ffb020" stroke="#9b6100" stroke-width="4"/>
 
-            <!-- eye -->
-            <circle cx="398" cy="120" r="12" fill="#231f20"/>
-            <circle cx="402" cy="116" r="4" fill="#fff"/>
+            <!-- smile / mouth highlight -->
+            <path d="M320 330 C340 360, 420 360, 460 340" stroke="#d3a03a" stroke-width="6" fill="none" stroke-linecap="round"/>
           </g>
 
-          <!-- main text block: BIRD TURDS with heavy stroke and gold fill like original -->
-          <g transform="translate(40,260)">
-            <text x="120" y="140" font-family="Impact, 'Arial Black', sans-serif" font-size="160" fill="url(#goldGrad)" stroke="#3a270a" stroke-width="12">BIRD</text>
-            <text x="120" y="320" font-family="Impact, 'Arial Black', sans-serif" font-size="160" fill="url(#goldGrad)" stroke="#3a270a" stroke-width="12">TURDS</text>
+          <!-- large stacked text mimicking original style -->
+          <g transform="translate(0,380)">
+            <text x="140" y="160" font-family="Impact, 'Arial Black', sans-serif" font-size="160" fill="url(#goldGrad)" stroke="#3a2306" stroke-width="14" style="paint-order:stroke fill;">BIRD</text>
+            <text x="140" y="340" font-family="Impact, 'Arial Black', sans-serif" font-size="160" fill="url(#goldGrad)" stroke="#3a2306" stroke-width="14" style="paint-order:stroke fill;">TURDS</text>
 
-            <!-- .COM small -->
-            <rect x="620" y="280" width="76" height="60" rx="10" fill="#ffffff" opacity="0.06"/>
-            <text x="630" y="320" font-family="Arial, sans-serif" font-size="34" fill="#ffffff">.COM</text>
+            <!-- small .COM badge similar to original -->
+            <g transform="translate(640,300)">
+              <rect x="0" y="0" width="96" height="84" rx="14" fill="#1b1b1b" opacity="0.85"/>
+              <text x="14" y="60" font-family="Arial, sans-serif" font-size="36" fill="#fff">.COM</text>
+            </g>
           </g>
         </svg>
       </a>
@@ -105,7 +132,6 @@
 
     <div class="cta-row" role="group" aria-label="Primary actions">
       <a href="https://birdturds.com" target="_blank" rel="noopener" class="btn btn-primary">Open Bird Turds</a>
-      <button class="btn btn-ghost" onclick="window.location.href='#'">Learn more</button>
     </div>
 
     <footer>
