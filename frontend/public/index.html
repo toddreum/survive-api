@@ -408,6 +408,85 @@
       font-weight: 600;
     }
 
+    /* Contact section */
+    .contact {
+      margin-top: 26px;
+      padding-top: 18px;
+      border-top: 1px solid rgba(255, 255, 255, 0.14);
+    }
+
+    .contact h2 {
+      font-size: 0.98rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: var(--accent-soft);
+      margin-bottom: 6px;
+    }
+
+    .contact p {
+      font-size: 0.86rem;
+      color: var(--text-muted);
+      margin-bottom: 14px;
+    }
+
+    .contact-form {
+      display: grid;
+      gap: 10px;
+    }
+
+    .contact-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    @media (max-width: 700px) {
+      .contact-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .contact-field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .contact-label {
+      font-size: 0.78rem;
+      color: var(--accent-soft);
+    }
+
+    .contact-input,
+    .contact-textarea {
+      background: rgba(3, 7, 27, 0.88);
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      color: var(--text-main);
+      font-size: 0.86rem;
+      padding: 7px 10px;
+      outline: none;
+      width: 100%;
+    }
+
+    .contact-input:focus,
+    .contact-textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px rgba(255, 204, 51, 0.5);
+    }
+
+    .contact-textarea {
+      min-height: 80px;
+      resize: vertical;
+    }
+
+    .contact-submit {
+      justify-self: flex-start;
+      margin-top: 4px;
+      font-size: 0.86rem;
+      padding-inline: 20px;
+    }
+
     footer {
       margin-top: 20px;
       font-size: 0.68rem;
@@ -522,6 +601,58 @@
           </div>
         </div>
       </aside>
+    </section>
+
+    <!-- Contact / webmail form -->
+    <section class="contact" id="contact">
+      <h2>Contact Survive.com</h2>
+      <p>Questions, collabs, or press? Drop us a line — it goes straight to our support inbox.</p>
+
+      <form class="contact-form" action="https://survive.com/webmail" method="post">
+        <!-- Force the email to support@survive.com on submit -->
+        <input type="hidden" name="to" value="support@survive.com" />
+
+        <div class="contact-grid">
+          <div class="contact-field">
+            <label class="contact-label" for="name">Name</label>
+            <input
+              class="contact-input"
+              type="text"
+              id="name"
+              name="name"
+              placeholder="Player, creator, or studio name"
+              required
+            />
+          </div>
+
+          <div class="contact-field">
+            <label class="contact-label" for="email">Email</label>
+            <input
+              class="contact-input"
+              type="email"
+              id="email"
+              name="email"
+              placeholder="you@example.com"
+              required
+            />
+          </div>
+        </div>
+
+        <div class="contact-field">
+          <label class="contact-label" for="message">Message</label>
+          <textarea
+            class="contact-textarea"
+            id="message"
+            name="message"
+            placeholder="Tell us what you're thinking, planning, or plotting…"
+            required
+          ></textarea>
+        </div>
+
+        <button type="submit" class="btn-main contact-submit">
+          <span>Send to support@survive.com</span>
+        </button>
+      </form>
     </section>
 
     <footer>
