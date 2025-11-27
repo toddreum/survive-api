@@ -13,130 +13,129 @@
       --accent1:#ffd34a;
       --accent2:#ffaf14;
       --text:#eaf3ff;
+      --glass: rgba(255,255,255,0.03);
     }
     html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;}
     body{
       background: linear-gradient(180deg,var(--bg-1),var(--bg-2));
       color:var(--text);
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      padding:32px;
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
     }
 
-    .container{max-width:960px;text-align:center;padding:46px;border-radius:14px;background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(0,0,0,0.04));box-shadow:0 30px 80px rgba(0,0,0,0.6)}
-    h1{margin:0;font-size:36px;letter-spacing:0.6px}
-    p.lead{color:var(--muted);margin:12px 0 26px;font-size:16px}
+    /* Header: professional, compact */
+    header.site-header{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      max-width:1100px;
+      margin:20px auto;
+      padding:12px 18px;
+      background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(0,0,0,0.03));
+      border-radius:12px;
+      box-shadow:0 12px 30px rgba(0,0,0,0.45);
+      border:1px solid rgba(255,255,255,0.02);
+      position:relative;
+      z-index:20;
+    }
+    .brand {
+      display:flex;
+      align-items:center;
+      gap:12px;
+      text-decoration:none;
+      color:var(--text);
+    }
+    .brand .emblem{
+      width:46px;height:46px;border-radius:10px;background:linear-gradient(180deg,#072433,#083044);
+      display:flex;align-items:center;justify-content:center;color:var(--accent1);font-weight:800;font-size:18px;box-shadow:0 6px 18px rgba(0,0,0,0.4);
+    }
+    .brand .wordmark{font-size:20px;font-weight:700;letter-spacing:0.4px}
+    nav.top-nav{display:flex;gap:10px;align-items:center}
+    .nav-link{background:transparent;border:1px solid transparent;color:var(--text);padding:8px 12px;border-radius:999px;cursor:pointer;text-decoration:none}
+    .nav-link:hover{background:rgba(255,255,255,0.02);border-color:rgba(255,255,255,0.03)}
 
-    .promo{margin-top:8px}
-    .promo .muted{color:var(--muted);display:block;margin-bottom:14px;font-size:15px}
-    .promo a{display:inline-block;transition:transform .12s ease}
-    .promo a:hover{transform:translateY(-6px)}
-    .logo-embed{width:320px;height:auto;display:block;margin:0 auto}
+    /* Main hero */
+    main.hero-wrap{max-width:1100px;margin:36px auto;padding:46px;border-radius:16px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.05));box-shadow:0 30px 80px rgba(0,0,0,0.55);text-align:center}
+    h1.title{margin:0;font-size:36px;letter-spacing:0.6px}
+    p.lead{color:var(--muted);margin:12px 0 24px;font-size:16px;max-width:820px;margin-left:auto;margin-right:auto}
 
-    .cta-row{margin-top:18px;display:flex;gap:12px;justify-content:center}
-    .btn{padding:10px 18px;border-radius:999px;border:none;cursor:pointer;font-weight:700}
-    .btn-primary{background:linear-gradient(180deg,var(--accent1),var(--accent2));color:#24180b}
+    .promo{display:flex;flex-direction:column;align-items:center;gap:16px;margin-top:8px}
+    .promo .muted{color:var(--muted);font-size:15px}
+    .promo a.logo-link{display:inline-block;max-width:420px}
+    .promo img.logo-file{width:320px;height:auto;display:block;border-radius:8px;box-shadow:0 18px 40px rgba(0,0,0,0.55)}
 
-    footer{margin-top:22px;color:var(--muted);font-size:13px}
-    @media (max-width:520px){ .logo-embed{width:260px} h1{font-size:28px} }
+    .cta {margin-top:18px}
+    .btn-primary{background:linear-gradient(180deg,var(--accent1),var(--accent2));color:#24180b;padding:12px 22px;border-radius:999px;border:none;font-weight:700;text-decoration:none;display:inline-block}
+    footer.site-footer{max-width:1100px;margin:18px auto;text-align:center;color:var(--muted);font-size:13px}
+
+    @media (max-width:720px){
+      .brand .wordmark{font-size:18px}
+      .promo img.logo-file{width:240px}
+      main.hero-wrap{padding:28px}
+    }
   </style>
 </head>
 <body>
-  <div class="container" role="main" aria-labelledby="surviveTitle">
-    <h1 id="surviveTitle">Survive.com</h1>
-    <p class="lead">Survive.com is a gaming company that makes funny and challenging web games.</p>
+  <header class="site-header" role="banner" aria-label="Survive header">
+    <a class="brand" href="https://survive.com" target="_blank" rel="noopener">
+      <div class="emblem" aria-hidden="true">S</div>
+      <div class="wordmark">Survive.com</div>
+    </a>
 
-    <div class="promo" aria-label="Bird Turds promo">
+    <nav class="top-nav" role="navigation" aria-label="Top navigation">
+      <a class="nav-link" href="#" id="navLogin">Login</a>
+      <a class="nav-link" href="#" id="navHow">How To Play</a>
+      <a class="nav-link" href="#" id="navPlay">Play</a>
+      <a class="nav-link" href="#" id="navContact">Contact</a>
+    </nav>
+  </header>
+
+  <main class="hero-wrap" role="main" aria-labelledby="heroTitle">
+    <h1 id="heroTitle" class="title">Survive.com</h1>
+    <p class="lead">Survive.com is a gaming company that makes funny and challenging online and offline web games. Many more great games coming soon!</p>
+
+    <div class="promo" role="region" aria-label="Bird Turds promo">
       <span class="muted">Check out our game Bird Turds, here at</span>
 
-      <!-- Linked logo: close visual match to provided image; bird/turd body is greyish-white (not brown) -->
-      <a href="https://birdturds.com" target="_blank" rel="noopener" aria-label="Open BirdTurds.com">
-        <svg class="logo-embed" viewBox="0 0 800 800" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="btTitle btDesc">
-          <title id="btTitle">Bird Turds logo</title>
-          <desc id="btDesc">Bird Turds logo; stylized mascot above heavy gold text BIRD TURDS .COM — mascot body is greyish-white.</desc>
-
-          <defs>
-            <linearGradient id="goldGrad" x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0%" stop-color="#ffd34a"/>
-              <stop offset="100%" stop-color="#ffaf14"/>
-            </linearGradient>
-
-            <filter id="logoShadow" x="-50%" y="-50%" width="200%" height="200%">
-              <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#000" flood-opacity="0.35"/>
-            </filter>
-
-            <!-- subtle inner shadow for text -->
-            <filter id="textShadow" x="-50%" y="-50%" width="200%" height="200%">
-              <feGaussianBlur stdDeviation="6" result="g"/>
-              <feMerge>
-                <feMergeNode in="g"/>
-                <feMergeNode in="SourceGraphic"/>
-              </feMerge>
-            </filter>
-          </defs>
-
-          <!-- mascot (approximation of the provided logo; colored greyish-white for the body per request) -->
-          <g transform="translate(0,0)" filter="url(#logoShadow)">
-            <!-- outer outline / shape to mimic original thick outline -->
-            <path d="M400 70
-                     C480 70 560 110 580 170
-                     C610 250 560 300 520 340
-                     C540 370 560 420 520 450
-                     C470 495 360 520 300 540
-                     C240 520 140 490 120 420
-                     C100 350 140 300 180 260
-                     C200 220 260 190 320 170
-                     C340 150 360 130 400 120
-                     Z"
-                  fill="#eceff3" stroke="#c8c0b6" stroke-width="14"/>
-
-            <!-- top swirl / tuft -->
-            <path d="M430 50
-                     C460 36 500 42 520 64
-                     C540 86 532 112 512 120
-                     C490 128 468 118 450 110
-                     C432 102 416 84 430 74
-                     Z"
-                  fill="#f7f8fa" stroke="#d6d2c8" stroke-width="8"/>
-
-            <!-- eyes -->
-            <ellipse cx="370" cy="250" rx="36" ry="42" fill="#fff" stroke="#2b2b2b" stroke-width="6"/>
-            <ellipse cx="430" cy="230" rx="44" ry="50" fill="#fff" stroke="#2b2b2b" stroke-width="6"/>
-            <circle cx="372" cy="252" r="14" fill="#231f20"/>
-            <circle cx="432" cy="232" r="18" fill="#231f20"/>
-            <circle cx="380" cy="244" r="5" fill="#fff"/>
-            <circle cx="440" cy="224" r="6" fill="#fff"/>
-
-            <!-- beak -->
-            <path d="M480 300 L540 310 L480 330 Z" fill="#ffb020" stroke="#9b6100" stroke-width="4"/>
-
-            <!-- smile / mouth highlight -->
-            <path d="M320 330 C340 360, 420 360, 460 340" stroke="#d3a03a" stroke-width="6" fill="none" stroke-linecap="round"/>
-          </g>
-
-          <!-- large stacked text mimicking original style -->
-          <g transform="translate(0,380)">
-            <text x="140" y="160" font-family="Impact, 'Arial Black', sans-serif" font-size="160" fill="url(#goldGrad)" stroke="#3a2306" stroke-width="14" style="paint-order:stroke fill;">BIRD</text>
-            <text x="140" y="340" font-family="Impact, 'Arial Black', sans-serif" font-size="160" fill="url(#goldGrad)" stroke="#3a2306" stroke-width="14" style="paint-order:stroke fill;">TURDS</text>
-
-            <!-- small .COM badge similar to original -->
-            <g transform="translate(640,300)">
-              <rect x="0" y="0" width="96" height="84" rx="14" fill="#1b1b1b" opacity="0.85"/>
-              <text x="14" y="60" font-family="Arial, sans-serif" font-size="36" fill="#fff">.COM</text>
-            </g>
-          </g>
-        </svg>
+      <!-- Use uploaded raster logo file: /logo.png -->
+      <a class="logo-link" href="https://birdturds.com" target="_blank" rel="noopener" aria-label="Open BirdTurds.com">
+        <img class="logo-file" src="/logo.png" alt="Bird Turds logo (opens in new tab)" />
       </a>
-    </div>
 
-    <div class="cta-row" role="group" aria-label="Primary actions">
-      <a href="https://birdturds.com" target="_blank" rel="noopener" class="btn btn-primary">Open Bird Turds</a>
+      <div class="cta">
+        <a class="btn-primary" href="https://birdturds.com" target="_blank" rel="noopener">Open Bird Turds</a>
+      </div>
     </div>
+  </main>
 
-    <footer>
-      <div>© 2025 Survive.com</div>
-    </footer>
-  </div>
+  <footer class="site-footer" role="contentinfo">
+    <div>© 2025 Survive.com</div>
+  </footer>
+
+  <!-- keep existing scripts available for site navigation and game code -->
+  <script src="/env.js"></script>
+  <script src="https://unpkg.com/three@0.152.2/build/three.min.js"></script>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <script src="/initThree.js"></script>
+  <script src="/initVoxel.js"></script>
+  <script src="/game.js"></script>
+
+  <script>
+    // Lightweight nav handlers (preserve existing behavior if pages exist)
+    (function () {
+      function showPage(id) {
+        // if page sections exist, show them; else keep hero visible
+        var el = document.getElementById(id);
+        if (!el) return;
+        document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+        el.classList.add('active');
+        window.scrollTo({top:0,behavior:'smooth'});
+      }
+      document.getElementById('navHow')?.addEventListener('click', (e)=>{ e.preventDefault(); showPage('pageHow'); });
+      document.getElementById('navLogin')?.addEventListener('click', (e)=>{ e.preventDefault(); showPage('pageLogin'); });
+      document.getElementById('navPlay')?.addEventListener('click', (e)=>{ e.preventDefault(); showPage('pagePlay'); });
+      document.getElementById('navContact')?.addEventListener('click', (e)=>{ e.preventDefault(); showPage('pageContact'); });
+    })();
+  </script>
 </body>
 </html>
