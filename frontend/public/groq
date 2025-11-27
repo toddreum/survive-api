@@ -1,0 +1,1699 @@
+make this game code way better graphically and functionally and get rid of all bugs: 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>BirdTurds.com – Survive the Turdocalypse</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    :root {
+      --bg: #050608;
+      --panel-bg: #101318;
+      --panel-border: #333;
+      --accent: #ff9800;
+      --accent-soft: #ffb74d;
+      --accent-strong: #ffca28;
+      --danger: #ff5252;
+      --text-main: #f5f5f5;
+      --text-soft: #cfd8dc;
+      --hud-green: #76ff03;
+      --hud-yellow: #ffeb3b;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: radial-gradient(circle at top, #1b2735 0, #090a0f 55%, #050608 100%);
+      color: var(--text-main);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      overflow-x: hidden;
+    }
+
+    a { color: var(--accent-strong); }
+
+    #page {
+      width: 100%;
+      max-width: 1100px;
+      padding: 10px 8px 40px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+
+    /* ===== TURD COIN ICON (OPTION B) ===== */
+    .coin-svg {
+      width: 18px;
+      height: 18px;
+      display: inline-block;
+      vertical-align: middle;
+    }
+
+    /* ===== GERMPROOF BANNERS (TOP + BOTTOM) ===== */
+    .germproof-banner-link {
+      text-decoration: none;
+      color: inherit;
+      display: block;
+      width: 100%;
+      max-width: 1100px;
+    }
+
+    .germproof-banner {
+      width: 100%;
+      background: linear-gradient(135deg, #f5fcff, #e2f0ff);
+      border-radius: 14px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+      padding: 10px 12px;
+      box-sizing: border-box;
+      margin: 0 auto 10px auto;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .germproof-banner.compact {
+      margin-top: 10px;
+      margin-bottom: 0;
+      padding: 8px 10px;
+    }
+
+    .germproof-banner:hover {
+      transform: scale(1.01);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+    }
+
+    .germproof-inner {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .germproof-logo {
+      max-height: 54px;
+      width: auto;
+      height: auto;
+      display: block;
+    }
+
+    .germproof-copy {
+      flex: 1 1 auto;
+      color: #163047;
+      line-height: 1.45;
+      font-size: 0.9rem;
+    }
+
+    .germproof-copy h2 {
+      font-size: 1rem;
+      margin: 0 0 4px;
+      font-weight: 700;
+      color: #0d2740;
+    }
+
+    .germproof-copy p {
+      margin: 0 0 4px;
+    }
+
+    .germproof-highlight {
+      font-size: 0.85rem;
+      color: #0d2740;
+    }
+
+    .germproof-cta {
+      font-size: 0.85rem;
+      margin-top: 4px;
+      font-weight: 600;
+      color: #0c2036;
+    }
+
+    @media (max-width: 640px) {
+      .germproof-banner {
+        padding: 8px 10px;
+        border-radius: 10px;
+      }
+      .germproof-inner {
+        flex-direction: row;
+        align-items: center;
+      }
+      .germproof-logo {
+        max-height: 44px;
+      }
+      .germproof-copy {
+        font-size: 0.82rem;
+      }
+      .germproof-copy h2 {
+        font-size: 0.92rem;
+      }
+    }
+
+    /* ===== LOGO ===== */
+    #logo-wrapper {
+      margin: 4px 0 0;
+      display: flex;
+      justify-content: center;
+    }
+    #logo-wrapper img {
+      max-width: 260px;
+      width: 52vw;
+      height: auto;
+      cursor: pointer;
+      filter: drop-shadow(0 18px 40px rgba(0,0,0,0.9));
+    }
+
+    /* ===== GAME CONTAINER ===== */
+    #game-shell {
+      width: 100%;
+      max-width: 960px;
+      position: relative;
+    }
+
+    #game {
+      width: 100%;
+      max-width: 960px;
+      aspect-ratio: 16 / 9;
+      border-radius: 18px;
+      background: #000;
+      box-shadow: 0 18px 40px rgba(0,0,0,0.75);
+      touch-action: none;
+      display: block;
+    }
+
+    #hud-top-left, #hud-top-right {
+      position: absolute;
+      top: 10px;
+      padding: 6px 10px;
+      border-radius: 10px;
+      background: rgba(0,0,0,0.55);
+      font-size: 12px;
+      min-width: 150px;
+      z-index: 20;
+    }
+    #hud-top-left { left: 14px; }
+    #hud-top-right { right: 14px; text-align: right; }
+
+    #score-label { font-weight: 600; }
+
+    #turd-meter-bar {
+      width: 100%;
+      height: 10px;
+      border-radius: 999px;
+      background: #263238;
+      overflow: hidden;
+      margin-top: 4px;
+    }
+    #turd-meter-fill {
+      width: 0%;
+      height: 100%;
+      background: linear-gradient(90deg, #76ff03, #ffeb3b, #ff5252);
+    }
+    #turd-meter-text {
+      font-size: 10px;
+      margin-top: 2px;
+      color: #eceff1;
+    }
+
+    #hud-coins {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.7);
+      padding: 4px 10px;
+      border-radius: 999px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--hud-yellow);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.8);
+      z-index: 20;
+      cursor: pointer;
+    }
+
+    #hud-coins span {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+    }
+
+    /* Floating shop button for mobile/desktop */
+    #shop-fab {
+      position: absolute;
+      bottom: 14px;
+      right: 14px;
+      z-index: 21;
+      padding: 8px 14px;
+      border-radius: 999px;
+      border: none;
+      background: linear-gradient(180deg, var(--accent-soft), var(--accent));
+      color: #111;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+      box-shadow: 0 10px 24px rgba(0,0,0,0.8);
+    }
+
+    #controls-hint {
+      text-align: center;
+      margin-top: 8px;
+      font-size: 13px;
+      color: #ddd;
+    }
+    #controls-hint .highlight {
+      color: var(--hud-yellow);
+      font-weight: 600;
+    }
+
+    /* Buttons */
+    .btn {
+      cursor: pointer;
+      padding: 10px 26px;
+      border-radius: 999px;
+      border: none;
+      background: linear-gradient(180deg, var(--accent-soft), var(--accent));
+      color: #111;
+      font-weight: 700;
+      font-size: 15px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      box-shadow: 0 12px 26px rgba(0,0,0,0.65);
+      transition: transform 0.08s ease, box-shadow 0.08s ease, filter 0.08s ease;
+      white-space: nowrap;
+    }
+    .btn.small {
+      padding: 5px 11px;
+      font-size: 11px;
+    }
+    .btn:active {
+      transform: translateY(1px) scale(0.99);
+      box-shadow: 0 6px 16px rgba(0,0,0,0.6);
+      filter: brightness(0.95);
+    }
+    .btn-ghost {
+      background: transparent;
+      border: 1px solid var(--accent-soft);
+      color: var(--accent-soft);
+      box-shadow: none;
+    }
+
+    /* Overlays */
+    .overlay {
+      position: absolute;
+      inset: 0;
+      border-radius: 18px;
+      background: radial-gradient(circle at top, rgba(0,0,0,0.92), rgba(0,0,0,0.97));
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 18px 18px 24px;
+      color: var(--text-main);
+      overflow-y: auto;
+      z-index: 30;
+    }
+
+    .overlay-inner {
+      width: 100%;
+      max-width: 680px;
+      background: linear-gradient(180deg,#121722,#05060a);
+      border-radius: 18px;
+      padding: 18px 20px 22px;
+      border: 1px solid #414141;
+      box-shadow: 0 12px 32px rgba(0,0,0,0.95);
+      position: relative;
+    }
+
+    .overlay-close {
+      position: absolute;
+      top: 10px;
+      right: 12px;
+      width: 24px;
+      height: 24px;
+      border-radius: 999px;
+      border: none;
+      background: rgba(255,255,255,0.06);
+      color: #eee;
+      font-size: 16px;
+      cursor: pointer;
+    }
+
+    .overlay h1, .overlay h2, .overlay h3 { margin: 0 0 8px; }
+    .overlay h1 {
+      font-size: 24px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--accent-strong);
+    }
+    .overlay h2 {
+      font-size: 18px;
+      margin-top: 12px;
+    }
+    .overlay p { margin: 4px 0; font-size: 13px; }
+    .overlay ul { margin: 6px 0 10px 20px; font-size: 13px; }
+    .overlay li { margin-bottom: 4px; }
+
+    .difficulty-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin: 8px 0 10px;
+    }
+
+    #support-btn { margin: 10px 0 6px; }
+
+    /* Shop */
+    #shop-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit,minmax(180px,1fr));
+      gap: 10px;
+      margin-top: 8px;
+      font-size: 13px;
+    }
+    .shop-card {
+      background: #171b24;
+      border-radius: 12px;
+      border: 1px solid #37474f;
+      padding: 8px 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .shop-card h4 {
+      margin: 0;
+      font-size: 14px;
+      color: var(--accent-strong);
+    }
+    .shop-price {
+      font-size: 11px;
+      color: #cfd8dc;
+    }
+    .shop-price span {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+    }
+    .shop-desc {
+      font-size: 11px;
+      color: #b0bec5;
+    }
+    .shop-footer {
+      margin-top: 4px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+    }
+
+    /* Game over */
+    #gameover-title {
+      font-size: 22px;
+      margin-bottom: 6px;
+      color: var(--accent-strong);
+    }
+
+    /* Leaderboard */
+    #leaderboard-list {
+      list-style: none;
+      padding-left: 0;
+      margin: 6px 0;
+      font-size: 13px;
+    }
+    #leaderboard-list li {
+      display: flex;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      padding: 2px 0;
+    }
+
+    #identity-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 6px;
+      font-size: 12px;
+    }
+    #identity-row label {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    #identity-row input {
+      padding: 2px 4px;
+      border-radius: 4px;
+      border: 1px solid #555;
+      background: #111;
+      color: #fff;
+      font-size: 12px;
+    }
+
+    @media (max-width: 768px) {
+      #logo-wrapper img { max-width: 210px; }
+      .overlay-inner { padding: 16px 14px 18px; }
+      #hud-top-left, #hud-top-right {
+        font-size: 11px;
+        padding: 5px 7px;
+      }
+      #hud-coins {
+        font-size: 11px;
+        padding: 3px 9px;
+      }
+      #controls-hint { font-size: 11px; }
+      #shop-fab {
+        bottom: 10px;
+        right: 10px;
+        font-size: 11px;
+        padding: 6px 12px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Hidden TurdCoin SVG symbol (Option B) -->
+  <svg width="0" height="0" style="position:absolute;visibility:hidden;">
+    <symbol id="turdcoin-icon" viewBox="0 0 48 48">
+      <defs>
+        <radialGradient id="turdcoin-grad" cx="50%" cy="35%" r="60%">
+          <stop offset="0%" stop-color="#f9fbfc"/>
+          <stop offset="100%" stop-color="#cfd3d6"/>
+        </radialGradient>
+      </defs>
+      <path d="M24 10c-6 2 -12 6 -12 12 0 4 3 7 6 8 -8 0 -12 4 -11 9 1 6 8 9 17 9 9 0 16 -3 17 -9 1 -5 -3 -9 -11 -9 3 -1 6 -4 6 -8 0 -6 -6 -10 -12 -12z"
+            fill="url(#turdcoin-grad)"
+            stroke="#9aa1a5"
+            stroke-width="2"
+            stroke-linejoin="round"/>
+    </symbol>
+  </svg>
+
+  <div id="page">
+    <!-- TOP GERMPROOF BANNER -->
+    <a href="https://www.germproof.com" target="_blank" rel="noopener" class="germproof-banner-link">
+      <section class="germproof-banner">
+        <div class="germproof-inner">
+          <div>
+            <img
+              src="https://cdn11.bigcommerce.com/s-k3euvps0ey/images/stencil/original/germproof_logo_gif_a0642474-9d7c-465c-a902-cc7154b6d7a6_1_1659251076__45797.original.gif"
+              alt="GermProof Logo"
+              class="germproof-logo"
+            />
+          </div>
+          <div class="germproof-copy">
+            <h2>Heals skin fast while protecting it.</h2>
+            <p>
+              GermProof doesn’t just block germs — it actively helps skin recover.
+              From minor wounds and burns to acne, irritation, and bug bites
+              (<strong>instantly stops the itch</strong>), GermProof speeds up soothing,
+              healing, and comfort on contact.
+            </p>
+            <p>
+              Its long-lasting germ shield protects skin, ears, and nostrils, and it even
+              works on hard surfaces like countertops, handles, and gear.
+            </p>
+            <p class="germproof-highlight">
+              Powered by <strong>Chelated Silver</strong> — a natural healing accelerator
+              that forms a durable GermProof barrier on skin and hard surfaces.
+            </p>
+            <p class="germproof-cta">
+              Visit <strong>GermProof.com</strong> to learn more.
+            </p>
+          </div>
+        </div>
+      </section>
+    </a>
+
+    <!-- LOGO -->
+    <div id="logo-wrapper">
+      <img src="logo.png" alt="BirdTurds.com" id="main-logo">
+    </div>
+
+    <!-- GAME CONTAINER -->
+    <div id="game-shell">
+      <canvas id="game"></canvas>
+
+      <div id="hud-top-left">
+        <div id="score-label">Score: <span id="score-value">0</span></div>
+        <div id="turd-meter-bar"><div id="turd-meter-fill"></div></div>
+        <div id="turd-meter-text">Turd Meter</div>
+      </div>
+
+      <div id="hud-coins" title="Tap or click to open TurdCoin shop">
+        <span>
+          <svg class="coin-svg"><use href="#turdcoin-icon"></use></svg>
+        </span>
+        <span id="hud-coins-value">0</span> TurdCoins
+      </div>
+
+      <div id="hud-top-right">
+        <div>Weapon: <span id="weapon-label">Slingshot</span></div>
+        <div>Difficulty: <span id="difficulty-label">Normal</span></div>
+      </div>
+
+      <button id="shop-fab">SHOP</button>
+
+      <!-- MENU -->
+      <div id="menu-overlay" class="overlay">
+        <div class="overlay-inner">
+          <button class="overlay-close" id="menu-close-btn">✕</button>
+          <h1>Play Bird Turds – Choose your level!</h1>
+          <p>
+            This game was made to make you laugh – sideways-scrolling skies, ridiculous birds,
+            tractors, planes, and way too many turds.
+          </p>
+          <p>
+            Works fully offline once loaded – <strong>no Wi-Fi required.</strong> The world scrolls sideways
+            left and right with changing scenery as you move.
+          </p>
+
+          <button id="support-btn" class="btn small"
+                  onclick="window.location.href='mailto:support@birdturds.com?subject=BirdTurds%20Support%20/%20Missing%20TurdCoins';">
+            Support / Missing TurdCoins
+          </button>
+
+          <h2>Choose Difficulty</h2>
+          <p>Choose your level of play below and play Bird Turds now!</p>
+          <div class="difficulty-row">
+            <button class="btn" data-difficulty="easy">Easy</button>
+            <button class="btn" data-difficulty="normal">Normal</button>
+            <button class="btn" data-difficulty="hard">Insane Turdstorm</button>
+          </div>
+
+          <h2>Controls</h2>
+          <ul>
+            <li><strong>Move:</strong> A / D, ← / →, or move your mouse left-right (desktop). On mobile, drag your finger left/right anywhere on the game.</li>
+            <li><strong>Shoot:</strong> SPACE or tap / left-click to fire (hold to auto-fire).</li>
+            <li><strong>Jump:</strong> W, ↑, or flick upward on mobile. On desktop you can also right-click or middle-click to jump.</li>
+            <li><strong>Call in a plane:</strong> Double-click or double-tap anywhere on the sky area. The plane will strafe birds for a short time. Don’t shoot the plane or you lose health and points.</li>
+            <li><strong>Shop:</strong> Press <strong>P</strong>, tap the TurdCoins bag, or hit the SHOP button.</li>
+            <li><strong>Menu:</strong> Press <strong>M</strong>.</li>
+          </ul>
+
+          <h2>How You Lose</h2>
+          <p>
+            You have a <strong>Turd Meter</strong>. Getting hit by falling turds or falling bird bodies fills it up.
+            Shooting turds in the air destroys them and prevents damage. When the meter hits max:
+            <strong>GAME OVER – TURD HAPPENS!</strong>
+          </p>
+          <p>
+            Ground turd <strong>piles</strong> don’t damage you, but they block your path. Jump over them.
+            If they stack too high, a tractor with a front-end loader plows through and clears piles and dead birds.
+            Jump the tractor blade so you don’t get knocked out.
+          </p>
+
+          <h2>Birds, Turds & Helpers</h2>
+          <p>Some birds take more than one hit and drop different kinds of turds:</p>
+          <ul>
+            <li>Pigeons, Ducks, Geese, Seagulls – lighter birds, quick droppings, 1–2 hits.</li>
+            <li>Psycho Chickens – 12 TurdPoints, dive turds, ~2 hits.</li>
+            <li>Turkey Bombers – 20 TurdPoints, heavy turds, 2–3 hits.</li>
+            <li>Flamingos – 18 TurdPoints, turd stream, ~2 hits.</li>
+            <li>Parrot Trolls – 15 TurdPoints, tracking shots, ~2 hits.</li>
+            <li>Peacock Disco – 25 TurdPoints, rainbow turds, ~3 hits.</li>
+            <li>Dodo Zombies – 30 TurdPoints, toxic turds, ~3 hits.</li>
+            <li><strong>Helpers:</strong> Hawks, falcons and eagles with glowing outlines fly through and attack enemy birds for you. Don’t shoot them or you lose health and points.</li>
+          </ul>
+          <p>
+            If a bird you’ve shot falls and lands on you, that also increases your Turd Meter – sidestep when birds are dropping.
+          </p>
+
+          <h2>Storms, Shelters & GermProof Barrier</h2>
+          <ul>
+            <li>Random <strong>rainstorms</strong> and <strong>wind gusts</strong> briefly reduce visibility or push turds sideways.</li>
+            <li>Temporary <strong>shelters</strong> pop up. Duck inside for ~1 second of protection, then they vanish.</li>
+            <li>The free <strong>GermProof barrier</strong> occasionally appears – grab it for a short shield that blocks turds. Ads must be on for this to appear and it always says GermProof and links to GermProof.com.</li>
+          </ul>
+
+          <h2>Shop & TurdCoins</h2>
+          <p>
+            Earn or buy <strong>TurdCoins</strong> to unlock weapons (shotgun, laser rifle, rockets, TurdNet cannon),
+            umbrellas, skins, maps, and ad-free play. Your TurdCoins balance is shown in the coin bag above the game.
+          </p>
+
+          <h3>Leaderboard & Identity</h3>
+          <p>
+            Your device keeps an all-time leaderboard. Scores are stored locally. You can optionally set your
+            initials and city below; we only ask once and you can change them any time.
+          </p>
+
+          <div id="identity-row">
+            <label>Initials
+              <input id="initials-input" type="text" maxlength="3" />
+            </label>
+            <label>City
+              <input id="city-input" type="text" maxlength="20" />
+            </label>
+            <button id="identity-save-btn" class="btn small">Save</button>
+          </div>
+
+          <h3>All-Time Turd Legends (This Device)</h3>
+          <ul id="leaderboard-list"></ul>
+        </div>
+      </div>
+
+      <!-- SHOP -->
+      <div id="shop-overlay" class="overlay">
+        <div class="overlay-inner">
+          <button class="overlay-close" id="shop-close-btn">✕</button>
+          <h1>TurdCoin Upgrade Shop</h1>
+          <p>
+            Spend your TurdCoins on upgrades. Purchases unlock in-game when your TurdCoin balance has been
+            credited from Stripe via the server webhook. Current balance:
+            <strong><span id="shop-coins">0</span> TurdCoins</strong>.
+          </p>
+
+          <div id="shop-grid">
+            <div class="shop-card">
+              <h4>Weapons Pack</h4>
+              <div class="shop-price">
+                <span><svg class="coin-svg"><use href="#turdcoin-icon"></use></svg> 2,000</span>
+              </div>
+              <div class="shop-desc">Unlock shotgun, laser rifle, rocket launcher and TurdNet Cannon.</div>
+              <div class="shop-footer">
+                <span>More firepower</span>
+                <button class="btn small" data-item="weapons">Unlock</button>
+              </div>
+            </div>
+
+            <div class="shop-card">
+              <h4>Umbrella Hat</h4>
+              <div class="shop-price">
+                <span><svg class="coin-svg"><use href="#turdcoin-icon"></use></svg> 1,000</span>
+              </div>
+              <div class="shop-desc">Huge hat that blocks turds for a few seconds but slowly drains health when active.</div>
+              <div class="shop-footer">
+                <span>Extra protection</span>
+                <button class="btn small" data-item="umbrella">Unlock</button>
+              </div>
+            </div>
+
+            <div class="shop-card">
+              <h4>Maps & Skins</h4>
+              <div class="shop-price">
+                <span><svg class="coin-svg"><use href="#turdcoin-icon"></use></svg> 1,500</span>
+              </div>
+              <div class="shop-desc">Unlock all landscapes and hunter skins.</div>
+              <div class="shop-footer">
+                <span>New looks</span>
+                <button class="btn small" data-item="maps">Unlock</button>
+              </div>
+            </div>
+
+            <div class="shop-card">
+              <h4>Ad-Free Month</h4>
+              <div class="shop-price">$0.99 / mo or <span><svg class="coin-svg"><use href="#turdcoin-icon"></use></svg> 1,200</span></div>
+              <div class="shop-desc">Remove GermProof banners & in-game ads for a month.</div>
+              <div class="shop-footer">
+                <span>No ads</span>
+                <button class="btn small" data-item="adfree-coins">Use Coins</button>
+              </div>
+            </div>
+
+            <div class="shop-card">
+              <h4>Claim Purchased Coins</h4>
+              <div class="shop-price">Stripe purchase</div>
+              <div class="shop-desc">
+                Already bought a TurdCoin pack via Stripe? Tap this to ask the server to apply any unclaimed
+                purchases tied to your browser/device.
+              </div>
+              <div class="shop-footer">
+                <span>Sync balance</span>
+                <button class="btn small" id="claim-coins-btn">Claim Coins</button>
+              </div>
+            </div>
+          </div>
+
+          <p style="font-size:11px;color:#b0bec5;margin-top:10px;">
+            <strong>Note for devs:</strong> test devices / IPs can be granted bonus TurdCoins from the backend.
+            Stripe webhooks credit purchased packs even if the user closes Stripe; the Claim Coins button asks the
+            server for any new balance.
+          </p>
+        </div>
+      </div>
+
+      <!-- GAME OVER -->
+      <div id="gameover-overlay" class="overlay">
+        <div class="overlay-inner">
+          <button class="overlay-close" id="gameover-close-btn">✕</button>
+          <div id="gameover-title">GAME OVER – TURD HAPPENS!</div>
+          <p id="gameover-summary">You scored 0 TurdPoints before getting fully turded.</p>
+          <div style="margin-top:10px;display:flex;gap:12px;flex-wrap:wrap;">
+            <button class="btn" id="btn-restart">Restart (R)</button>
+            <button class="btn btn-ghost" id="btn-menu">Main Menu (M)</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CONTROLS HINT -->
+    <div id="controls-hint">
+      Move: <span class="highlight">A / D</span>, <span class="highlight">← / →</span>, Mouse, or drag (touch) ·
+      Shoot: <span class="highlight">SPACE</span> / tap / click (hold to auto-fire) ·
+      Jump: <span class="highlight">W / ↑ / upward flick</span> ·
+      Weapons: <span class="highlight">1–5</span> ·
+      Shop: <span class="highlight">P / TurdCoins / SHOP btn</span> · Restart: <span class="highlight">R</span> · Menu: <span class="highlight">M</span>
+    </div>
+
+    <!-- BOTTOM GERMPROOF BANNER -->
+    <a href="https://www.germproof.com" target="_blank" rel="noopener" class="germproof-banner-link">
+      <section class="germproof-banner compact">
+        <div class="germproof-inner">
+          <div>
+            <img
+              src="https://cdn11.bigcommerce.com/s-k3euvps0ey/images/stencil/original/germproof_logo_gif_a0642474-9d7c-465c-a902-cc7154b6d7a6_1_1659251076__45797.original.gif"
+              alt="GermProof Logo"
+              class="germproof-logo"
+            />
+          </div>
+          <div class="germproof-copy">
+            <p style="margin-bottom:2px;">
+              GermProof heals fast, protects longer, and builds a Chelated Silver barrier.
+            </p>
+            <p class="germproof-cta" style="margin-bottom:0;">
+              Visit <strong>GermProof.com</strong>
+            </p>
+          </div>
+        </div>
+      </section>
+    </a>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    let W = 960, H = 540;
+
+    function setupHiDPI() {
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      W = rect.width;
+      H = rect.height;
+      canvas.width = W * dpr;
+      canvas.height = H * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    setupHiDPI();
+    window.addEventListener('resize', setupHiDPI);
+
+    let gameState = 'menu';
+    let lastTime = 0;
+
+    let player, bullets, birds, helpers, turds, groundTurds, shelters, planes, tractor;
+    let score = 0;
+    let turdMeter = 0;
+    let gameOver = false;
+    let planeCooldown = 0;
+    let weather = { type:'clear', timer: 6, wind: 0, opacity: 0 };
+    let worldOffset = 0;
+
+    const keys = {};
+    let mouseX = null;
+    let shooting = false;
+
+    let playerCoins = 0;
+    let owned = { weaponsPack:false, umbrella:false, maps:false, adFree:false };
+
+    let highScores = [];
+    let storedInitials = '';
+    let storedCity = '';
+    let askedForIdentity = false;
+
+    // === DIFFICULTIES – rebalanced ===
+    const DIFFICULTIES = {
+      easy:   { name: 'Easy',   spawnRate: 0.7,  turdDamage: 4 },
+      normal: { name: 'Normal', spawnRate: 1.0,  turdDamage: 6 },
+      hard:   { name: 'Insane Turdstorm', spawnRate: 1.35, turdDamage: 7 }
+    };
+    let currentDifficultyKey = 'normal';
+
+    function setDifficulty(key) {
+      currentDifficultyKey = key;
+      document.getElementById('difficulty-label').textContent = DIFFICULTIES[key].name;
+    }
+
+    function updateTurdMeterHUD() {
+      const pct = Math.max(0, Math.min(100, turdMeter));
+      document.getElementById('turd-meter-fill').style.width = pct + '%';
+    }
+    function updateScoreHUD() {
+      document.getElementById('score-value').textContent = score;
+    }
+    function updateCoinDisplay(balance) {
+      document.getElementById('hud-coins-value').textContent = balance;
+      document.getElementById('shop-coins').textContent = balance;
+    }
+    function setWeaponLabel(name) {
+      document.getElementById('weapon-label').textContent = name;
+    }
+
+    function loadProgress() {
+      try {
+        const raw = localStorage.getItem('bt_progress_v1');
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        playerCoins = data.coins || 0;
+        owned = data.owned || owned;
+        highScores = data.high || [];
+        storedInitials = data.initials || '';
+        storedCity = data.city || '';
+        askedForIdentity = !!data.asked;
+      } catch(e) {}
+    }
+    function saveProgress() {
+      const data = {
+        coins: playerCoins,
+        owned,
+        high: highScores,
+        initials: storedInitials,
+        city: storedCity,
+        asked: askedForIdentity
+      };
+      try {
+        localStorage.setItem('bt_progress_v1', JSON.stringify(data));
+      } catch(e) {}
+      updateCoinDisplay(playerCoins);
+    }
+    loadProgress();
+    updateCoinDisplay(playerCoins);
+
+    function updateLeaderboardUI() {
+      const list = document.getElementById('leaderboard-list');
+      list.innerHTML = '';
+      highScores.forEach((entry, i) => {
+        const li = document.createElement('li');
+        const label = entry.initials || '???';
+        const city = entry.city ? ' – ' + entry.city : '';
+        li.innerHTML = `<span>#${i+1} ${label}${city}</span><span>${entry.score}</span>`;
+        list.appendChild(li);
+      });
+    }
+    function fillIdentityInputs() {
+      document.getElementById('initials-input').value = storedInitials;
+      document.getElementById('city-input').value = storedCity;
+    }
+    function saveIdentityFromInputs() {
+      const ini = document.getElementById('initials-input');
+      const city = document.getElementById('city-input');
+      let initials = (ini.value || '').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,3);
+      let cityVal  = (city.value || '').trim().slice(0,20);
+      storedInitials = initials;
+      storedCity = cityVal;
+      askedForIdentity = true;
+      saveProgress();
+      updateLeaderboardUI();
+      alert('Saved! Your best scores will now show with your initials and city.');
+    }
+    function recordScore(val) {
+      const initialsToUse = storedInitials || '???';
+      const cityToUse     = storedCity || '';
+      highScores.push({score: val, initials: initialsToUse, city: cityToUse});
+      highScores.sort((a,b)=>b.score-a.score);
+      highScores = highScores.slice(0,5);
+      askedForIdentity = true;
+      saveProgress();
+      updateLeaderboardUI();
+    }
+
+    const menuOverlay    = document.getElementById('menu-overlay');
+    const shopOverlay    = document.getElementById('shop-overlay');
+    const gameoverOverlay= document.getElementById('gameover-overlay');
+
+    function openMenu(){
+      menuOverlay.style.display='flex';
+      fillIdentityInputs();
+      updateLeaderboardUI();
+      gameState='menu';
+    }
+    function closeMenu(){ menuOverlay.style.display='none'; }
+    function openShop(){ shopOverlay.style.display='flex'; }
+    function closeShop(){ shopOverlay.style.display='none'; }
+    function showGameOver(){
+      document.getElementById('gameover-summary').textContent =
+        `You scored ${score} TurdPoints before getting fully turded.`;
+      gameoverOverlay.style.display='flex';
+    }
+    function hideGameOver(){ gameoverOverlay.style.display='none'; }
+
+    document.getElementById('menu-close-btn').addEventListener('click',()=>{
+      closeMenu();
+      gameState='playing';
+    });
+    document.getElementById('shop-close-btn').addEventListener('click',closeShop);
+    document.getElementById('gameover-close-btn').addEventListener('click',()=>{
+      hideGameOver();
+      openMenu();
+    });
+
+    document.getElementById('main-logo').addEventListener('click',openMenu);
+    document.getElementById('identity-save-btn').addEventListener('click',saveIdentityFromInputs);
+
+    document.querySelectorAll('#menu-overlay .difficulty-row .btn').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        const diff=btn.getAttribute('data-difficulty');
+        setDifficulty(diff);
+        closeMenu();
+        resetWorld();
+        gameState='playing';
+      });
+    });
+
+    document.querySelectorAll('#shop-grid .shop-card button[data-item]').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        const item=btn.getAttribute('data-item');
+        handleShopPurchase(item);
+      });
+    });
+    document.getElementById('claim-coins-btn').addEventListener('click',()=>{
+      fetch('turdcoins-claim.php',{credentials:'include'})
+        .then(r=>r.json())
+        .then(data=>{
+          if(typeof data.balance==='number'){
+            playerCoins=data.balance;
+            saveProgress();
+            alert('Coins claimed! New balance: '+playerCoins);
+          } else {
+            alert(data.message || 'No new coins found yet. Try again later.');
+          }
+        })
+        .catch(()=>alert('Could not contact server. Try again later.'));
+    });
+
+    function handleShopPurchase(item){
+      const costs={ weapons:2000, umbrella:1000, maps:1500, 'adfree-coins':1200 };
+      const cost=costs[item]||0;
+      if(playerCoins<cost){
+        alert('Not enough TurdCoins. Buy a pack or earn more by playing.');
+        return;
+      }
+      playerCoins-=cost;
+      if(item==='weapons') owned.weaponsPack=true;
+      if(item==='umbrella') owned.umbrella=true;
+      if(item==='maps') owned.maps=true;
+      if(item==='adfree-coins') owned.adFree=true;
+      saveProgress();
+      alert('Unlocked! Enjoy your upgrade.');
+    }
+
+    document.getElementById('btn-restart').addEventListener('click',()=>{
+      hideGameOver();
+      resetWorld();
+      gameState='playing';
+    });
+    document.getElementById('btn-menu').addEventListener('click',()=>{
+      hideGameOver();
+      openMenu();
+    });
+
+    document.getElementById('hud-coins').addEventListener('click',()=>{
+      if(gameState==='playing') openShop();
+    });
+    document.getElementById('shop-fab').addEventListener('click',()=>{
+      if(gameState==='playing') openShop();
+    });
+
+    window.addEventListener('keydown',e=>{
+      const k=e.key.toLowerCase();
+      keys[k]=true;
+      if(k==='p'){ if(gameState==='playing') openShop(); }
+      else if(k==='m'){ openMenu(); }
+      else if(k==='r' && gameState==='gameover'){
+        hideGameOver();
+        resetWorld();
+        gameState='playing';
+      }
+      if(k===' '){
+        shooting=true;
+        e.preventDefault();
+      }
+    });
+    window.addEventListener('keyup',e=>{
+      const k=e.key.toLowerCase();
+      keys[k]=false;
+      if(k===' ') shooting=false;
+    });
+
+    canvas.addEventListener('mousemove',e=>{
+      const rect=canvas.getBoundingClientRect();
+      mouseX=(e.clientX-rect.left);
+    });
+    canvas.addEventListener('mousedown',e=>{
+      if(e.button===0) shooting=true;
+      else if(e.button===2 || e.button===1) requestJump();
+    });
+    canvas.addEventListener('mouseup',e=>{
+      if(e.button===0) shooting=false;
+    });
+    canvas.addEventListener('contextmenu',e=>e.preventDefault());
+
+    let lastTapTime=0;
+    canvas.addEventListener('touchstart',e=>{
+      const now=performance.now();
+      const rect=canvas.getBoundingClientRect();
+      const t=e.changedTouches[0];
+      const y=(t.clientY-rect.top);
+      shooting=true;
+      if(now-lastTapTime<350 && y<H){
+        callAirSupport();
+      }
+      lastTapTime=now;
+    },{passive:true});
+    canvas.addEventListener('touchmove',e=>{
+      const rect=canvas.getBoundingClientRect();
+      const t=e.changedTouches[0];
+      const x=(t.clientX-rect.left);
+      const y=(t.clientY-rect.top);
+      mouseX=x;
+      if(y<H*0.6) requestJump();
+    },{passive:true});
+    canvas.addEventListener('touchend',()=>{ shooting=false; },{passive:true});
+
+    canvas.addEventListener('dblclick',e=>{
+      callAirSupport();
+    });
+
+    function resetWorld(){
+      const groundY=H-40;
+      player={
+        x:W*0.5,
+        y:groundY-26,
+        vx:0,
+        vy:0,
+        w:32,
+        h:52,
+        onGround:true,
+        umbrellaTimer:0
+      };
+      bullets=[];
+      birds=[];
+      helpers=[];
+      turds=[];
+      groundTurds=[];
+      shelters=[];
+      planes=[];
+      tractor=null;
+      score=0;
+      turdMeter=0;
+      gameOver=false;
+      planeCooldown=0;
+      weather={type:'clear',timer:6,wind:0,opacity:0};
+      worldOffset=0;
+      updateScoreHUD();
+      updateTurdMeterHUD();
+      setWeaponLabel('Slingshot');
+      update.spawnTimer=0.4;
+      update.helperTimer=15;
+      update.shelterTimer=7;
+      update.barrierTimer=14;
+      update.shootTimer=0;
+    }
+
+    function requestJump(){
+      if(player && player.onGround){
+        player.vy=-360;
+        player.onGround=false;
+      }
+    }
+
+    function spawnBird(){
+      const diff=DIFFICULTIES[currentDifficultyKey] || DIFFICULTIES.normal;
+      const side=Math.random()<0.5?-50:W+50;
+      const dir=side<0?1:-1;
+      const speed=60+Math.random()*120*diff.spawnRate;
+      const types=['pigeon','duck','goose','seagull','chicken','turkey','flamingo','parrot','peacock','dodo'];
+      const type=types[Math.floor(Math.random()*types.length)];
+      const hpMap={pigeon:1,duck:1,goose:2,seagull:1,chicken:2,turkey:3,flamingo:2,parrot:2,peacock:3,dodo:3};
+      const hp=hpMap[type]||1;
+      birds.push({
+        x:side,
+        y:80+Math.random()*140,
+        vx:dir*speed,
+        vy:0,
+        w:40,
+        h:28,
+        type,
+        hp,
+        poopCooldown:0.9+Math.random()*1.5
+      });
+    }
+
+    function spawnHelper(){
+      const side=Math.random()<0.5?-50:W+50;
+      const dir=side<0?1:-1;
+      const speed=120;
+      helpers.push({
+        x:side,
+        y:90+Math.random()*80,
+        vx:dir*speed,
+        w:42,
+        h:30,
+        hp:999
+      });
+    }
+
+    function spawnShelter(){
+      shelters.push({
+        x:player.x+(Math.random()*220-110),
+        y:H-60,
+        w:80,
+        h:36,
+        timer:1.0
+      });
+    }
+
+    function spawnGermBarrier(){
+      player.umbrellaTimer=Math.max(player.umbrellaTimer,4.0);
+    }
+
+    function spawnTractor(){
+      if(tractor || groundTurds.length===0) return;
+      tractor={x:-80,y:H-45,vx:220};
+    }
+
+    function spawnTurd(b){
+      const sideDrift=weather.wind*40;
+      turds.push({
+        x:b.x,
+        y:b.y+10,
+        vy:220+Math.random()*80,
+        vx:sideDrift,
+        r:10
+      });
+    }
+
+    function spawnPlane(fromLeft=true){
+      planes.push({
+        x:fromLeft?-120:W+120,
+        y:110,
+        vx:fromLeft?260:-260,
+        shotTimer:0.2,
+        hp:3
+      });
+    }
+
+    function callAirSupport(){
+      if(gameState!=='playing' || gameOver || planeCooldown>0) return;
+      const fromLeft=Math.random()<0.5;
+      spawnPlane(fromLeft);
+      planeCooldown=8;
+    }
+
+    function drawPlayer(p){
+      ctx.save();
+      ctx.translate(p.x,p.y);
+      ctx.fillStyle='#263238';
+      ctx.fillRect(-8,18,7,20);
+      ctx.fillRect(1,18,7,20);
+      ctx.fillStyle='#eceff1';
+      ctx.fillRect(-12,-18,24,38);
+      ctx.fillStyle='#5d4037';
+      ctx.fillRect(8,-12,34,6);
+      ctx.fillStyle='#795548';
+      ctx.fillRect(30,-14,10,10);
+      ctx.beginPath();ctx.arc(0,-26,12,0,Math.PI*2);ctx.fillStyle='#fff';ctx.fill();
+      ctx.fillStyle='#000';
+      ctx.beginPath();ctx.arc(-4,-28,2,0,Math.PI*2);ctx.fill();
+      ctx.beginPath();ctx.arc(4,-28,2,0,Math.PI*2);ctx.fill();
+      if(player.umbrellaTimer>0){
+        ctx.fillStyle='#90caf9';
+        ctx.beginPath();
+        ctx.ellipse(0,-38,26,10,0,0,Math.PI*2);
+        ctx.fill();
+      } else {
+        ctx.fillStyle='#4e342e';
+        ctx.fillRect(-14,-40,28,6);
+      }
+      ctx.restore();
+    }
+
+    function drawBird(b){
+      ctx.save();
+      ctx.translate(b.x,b.y);
+      const g=ctx.createLinearGradient(-20,-10,20,10);
+      g.addColorStop(0,'#cfd8dc');
+      g.addColorStop(1,'#90a4ae');
+      ctx.fillStyle=g;
+      ctx.beginPath();ctx.ellipse(0,0,20,12,0,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#b0bec5';
+      ctx.beginPath();ctx.ellipse(-4,0,10,9,0,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#ffb74d';
+      ctx.beginPath();ctx.moveTo(18,-2);ctx.lineTo(28,0);ctx.lineTo(18,2);ctx.closePath();ctx.fill();
+      ctx.fillStyle='#fff';
+      ctx.beginPath();ctx.arc(6,-4,4,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#000';
+      ctx.beginPath();ctx.arc(6,-4,2,0,Math.PI*2);ctx.fill();
+      ctx.restore();
+    }
+
+    function drawHelper(h){
+      ctx.save();
+      ctx.translate(h.x,h.y);
+      ctx.strokeStyle='#ffeb3b';
+      ctx.lineWidth=3;
+      ctx.beginPath();ctx.arc(0,0,26,0,Math.PI*2);ctx.stroke();
+      const g=ctx.createLinearGradient(-22,-12,22,12);
+      g.addColorStop(0,'#eeeeee');
+      g.addColorStop(1,'#b0bec5');
+      ctx.fillStyle=g;
+      ctx.beginPath();ctx.ellipse(0,0,20,12,0,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#ffb74d';
+      ctx.beginPath();ctx.moveTo(18,-2);ctx.lineTo(28,0);ctx.lineTo(18,2);ctx.closePath();ctx.fill();
+      ctx.restore();
+    }
+
+    function drawTurd(t){
+      ctx.save();
+      ctx.translate(t.x,t.y);
+      const g=ctx.createLinearGradient(-10,-10,10,12);
+      g.addColorStop(0,'#e4edf2');
+      g.addColorStop(1,'#cfd8dc');
+      ctx.fillStyle=g;
+      ctx.beginPath();ctx.arc(0,6,10,0,Math.PI*2);ctx.fill();
+      ctx.beginPath();ctx.arc(-6,2,7,0,Math.PI*2);ctx.fill();
+      ctx.beginPath();ctx.arc(6,2,7,0,Math.PI*2);ctx.fill();
+      ctx.beginPath();ctx.arc(0,-4,7,0,Math.PI*2);ctx.fill();
+      ctx.strokeStyle='rgba(120,144,156,0.8)';
+      ctx.lineWidth=1;
+      ctx.beginPath();ctx.arc(0,6,10,0,Math.PI*2);ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawGroundTurd(gp){
+      ctx.save();
+      ctx.translate(gp.x,gp.y);
+      ctx.fillStyle='#cfd8dc';
+      ctx.beginPath();ctx.arc(0,0,gp.r,0,Math.PI*2);ctx.fill();
+      ctx.restore();
+    }
+
+    function drawTractor(tr){
+      ctx.save();
+      ctx.translate(tr.x,tr.y);
+      ctx.fillStyle='#212121';
+      ctx.beginPath();ctx.arc(-18,12,11,0,Math.PI*2);ctx.fill();
+      ctx.beginPath();ctx.arc(18,12,11,0,Math.PI*2);ctx.fill();
+      const bodyGrad=ctx.createLinearGradient(-30,-22,30,10);
+      bodyGrad.addColorStop(0,'#ffb74d');
+      bodyGrad.addColorStop(1,'#ff9800');
+      ctx.fillStyle=bodyGrad;
+      ctx.fillRect(-30,-24,60,26);
+      ctx.fillStyle='rgba(187,222,251,0.9)';
+      ctx.fillRect(-10,-22,22,16);
+      ctx.strokeStyle='#ff9800';
+      ctx.lineWidth=4;
+      ctx.beginPath();
+      ctx.moveTo(10,-10);
+      ctx.lineTo(30,-6);
+      ctx.lineTo(34,4);
+      ctx.stroke();
+      ctx.fillStyle='#ffcc80';
+      ctx.beginPath();
+      ctx.moveTo(34,4);
+      ctx.lineTo(52,4);
+      ctx.lineTo(52,16);
+      ctx.lineTo(30,16);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawPlane(pl){
+      ctx.save();
+      ctx.translate(pl.x,pl.y);
+      ctx.fillStyle='#eceff1';
+      ctx.fillRect(-30,-6,60,12);
+      ctx.fillStyle='#90caf9';
+      ctx.fillRect(-10,-10,20,4);
+      ctx.fillRect(-4,6,8,6);
+      ctx.restore();
+    }
+
+    function drawShelter(s){
+      ctx.save();
+      ctx.translate(s.x,s.y);
+      ctx.fillStyle='rgba(38,50,56,0.9)';
+      ctx.fillRect(-s.w/2,-s.h,s.w,s.h);
+      ctx.restore();
+    }
+
+    function drawWeatherOverlay(){
+      if(weather.type==='clear'||weather.opacity<=0) return;
+      ctx.save();
+      ctx.globalAlpha=0.15*weather.opacity;
+      if(weather.type==='rain'){
+        ctx.fillStyle='#90caf9';
+        for(let i=0;i<40;i++){
+          const x=(i*37+lastTime*0.2)%W;
+          const y=(i*53+lastTime*0.4)%H;
+          ctx.fillRect(x,y,2,10);
+        }
+      } else if(weather.type==='wind'){
+        ctx.fillStyle='#ffffff';
+        for(let i=0;i<25;i++){
+          const x=(i*71+lastTime*0.25)%W;
+          const y=50 + (i*23)% (H-100);
+          ctx.beginPath();
+          ctx.arc(x,y,12,0,Math.PI*2);
+          ctx.fill();
+        }
+      }
+      ctx.restore();
+    }
+
+    function shootBullet(){
+      bullets.push({
+        x:player.x+32,
+        y:player.y-16,
+        vx:0,
+        vy:-480,
+        r:4
+      });
+    }
+
+    // === Rebalanced damage function ===
+    function addTurdDamage(amount){
+      const diff = DIFFICULTIES[currentDifficultyKey] || DIFFICULTIES.normal;
+      const base = diff.turdDamage;
+
+      // scaled damage per event
+      let dmg = (amount * base) / 12;
+
+      // clamp min/max so nothing is ridiculous
+      if (dmg < 2) dmg = 2;
+      if (dmg > 10) dmg = 10;
+
+      // shield blocks turd damage
+      if (player.umbrellaTimer > 0) return;
+
+      turdMeter += dmg;
+
+      if (turdMeter >= 100 && !gameOver) {
+        turdMeter = 100;
+        gameOver = true;
+        gameState = 'gameover';
+        recordScore(score);
+        showGameOver();
+      }
+      updateTurdMeterHUD();
+    }
+
+    function update(dt){
+      if(gameState!=='playing') return;
+      const gravity=800;
+      const groundY=H-40;
+
+      weather.timer-=dt;
+      if(weather.timer<=0){
+        if(weather.type==='clear'){
+          weather.type=Math.random()<0.5?'rain':'wind';
+          weather.wind=weather.type==='wind'?(Math.random()<0.5?-1:1):0;
+          weather.opacity=1;
+          weather.timer=6+Math.random()*6;
+        } else {
+          weather.type='clear';
+          weather.wind=0;
+          weather.opacity=0;
+          weather.timer=10+Math.random()*10;
+        }
+      }
+      if(weather.opacity>0 && weather.type==='clear'){
+        weather.opacity=Math.max(0,weather.opacity-dt*0.5);
+      }
+
+      let moveDir=0;
+      if(keys['a']||keys['arrowleft']) moveDir-=1;
+      if(keys['d']||keys['arrowright']) moveDir+=1;
+      if(mouseX!==null){
+        const dx=mouseX-player.x;
+        moveDir=Math.sign(dx)*Math.min(1,Math.abs(dx)/80);
+      }
+      const speed=250;
+      player.vx=moveDir*speed;
+      player.vy+=gravity*dt;
+      player.x+=player.vx*dt;
+      player.y+=player.vy*dt;
+
+      worldOffset+=player.vx*dt*0.4;
+
+      if(player.y+player.h/2>=groundY){
+        player.y=groundY-player.h/2;
+        player.vy=0;
+        player.onGround=true;
+      } else {
+        player.onGround=false;
+      }
+      if((keys['w']||keys['arrowup']) && player.onGround) requestJump();
+
+      if(player.umbrellaTimer>0){
+        player.umbrellaTimer-=dt;
+        if(player.umbrellaTimer<0) player.umbrellaTimer=0;
+      }
+
+      if(shooting){
+        update.shootTimer-=dt;
+        if(update.shootTimer<=0){
+          shootBullet();
+          update.shootTimer=0.18;
+        }
+      }
+
+      update.spawnTimer-=dt;
+      if(update.spawnTimer<=0){
+        spawnBird();
+        const diff=DIFFICULTIES[currentDifficultyKey] || DIFFICULTIES.normal;
+        update.spawnTimer=0.9/diff.spawnRate;
+      }
+
+      update.helperTimer-=dt;
+      if(update.helperTimer<=0){
+        spawnHelper();
+        update.helperTimer=20+Math.random()*10;
+      }
+
+      update.shelterTimer-=dt;
+      if(update.shelterTimer<=0){
+        spawnShelter();
+        update.shelterTimer=10+Math.random()*6;
+      }
+
+      if(!owned.adFree){
+        update.barrierTimer-=dt;
+        if(update.barrierTimer<=0){
+          spawnGermBarrier();
+          update.barrierTimer=20+Math.random()*8;
+        }
+      }
+
+      if(groundTurds.length>10 && !tractor) spawnTractor();
+      if(planeCooldown>0) planeCooldown-=dt;
+
+      bullets=bullets.filter(b=>{
+        b.x+=b.vx*dt;
+        b.y+=b.vy*dt;
+        if(b.y<-20) return false;
+
+        for(let i=0;i<birds.length;i++){
+          const bd=birds[i];
+          if(Math.abs(b.x-bd.x)<24 && Math.abs(b.y-bd.y)<20){
+            bd.hp--;
+            if(bd.hp<=0){
+              score+=10;
+              updateScoreHUD();
+              if(Math.random()<0.8){
+                groundTurds.push({x:bd.x,y:groundY-8,r:10+Math.random()*6});
+              }
+              birds.splice(i,1);
+            }
+            return false;
+          }
+        }
+
+        for(let i=0;i<turds.length;i++){
+          const t=turds[i];
+          if(Math.hypot(b.x-t.x,b.y-t.y)<14){
+            turds.splice(i,1);
+            return false;
+          }
+        }
+
+        for(let i=0;i<planes.length;i++){
+          const pl=planes[i];
+          if(Math.abs(b.x-pl.x)<40 && Math.abs(b.y-pl.y)<20){
+            pl.hp--;
+            if(pl.hp<=0){
+              planes.splice(i,1);
+              // softer penalty for shooting your own plane
+              addTurdDamage(8);
+            }
+            return false;
+          }
+        }
+
+        for(let i=0;i<helpers.length;i++){
+          const h=helpers[i];
+          if(Math.abs(b.x-h.x)<30 && Math.abs(b.y-h.y)<24){
+            // softer penalty for shooting helper raptor
+            addTurdDamage(6);
+            score=Math.max(0,score-15);
+            updateScoreHUD();
+            return false;
+          }
+        }
+        return true;
+      });
+
+      birds.forEach(b=>{
+        b.x+=b.vx*dt;
+        b.y+=b.vy*dt;
+        b.poopCooldown-=dt;
+        if(b.poopCooldown<=0){
+          spawnTurd(b);
+          b.poopCooldown=1.0+Math.random()*1.2;
+        }
+      });
+      birds=birds.filter(b=>b.x>-120 && b.x<W+120);
+
+      helpers=helpers.filter(h=>{
+        h.x+=h.vx*dt;
+        birds=birds.filter(b=>{
+          if(Math.abs(b.x-h.x)<40 && Math.abs(b.y-h.y)<30){
+            score+=6;
+            updateScoreHUD();
+            return false;
+          }
+          return true;
+        });
+        return h.x>-150 && h.x<W+150;
+      });
+
+      turds=turds.filter(t=>{
+        t.vx+=weather.wind*6*dt;
+        t.y+=t.vy*dt;
+        t.x+=t.vx*dt;
+        if(t.y>groundY-8){
+          if(Math.random()<0.6){
+            groundTurds.push({x:t.x,y:groundY-8,r:10+Math.random()*6});
+          }
+          return false;
+        }
+        if(Math.abs(t.x-player.x)<18 && Math.abs(t.y-(player.y-12))<18){
+          // softer turd hit
+          addTurdDamage(5);
+          return false;
+        }
+        return true;
+      });
+
+      if(groundTurds.length>20){
+        groundTurds.splice(0,groundTurds.length-20);
+      }
+
+      shelters=shelters.filter(s=>{
+        s.timer-=dt;
+        if(Math.abs(player.x-s.x)<(s.w/2) && player.y+player.h/2>s.y-s.h){
+          player.umbrellaTimer=Math.max(player.umbrellaTimer,1.0);
+        }
+        return s.timer>0;
+      });
+
+      planes=planes.filter(pl=>{
+        pl.x+=pl.vx*dt;
+        pl.shotTimer-=dt;
+        if(pl.shotTimer<=0){
+          pl.shotTimer=0.22;
+          birds=birds.filter(b=>{
+            if(Math.abs(b.x-pl.x)<40 && b.y>pl.y && b.y<pl.y+120){
+              score+=8;
+              updateScoreHUD();
+              return false;
+            }
+            return true;
+          });
+        }
+        return pl.x>-200 && pl.x<W+200 && pl.hp>0;
+      });
+
+      if(tractor){
+        tractor.x+=tractor.vx*dt;
+        if(Math.abs(tractor.x-player.x)<40 && Math.abs(tractor.y-player.y)<30){
+          // tractor collision still hurts, but not instant death
+          addTurdDamage(20);
+        }
+        groundTurds=groundTurds.filter(g=>!(Math.abs(tractor.x-g.x)<40));
+        if(tractor.x>W+80) tractor=null;
+      }
+
+      groundTurds.forEach(gp=>{
+        const dx=player.x-gp.x;
+        const dy=(player.y+player.h/2)-gp.y;
+        if(Math.abs(dx)<gp.r && dy>-10 && dy<30){
+          if(dx>0) player.x=gp.x+gp.r+1;
+          else player.x=gp.x-gp.r-1;
+        }
+      });
+    }
+
+    function drawBackground(){
+      const skyGrad=ctx.createLinearGradient(0,0,0,H*0.6);
+      skyGrad.addColorStop(0,'#81d4fa');
+      skyGrad.addColorStop(1,'#b3e5fc');
+      ctx.fillStyle=skyGrad;
+      ctx.fillRect(0,0,W,H*0.6);
+      const gGrad=ctx.createLinearGradient(0,H*0.6,0,H);
+      gGrad.addColorStop(0,'#33691e');
+      gGrad.addColorStop(1,'#1b5e20');
+      ctx.fillStyle=gGrad;
+      ctx.fillRect(0,H*0.6,W,H*0.4);
+
+      const baseY=H*0.6;
+      ctx.fillStyle='#1b5e20';
+      const offset=(worldOffset%80);
+      for(let x=-80+offset;x<W+80;x+=80){
+        ctx.fillRect(x,baseY-20,10,30);
+        ctx.beginPath();
+        ctx.moveTo(x-15,baseY-20);
+        ctx.lineTo(x+15,baseY-20);
+        ctx.lineTo(x,baseY-50);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+
+    function render(){
+      ctx.clearRect(0,0,W,H);
+      if(!player) return;
+      drawBackground();
+      groundTurds.forEach(drawGroundTurd);
+      shelters.forEach(drawShelter);
+      bullets.forEach(b=>{
+        ctx.fillStyle='#ffa726';
+        ctx.beginPath();ctx.arc(b.x,b.y,b.r,0,Math.PI*2);ctx.fill();
+      });
+      turds.forEach(drawTurd);
+      birds.forEach(drawBird);
+      helpers.forEach(drawHelper);
+      planes.forEach(drawPlane);
+      if(tractor) drawTractor(tractor);
+      drawPlayer(player);
+      drawWeatherOverlay();
+    }
+
+    function loop(ts){
+      const dt=Math.min(0.033,(ts-lastTime)/1000);
+      lastTime=ts;
+      update(dt);
+      render();
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+
+    // STARTUP
+    setDifficulty('normal');
+    resetWorld();
+    gameState='playing';
+    openMenu();
+  </script>
+</body>
+</html>
