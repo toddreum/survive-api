@@ -2,18 +2,43 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Hide To Survive — Photon Phase (Laser-Tag)</title>
+  <title>Survive.com — Challenging & funny web games</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <link rel="icon" href="/favicon.svg" />
   <link rel="stylesheet" href="/style.css" />
+  <style>
+    /* Landing overrides and hero styles to make the page look professional */
+    .hts-header { display:flex; justify-content:center; align-items:center; padding:22px 12px; }
+    .logo-link { display:inline-block; }
+    .site-logo { width:220px; height:auto; display:block; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,0.25); }
+
+    .hero { max-width:980px; margin:18px auto; padding:28px; text-align:center; }
+    .hero .menu-card { padding:28px 32px; border-radius:14px; box-shadow:0 12px 40px rgba(6,22,50,0.12); background:linear-gradient(180deg,#0f1724 0%, #071023 100%); color:#e6eef8; }
+    .menu-title { font-size:28px; letter-spacing:1px; margin:0 0 6px; }
+    .menu-subtitle { color:#c9d9ee; margin:0 0 18px; }
+
+    .bird-cta { margin-top:16px; }
+    .bird-cta .muted { color:#9fb0ce; display:block; margin-bottom:10px; }
+    .bird-link { display:inline-block; text-decoration:none; }
+    .bird-link svg { width:300px; height:auto; display:block; }
+
+    /* Make form inputs and buttons visually consistent in hero */
+    .menu-form label { color:#bcd3f2; }
+    .menu-form input, .menu-form textarea { background:rgba(255,255,255,0.03); color:#eaf3ff; border:1px solid rgba(255,255,255,0.06); }
+    .btn-primary { background:#ffb020; color:#24180b; border:none; box-shadow:0 6px 18px rgba(255,176,32,0.18); }
+    .btn-secondary { background:transparent; color:#eaf3ff; border:1px solid rgba(255,255,255,0.08); }
+
+    @media (max-width:720px){ .site-logo{ width:160px } .bird-link svg{ width:220px } }
+  </style>
 </head>
 <body>
   <header class="hts-header" role="banner">
-    <a class="logo-link" href="/" aria-label="Home" id="homeLogo">
-      <img id="siteLogo" src="/logo.png" alt="Survive.com logo" onerror="this.onerror=null;this.src='/logo.svg'"/>
+    <!-- Survive.com logo centered; links to BirdTurds.com as requested -->
+    <a class="logo-link" href="https://birdturds.com" aria-label="Survive.com — Bird Turds promo" id="homeLogo" target="_blank" rel="noopener">
+      <img id="siteLogo" class="site-logo" src="/logo.png" alt="Survive.com logo" onerror="this.onerror=null;this.src='/logo.svg'" />
     </a>
 
-    <nav class="top-actions" aria-label="Top actions">
+    <nav class="top-actions" aria-label="Top actions" style="position: absolute; right: 12px; top: 24px;">
       <button id="navLogin" class="nav-btn">Login</button>
       <button id="navHow" class="nav-btn">How To Play</button>
       <button id="navPlay" class="nav-btn">Play</button>
@@ -22,13 +47,60 @@
   </header>
 
   <main class="main-content" role="main">
-    <!-- LOGIN / JOIN -->
+    <!-- LOGIN / JOIN - transformed into a professional landing hero while preserving form -->
     <section id="pageLogin" class="page active" aria-labelledby="loginTitle">
-      <main class="menu-card" role="region" aria-label="Join menu">
-        <h1 id="loginTitle" class="menu-title">HIDE TO SURVIVE</h1>
-        <p class="menu-subtitle">Photon Phase — a laser-tag twist with Phase-chase. Tag opponents, build Charge, activate Phase to bypass walls.</p>
+      <main class="menu-card hero" role="region" aria-label="Join menu">
+        <h1 id="loginTitle" class="menu-title">Survive.com</h1>
+        <p class="menu-subtitle">We make challenging and funny games for the web — bite-sized, competitive, and full of surprises.</p>
 
-        <div class="menu-form">
+        <!-- Promo: Bird Turds -->
+        <div class="bird-cta">
+          <span class="muted">Check out our game Bird Turds, here at</span>
+          <a class="bird-link" href="https://birdturds.com" target="_blank" rel="noopener">
+            <!-- Inline SVG logo for Bird Turds with bird body greyish-white not brown -->
+            <svg viewBox="0 0 800 560" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Bird Turds Logo">
+              <defs>
+                <linearGradient id="g1" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0%" stop-color="#ffd34a"/>
+                  <stop offset="100%" stop-color="#ffaf14"/>
+                </linearGradient>
+                <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+                  <feDropShadow dx="0" dy="10" stdDeviation="18" flood-color="#000" flood-opacity="0.28"/>
+                </filter>
+              </defs>
+
+              <!-- stylized text block background for depth -->
+              <g transform="translate(40,160)">
+                <rect x="0" y="120" width="720" height="320" rx="28" fill="#1b2a3d" opacity="0.0" />
+
+                <!-- Bird icon perched above the text -->
+                <g transform="translate(120,-30)" filter="url(#shadow)">
+                  <!-- body: greyish-white as requested -->
+                  <ellipse cx="140" cy="110" rx="95" ry="70" fill="#e9edf1" stroke="#bfc7cf" stroke-width="6" />
+                  <!-- wing -->
+                  <path d="M95 110 C120 85,170 85,185 110 C170 98,130 120,95 110" fill="#dfe5ea" />
+                  <!-- head -->
+                  <circle cx="220" cy="70" r="40" fill="#f3f5f7" stroke="#c9d0d6" stroke-width="5" />
+                  <!-- beak -->
+                  <path d="M245 78 L278 88 L245 98 Z" fill="#ffb020" stroke="#b36e00" stroke-width="2" />
+                  <!-- eye -->
+                  <circle cx="210" cy="62" r="8" fill="#231f20" />
+                  <circle cx="214" cy="58" r="3" fill="#fff" />
+                </g>
+
+                <!-- Main text: BIRD TURDS -->
+                <g transform="translate(0,180) scale(0.9)">
+                  <text x="120" y="120" font-family="Impact, Arial Black, sans-serif" font-size="160" fill="url(#g1)" stroke="#2e230c" stroke-width="12">BIRD</text>
+                  <text x="120" y="270" font-family="Impact, Arial Black, sans-serif" font-size="160" fill="url(#g1)" stroke="#2e230c" stroke-width="12">TURDS</text>
+                  <!-- .com small -->
+                  <text x="635" y="300" font-family="Arial, sans-serif" font-size="36" fill="#fff">.COM</text>
+                </g>
+              </g>
+            </svg>
+          </a>
+        </div>
+
+        <div class="menu-form" style="margin-top:22px">
           <label for="playerName">Name</label>
           <input id="playerName" type="text" placeholder="Player#1234" maxlength="30" />
 
@@ -62,8 +134,8 @@
           <ol>
             <li><strong>Overview</strong>: Everyone is armed with a safe laser. Tag opponents to score points and build Charge.</li>
             <li><strong>Scoring</strong>: Each successful tag gives +10 points and +1 Charge to the shooter.</li>
-            <li><strong>Charge &amp; Phase (Twist)</strong>: At 5 Charge you can activate Phase — you temporarily pass through walls for 6 seconds to pursue targets and earn bonus points. Use the Phase button when available.</li>
-            <li><strong>Stun &amp; Recovery</strong>: When tagged you are stunned for 2 seconds (can't shoot). There is a 5-second spawn protection after joining so you won't be immediately tagged.</li>
+            <li><strong>Charge &amp; Phase (Twist)</strong>: At 5 Charge you can activate Phase — you temporarily pass through walls for 6 seconds to pursue targets and earn bonus points. Use th[...]</li>
+            <li><strong>Stun &amp; Recovery</strong>: When tagged you are stunned for 2 seconds (can't shoot). There is a 5-second spawn protection after joining so you won't be immediately tagged[...]</li>
             <li><strong>Hiding Spots</strong>: Buildings, bushes and vehicles provide cover. Toggle "Show Hides" to highlight probable hiding spots.</li>
             <li><strong>Pickups</strong>: Shields absorb a tag. Serums remove stun and restore play.</li>
             <li><strong>Game Modes</strong>: Timed match or first-to-X points. Admins can customize via server options.</li>
