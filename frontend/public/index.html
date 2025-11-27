@@ -2,324 +2,115 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Survive.com — Challenging & funny web games</title>
+  <title>Survive.com — Funny & challenging web games!</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <link rel="icon" href="/favicon.svg" />
-  <link rel="stylesheet" href="/style.css" />
   <style>
-    /* Landing overrides and hero styles to make the page look professional */
-    .hts-header { display:flex; justify-content:center; align-items:center; padding:22px 12px; }
-    .logo-link { display:inline-block; }
-    .site-logo { width:220px; height:auto; display:block; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,0.25); }
+    /* Minimal, professional landing styles */
+    :root{
+      --bg-1:#04111a;
+      --bg-2:#071727;
+      --muted:#9fb0ce;
+      --accent1:#ffd34a;
+      --accent2:#ffaf14;
+      --text:#eaf3ff;
+    }
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;}
+    body{
+      background: linear-gradient(180deg,var(--bg-1),var(--bg-2));
+      color:var(--text);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:32px;
+    }
 
-    .hero { max-width:980px; margin:18px auto; padding:28px; text-align:center; }
-    .hero .menu-card { padding:28px 32px; border-radius:14px; box-shadow:0 12px 40px rgba(6,22,50,0.12); background:linear-gradient(180deg,#0f1724 0%, #071023 100%); color:#e6eef8; }
-    .menu-title { font-size:28px; letter-spacing:1px; margin:0 0 6px; }
-    .menu-subtitle { color:#c9d9ee; margin:0 0 18px; }
+    .container{max-width:920px;text-align:center;padding:40px;border-radius:14px;background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(0,0,0,0.04));box-shadow:0 30px 80px rgba(0,0,0,0.6)}
+    h1{margin:0;font-size:36px;letter-spacing:0.6px}
+    p.lead{color:var(--muted);margin:12px 0 26px;font-size:16px}
 
-    .bird-cta { margin-top:16px; }
-    .bird-cta .muted { color:#9fb0ce; display:block; margin-bottom:10px; }
-    .bird-link { display:inline-block; text-decoration:none; }
-    .bird-link svg { width:300px; height:auto; display:block; }
+    .promo{margin-top:12px}
+    .promo .muted{color:var(--muted);display:block;margin-bottom:14px;font-size:15px}
+    .promo a{display:inline-block;transition:transform .12s ease}
+    .promo a:hover{transform:translateY(-6px)}
+    .logo-embed{width:280px;height:auto;display:block;margin:0 auto}
 
-    /* Make form inputs and buttons visually consistent in hero */
-    .menu-form label { color:#bcd3f2; }
-    .menu-form input, .menu-form textarea { background:rgba(255,255,255,0.03); color:#eaf3ff; border:1px solid rgba(255,255,255,0.06); }
-    .btn-primary { background:#ffb020; color:#24180b; border:none; box-shadow:0 6px 18px rgba(255,176,32,0.18); }
-    .btn-secondary { background:transparent; color:#eaf3ff; border:1px solid rgba(255,255,255,0.08); }
+    .cta-row{margin-top:18px;display:flex;gap:12px;justify-content:center}
+    .btn{padding:10px 18px;border-radius:999px;border:none;cursor:pointer;font-weight:700}
+    .btn-primary{background:linear-gradient(180deg,var(--accent1),var(--accent2));color:#24180b}
+    .btn-ghost{background:transparent;color:var(--text);border:1px solid rgba(255,255,255,0.06)}
 
-    @media (max-width:720px){ .site-logo{ width:160px } .bird-link svg{ width:220px } }
+    footer{margin-top:22px;color:var(--muted);font-size:13px}
+    @media (max-width:520px){ .logo-embed{width:220px} h1{font-size:28px} }
   </style>
 </head>
 <body>
-  <header class="hts-header" role="banner">
-    <!-- Survive.com logo centered; links to BirdTurds.com as requested -->
-    <a class="logo-link" href="https://birdturds.com" aria-label="Survive.com — Bird Turds promo" id="homeLogo" target="_blank" rel="noopener">
-      <img id="siteLogo" class="site-logo" src="/logo.png" alt="Survive.com logo" onerror="this.onerror=null;this.src='/logo.svg'" />
-    </a>
+  <div class="container" role="main" aria-labelledby="surviveTitle">
+    <h1 id="surviveTitle">Survive.com</h1>
+    <p class="lead">Survive.com is a gaming company that makes funny and challenging web games.</p>
 
-    <nav class="top-actions" aria-label="Top actions" style="position: absolute; right: 12px; top: 24px;">
-      <button id="navLogin" class="nav-btn">Login</button>
-      <button id="navHow" class="nav-btn">How To Play</button>
-      <button id="navPlay" class="nav-btn">Play</button>
-      <button id="navContact" class="nav-btn">Contact</button>
-    </nav>
-  </header>
+    <div class="promo" aria-label="Bird Turds promo">
+      <span class="muted">Lots of new games coming soon! Check out our funny browser based game Bird Turds, here at</span>
 
-  <main class="main-content" role="main">
-    <!-- LOGIN / JOIN - transformed into a professional landing hero while preserving form -->
-    <section id="pageLogin" class="page active" aria-labelledby="loginTitle">
-      <main class="menu-card hero" role="region" aria-label="Join menu">
-        <h1 id="loginTitle" class="menu-title">Survive.com</h1>
-        <p class="menu-subtitle">We make challenging and funny games for the web — bite-sized, competitive, and full of surprises.</p>
+      <!-- Linked logo: mirrors the supplied Bird Turds look, but the bird/turd body is greyish-white (not brown) -->
+      <a href="https://birdturds.com" target="_blank" rel="noopener" aria-label="Open BirdTurds.com">
+        <svg class="logo-embed" viewBox="0 0 800 720" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="btTitle btDesc">
+          <title id="btTitle">Bird Turds logo</title>
+          <desc id="btDesc">Logo for Bird Turds: stylized bird icon above large stacked text BIRD TURDS .COM — bird body is greyish-white.</desc>
 
-        <!-- Promo: Bird Turds -->
-        <div class="bird-cta">
-          <span class="muted">Check out our game Bird Turds, here at</span>
-          <a class="bird-link" href="https://birdturds.com" target="_blank" rel="noopener">
-            <!-- Inline SVG logo for Bird Turds with bird body greyish-white not brown -->
-            <svg viewBox="0 0 800 560" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Bird Turds Logo">
-              <defs>
-                <linearGradient id="g1" x1="0" x2="0" y1="0" y2="1">
-                  <stop offset="0%" stop-color="#ffd34a"/>
-                  <stop offset="100%" stop-color="#ffaf14"/>
-                </linearGradient>
-                <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
-                  <feDropShadow dx="0" dy="10" stdDeviation="18" flood-color="#000" flood-opacity="0.28"/>
-                </filter>
-              </defs>
+          <defs>
+            <linearGradient id="goldGrad" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stop-color="#ffd34a"/>
+              <stop offset="100%" stop-color="#ffaf14"/>
+            </linearGradient>
+            <filter id="drop" x="-50%" y="-50%" width="200%" height="200%">
+              <feDropShadow dx="0" dy="12" stdDeviation="18" flood-color="#000" flood-opacity="0.35"/>
+            </filter>
+          </defs>
 
-              <!-- stylized text block background for depth -->
-              <g transform="translate(40,160)">
-                <rect x="0" y="120" width="720" height="320" rx="28" fill="#1b2a3d" opacity="0.0" />
+          <!-- top icon: bird body (greyish-white) -->
+          <g transform="translate(120,20)" filter="url(#drop)">
+            <!-- main rounded body (was brown in original) now greyish-white -->
+            <path d="M200 110
+                     C260 64, 340 64, 380 110
+                     C360 100, 340 120, 300 130
+                     C260 140, 220 150, 200 170
+                     C160 150, 140 130, 200 110 Z"
+                  fill="#eceff3" stroke="#c9cfd5" stroke-width="6"/>
 
-                <!-- Bird icon perched above the text -->
-                <g transform="translate(120,-30)" filter="url(#shadow)">
-                  <!-- body: greyish-white as requested -->
-                  <ellipse cx="140" cy="110" rx="95" ry="70" fill="#e9edf1" stroke="#bfc7cf" stroke-width="6" />
-                  <!-- wing -->
-                  <path d="M95 110 C120 85,170 85,185 110 C170 98,130 120,95 110" fill="#dfe5ea" />
-                  <!-- head -->
-                  <circle cx="220" cy="70" r="40" fill="#f3f5f7" stroke="#c9d0d6" stroke-width="5" />
-                  <!-- beak -->
-                  <path d="M245 78 L278 88 L245 98 Z" fill="#ffb020" stroke="#b36e00" stroke-width="2" />
-                  <!-- eye -->
-                  <circle cx="210" cy="62" r="8" fill="#231f20" />
-                  <circle cx="214" cy="58" r="3" fill="#fff" />
-                </g>
+            <!-- little curl / head -->
+            <path d="M380 110 C420 92, 470 116, 452 148 C430 180, 384 172, 380 110 Z"
+                  fill="#f6f8fa" stroke="#d2d8dd" stroke-width="5"/>
 
-                <!-- Main text: BIRD TURDS -->
-                <g transform="translate(0,180) scale(0.9)">
-                  <text x="120" y="120" font-family="Impact, Arial Black, sans-serif" font-size="160" fill="url(#g1)" stroke="#2e230c" stroke-width="12">BIRD</text>
-                  <text x="120" y="270" font-family="Impact, Arial Black, sans-serif" font-size="160" fill="url(#g1)" stroke="#2e230c" stroke-width="12">TURDS</text>
-                  <!-- .com small -->
-                  <text x="635" y="300" font-family="Arial, sans-serif" font-size="36" fill="#fff">.COM</text>
-                </g>
-              </g>
-            </svg>
-          </a>
-        </div>
+            <!-- beak -->
+            <path d="M420 140 L460 150 L420 160 Z" fill="#ffb020" stroke="#9b6100" stroke-width="2"/>
 
-        <div class="menu-form" style="margin-top:22px">
-          <label for="playerName">Name</label>
-          <input id="playerName" type="text" placeholder="Player#1234" maxlength="30" />
+            <!-- eye -->
+            <circle cx="398" cy="120" r="12" fill="#231f20"/>
+            <circle cx="402" cy="116" r="4" fill="#fff"/>
+          </g>
 
-          <label for="roomId">Room (optional)</label>
-          <div class="row">
-            <input id="roomId" type="text" placeholder="default" />
-            <button id="createRoomBtn" class="btn-secondary">Create Room</button>
-          </div>
+          <!-- main text block: BIRD TURDS with heavy stroke and gold fill like original -->
+          <g transform="translate(40,260)">
+            <text x="120" y="140" font-family="Impact, 'Arial Black', sans-serif" font-size="160" fill="url(#goldGrad)" stroke="#3a270a" stroke-width="12">BIRD</text>
+            <text x="120" y="320" font-family="Impact, 'Arial Black', sans-serif" font-size="160" fill="url(#goldGrad)" stroke="#3a270a" stroke-width="12">TURDS</text>
 
-          <div id="inviteArea" class="invite-area hidden">
-            <span id="inviteText" class="invite-text"></span>
-          </div>
-
-          <label for="botCount">Bot Count</label>
-          <input id="botCount" type="number" min="0" max="64" value="8" />
-
-          <div style="margin-top:12px">
-            <button id="joinBtn" class="btn-primary">JOIN MATCH</button>
-          </div>
-
-          <p class="hint">Click the canvas to lock pointer. Move with WASD / arrow keys, look with mouse. E pick up, F use serum. Left-click to shoot.</p>
-        </div>
-      </main>
-    </section>
-
-    <!-- HOW TO PLAY - Photon Phase rules -->
-    <section id="pageHow" class="page" aria-labelledby="howTitle">
-      <main class="menu-card">
-        <h2 id="howTitle">HOW TO PLAY — Photon Phase (Laser-Tag)</h2>
-        <div class="menu-howto">
-          <ol>
-            <li><strong>Overview</strong>: Everyone is armed with a safe laser. Tag opponents to score points and build Charge.</li>
-            <li><strong>Scoring</strong>: Each successful tag gives +10 points and +1 Charge to the shooter.</li>
-            <li><strong>Charge &amp; Phase (Twist)</strong>: At 5 Charge you can activate Phase — you temporarily pass through walls for 6 seconds to pursue targets and earn bonus points. Use th[...]</li>
-            <li><strong>Stun &amp; Recovery</strong>: When tagged you are stunned for 2 seconds (can't shoot). There is a 5-second spawn protection after joining so you won't be immediately tagged[...]</li>
-            <li><strong>Hiding Spots</strong>: Buildings, bushes and vehicles provide cover. Toggle "Show Hides" to highlight probable hiding spots.</li>
-            <li><strong>Pickups</strong>: Shields absorb a tag. Serums remove stun and restore play.</li>
-            <li><strong>Game Modes</strong>: Timed match or first-to-X points. Admins can customize via server options.</li>
-            <li><strong>Novelty</strong>: Phase-chase — Phase enables wall traversal for aggressive pursuit, rewarding timing and map knowledge.</li>
-          </ol>
-        </div>
-      </main>
-    </section>
-
-    <!-- CONTACT / SUPPORT -->
-    <section id="pageContact" class="page" aria-labelledby="contactTitle">
-      <main class="menu-card contact-card">
-        <button class="contact-close" id="contactClose" aria-label="Close contact form">✕</button>
-        <h2 id="contactTitle">Contact Support</h2>
-
-        <div id="contactSuccess" class="support-success hidden" role="status">
-          <span id="contactSuccessText">Message sent — thank you. Our support team will reply shortly.</span>
-          <button id="contactSuccessClose" class="support-success-close" aria-label="Close">✕</button>
-        </div>
-
-        <div class="menu-form" id="contactFormWrap">
-          <label for="contactName">Your name</label>
-          <input id="contactName" type="text" placeholder="Jane Doe" maxlength="80" />
-
-          <label for="contactEmail">Email</label>
-          <input id="contactEmail" type="email" placeholder="you@example.com" maxlength="120" />
-
-          <label for="contactSubject">Subject</label>
-          <input id="contactSubject" type="text" placeholder="Brief subject" maxlength="140" />
-
-          <label for="contactMessage">Message</label>
-          <textarea id="contactMessage" rows="6" placeholder="Describe your issue or question" maxlength="4000"></textarea>
-
-          <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
-            <button id="contactSendBtn" class="btn-primary">Send Message</button>
-            <span id="contactStatus" class="muted small"></span>
-          </div>
-        </div>
-      </main>
-    </section>
-
-    <!-- PLAY AREA -->
-    <section id="pagePlay" class="page" aria-label="Play area">
-      <div id="playOverlay" class="click-to-play">Click here to play (locks pointer)</div>
-      <canvas id="gameCanvas" aria-hidden="true"></canvas>
-
-      <div id="hud" class="hud hidden" role="complementary">
-        <div id="playerDisplayName" class="hud-role">Player</div>
-        <div id="roleLabel" class="hud-role">PLAYER</div>
-        <div id="playersLabel" class="hud-item">0 players</div>
-        <div id="scoreLabel" class="hud-item">Points: 0  Charge: 0</div>
-        <div id="connectionStatus" class="hud-item connection"></div>
-        <div id="shieldStatus" class="hud-item shield"></div>
-        <div style="margin-top:8px">
-          <button id="leaveBtn" class="btn-secondary">Leave Match</button>
-        </div>
-      </div>
-
-      <aside id="leaderboard" class="leaderboard hidden" aria-label="Leaderboard">
-        <h3>Leaderboard</h3>
-        <ul id="leaderboardList"></ul>
-      </aside>
-
-      <div id="tranqOverlay" class="tranq-overlay hidden">
-        <div class="tranq-overlay-inner"><h2>STUNNED</h2><p>You're stunned for a moment. Use a serum (F) if you have one.</p></div>
-      </div>
-
-      <div id="hintsPanel" class="hints-panel hidden">
-        <h4>Quick Hints</h4>
-        <ul>
-          <li>Click overlay to lock pointer, then move with WASD / arrow keys.</li>
-          <li>Left-click to fire lasers. Tags give points and charge.</li>
-          <li>Reach Charge 5 to Activate Phase (temporary wall pass-through).</li>
-        </ul>
-      </div>
-
-      <button id="shootBtn" class="shoot-btn">SHOOT</button>
-    </section>
-  </main>
-
-  <footer class="site-footer" role="contentinfo">
-    <div class="footer-inner">
-      <div class="footer-left">
-        <span class="copyright-symbol">©</span>
-        <span class="copyright-year">2025</span>
-        <a class="brand" href="https://survive.com" target="_blank" rel="noopener">Survive.com</a>
-      </div>
-
-      <div class="footer-right">
-        <a id="supportLink" class="support-link" href="#" title="Contact support">Support</a>
-      </div>
+            <!-- .COM small -->
+            <rect x="620" y="280" width="76" height="60" rx="10" fill="#ffffff" opacity="0.06"/>
+            <text x="630" y="320" font-family="Arial, sans-serif" font-size="34" fill="#ffffff">.COM</text>
+          </g>
+        </svg>
+      </a>
     </div>
-  </footer>
 
-  <!-- scripts -->
-  <script src="/env.js"></script>
-  <script src="https://unpkg.com/three@0.152.2/build/three.min.js"></script>
-  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-  <script src="/initThree.js"></script>
-  <script src="/initVoxel.js"></script>
-  <script src="/game.js"></script>
+    <div class="cta-row" role="group" aria-label="Primary actions">
+      <a href="https://birdturds.com" target="_blank" rel="noopener" class="btn btn-primary">Open Bird Turds</a>
+      <button class="btn btn-ghost" onclick="window.location.href='#'">Learn more</button>
+    </div>
 
-  <script>
-    (function () {
-      function $(id){ return document.getElementById(id); }
-      function showPage(id) {
-        document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-        const el = document.getElementById(id); if (el) el.classList.add('active');
-      }
-
-      // Open profile/in-game view if already joined; otherwise show login
-      function handleNavLoginClick(e){
-        e && e.preventDefault();
-        if (window.myId) { // already joined -> show play (avoid sending user out)
-          showPage('pagePlay');
-        } else {
-          showPage('pageLogin');
-        }
-      }
-      function handleNavPlayClick(e){
-        e && e.preventDefault();
-        if (window.myId) showPage('pagePlay'); else showPage('pageLogin');
-      }
-
-      document.getElementById('navHow').addEventListener('click', (e)=>{ e.preventDefault(); showPage('pageHow'); });
-      document.getElementById('navLogin').addEventListener('click', handleNavLoginClick);
-      document.getElementById('navPlay').addEventListener('click', handleNavPlayClick);
-      document.getElementById('navContact').addEventListener('click', (e)=>{ e.preventDefault(); showPage('pageContact'); });
-
-      // support link opens contact page
-      document.getElementById('supportLink').addEventListener('click', function(e){
-        e.preventDefault();
-        showPage('pageContact');
-      });
-
-      // contact form send (no backend hints shown)
-      const contactSendBtn = document.getElementById('contactSendBtn');
-      const contactSuccess = document.getElementById('contactSuccess');
-      const contactFormWrap = document.getElementById('contactFormWrap');
-      const contactStatus = document.getElementById('contactStatus');
-      const contactClose = document.getElementById('contactClose');
-      const contactSuccessClose = document.getElementById('contactSuccessClose');
-
-      if (contactClose) contactClose.addEventListener('click', (e)=>{ e.preventDefault(); showPage('pageLogin'); });
-      if (contactSuccessClose) contactSuccessClose.addEventListener('click', (e)=>{ e.preventDefault(); contactSuccess.classList.add('hidden'); showPage('pageLogin'); });
-
-      if (contactSendBtn) {
-        contactSendBtn.addEventListener('click', async function(e){
-          e.preventDefault();
-          contactStatus.textContent = '';
-          const name = (document.getElementById('contactName').value || '').trim();
-          const email = (document.getElementById('contactEmail').value || '').trim();
-          const subject = (document.getElementById('contactSubject').value || '').trim();
-          const message = (document.getElementById('contactMessage').value || '').trim();
-          if (!email || !message) { alert('Please provide your email and a message'); return; }
-          contactSendBtn.disabled = true; contactStatus.textContent = 'Sending…';
-          try {
-            const resp = await fetch('/support', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ name, email, subject, message })
-            });
-            const j = await resp.json();
-            if (j && j.ok) {
-              contactFormWrap.classList.add('hidden');
-              contactSuccess.classList.remove('hidden');
-              contactStatus.textContent = '';
-            } else {
-              contactStatus.textContent = 'Could not send message. Try again later.';
-              console.warn('support error', j);
-            }
-          } catch (err) {
-            console.error('support send failed', err);
-            contactStatus.textContent = 'Send failed. Try again later.';
-          } finally {
-            contactSendBtn.disabled = false;
-            setTimeout(()=>{ if (contactStatus) contactStatus.textContent = ''; }, 4000);
-          }
-        });
-      }
-
-      // expose a global function for the game script to call to open profile/in-game view
-      window.openProfile = function(){ if (window.myId) showPage('pagePlay'); else showPage('pageLogin'); };
-    })();
-  </script>
+    <footer>
+      <div>© 2025 Survive.com</div>
+    </footer>
+  </div>
 </body>
 </html>
